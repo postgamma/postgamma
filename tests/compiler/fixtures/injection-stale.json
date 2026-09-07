@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.semantic-injection-fixture",
+  "symbols": [],
+  "injections": [
+    {
+      "id": "fixture.stale-anchor",
+      "enclosing_function": "main",
+      "anchor_callee": "MemoryContextInit",
+      "position": "before",
+      "code": "postgamma_before_anchor();",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 2
+    }
+  ]
+}

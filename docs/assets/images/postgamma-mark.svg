@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">postgamma</title>
+  <path fill="#11141b" d="M48 106c7-1 13 4 17 13l38 88c3 8-1 14-10 14H22c-9 0-13-8-10-17l27-84c2-8 5-13 9-14Z"/>
+  <path fill="#11141b" fill-rule="evenodd" d="M66 56h60c20 0 34 10 42 30l12 30c17-15 27-35 30-59l3-26c1-13 8-20 18-18 9 2 13 11 12 25-2 48-23 88-59 114l24 52c4 10-1 17-11 17h-60c-7 0-11-5-14-14L65 72c-3-9 1-16 9-16Zm55 32a16 16 0 1 0 0 32 16 16 0 0 0 0-32Z" clip-rule="evenodd"/>
+</svg>

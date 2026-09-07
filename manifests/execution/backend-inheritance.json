@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.backend-inheritance-policy",
+  "guc_transfer": "postgresql_serialize_restore",
+  "startup_data_transfer": "copy_bytes",
+  "client_socket_transfer": "move_descriptor_ownership",
+  "states": [
+    {
+      "id": "external:ActiveInjectionPoints",
+      "strategy": "borrow_instance",
+      "rationale": "The injection-point control area is instance-owned shared state.",
+      "availability": "conditional",
+      "condition": "USE_INJECTION_POINTS"
+    },
+    {
+      "id": "external:AuxiliaryProcs",
+      "strategy": "borrow_instance",
+      "rationale": "The auxiliary process array points into instance-owned shared memory."
+    },
+    {
+      "id": "external:DataDir",
+      "strategy": "borrow_instance",
+      "rationale": "The data-directory string is immutable after instance startup."
+    },
+    {
+      "id": "external:IsBinaryUpgrade",
+      "strategy": "copy_value",
+      "rationale": "Each backend observes the supervisor's binary-upgrade mode value."
+    },
+    {
+      "id": "external:MaxBackends",
+      "strategy": "copy_value",
+      "rationale": "The computed backend capacity is immutable after shared-memory sizing."
+    },
+    {
+      "id": "external:PMSignalState",
+      "strategy": "borrow_instance",
+      "rationale": "The postmaster signal state points into instance-owned shared memory."
+    },
+    {
+      "id": "external:PgReloadTime",
+      "strategy": "copy_value",
+      "rationale": "A new backend starts with the supervisor's latest reload timestamp."
+    },
+    {
+      "id": "external:PgStartTime",
+      "strategy": "copy_value",
+      "rationale": "All backends in an instance report the same server start timestamp."
+    },
+    {
+      "id": "external:PostmasterPid",
+      "strategy": "copy_value",
+      "rationale": "The supervisor identity remains the host process identifier."
+    },
+    {
+      "id": "external:PreparedXactProcs",
+      "strategy": "borrow_instance",
+      "rationale": "The prepared-transaction process array is instance-owned shared memory."
+    },
+    {
+      "id": "external:ProcGlobal",
+      "strategy": "borrow_instance",
+      "rationale": "The process table header is instance-owned shared memory."
+    },
+    {
+      "id": "external:ProcSignal",
+      "strategy": "borrow_instance",
+      "rationale": "The process-signal header is instance-owned shared memory."
+    },
+    {
+      "id": "external:UsedShmemSegAddr",
+      "strategy": "borrow_instance",
+      "rationale": "The shared-memory mapping address is owned for the instance lifetime."
+    },
+    {
+      "id": "external:UsedShmemSegID",
+      "strategy": "borrow_instance",
+      "rationale": "The shared-memory segment identifier names an instance-owned resource."
+    },
+    {
+      "id": "external:first_syslogger_file_time",
+      "strategy": "copy_value",
+      "rationale": "Logger children inherit the supervisor's log-file epoch."
+    },
+    {
+      "id": "external:max_safe_fds",
+      "strategy": "copy_value",
+      "rationale": "The descriptor budget is computed once for the server instance."
+    },
+    {
+      "id": "external:my_exec_path",
+      "strategy": "copy_value",
+      "rationale": "Each backend receives an independent value copy of the executable path."
+    },
+    {
+      "id": "external:num_pmchild_slots",
+      "strategy": "copy_value",
+      "rationale": "The postmaster child-slot count is fixed after shared-memory sizing."
+    },
+    {
+      "id": "external:pkglib_path",
+      "strategy": "copy_value",
+      "rationale": "Each backend receives an independent value copy of the library path."
+    },
+    {
+      "id": "external:postmaster_alive_fds",
+      "strategy": "borrow_instance",
+      "rationale": "The liveness descriptors remain process-owned and must not be closed by a role."
+    },
+    {
+      "id": "external:query_id_enabled",
+      "strategy": "copy_value",
+      "rationale": "A backend starts with the supervisor's query identifier capability flag."
+    },
+    {
+      "id": "external:redirection_done",
+      "strategy": "copy_value",
+      "rationale": "A backend inherits whether server output redirection is active."
+    },
+    {
+      "id": "external:syslogPipe",
+      "strategy": "borrow_instance",
+      "rationale": "Logging pipe descriptors remain process-owned shared resources."
+    },
+    {
+      "id": "external:timing_tsc_frequency_khz",
+      "strategy": "copy_value",
+      "rationale": "The calibrated timing frequency is immutable for the host process."
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.extension-state-ownership",
+  "extension_id": "pgvector",
+  "accessor": "postgamma_pgvector_role_state_address",
+  "upstream": {
+    "repository": "https://github.com/pgvector/pgvector.git",
+    "commit": "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c",
+    "version": "0.8.6"
+  },
+  "decisions": [
+    {
+      "id": "external:BitHammingDistance",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:BitJaccardDistance",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:HalfvecCosineSimilarity",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:HalfvecInnerProduct",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:HalfvecL1Distance",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:HalfvecL2SquaredDistance",
+      "owner": "role",
+      "rationale": "CPU dispatch is initialized independently for every logical PostgreSQL backend"
+    },
+    {
+      "id": "external:hnsw_ef_search",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:hnsw_iterative_scan",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:hnsw_lock_tranche_id",
+      "owner": "role",
+      "rationale": "The backend-local tranche identifier is recovered from instance-scoped PostgreSQL shared memory"
+    },
+    {
+      "id": "external:hnsw_max_scan_tuples",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:hnsw_scan_mem_multiplier",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:ivfflat_iterative_scan",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:ivfflat_max_probes",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "external:ivfflat_probes",
+      "owner": "role",
+      "rationale": "Custom GUC backing storage belongs to the logical PostgreSQL backend that owns its GUC table"
+    },
+    {
+      "id": "internal:src/hnsw.c:src/hnsw.c::hnsw_relopt_kind",
+      "owner": "role",
+      "rationale": "The reloptions registry identifier is allocated in each logical PostgreSQL backend"
+    },
+    {
+      "id": "internal:src/ivfflat.c:src/ivfflat.c::ivfflat_relopt_kind",
+      "owner": "role",
+      "rationale": "The reloptions registry identifier is allocated in each logical PostgreSQL backend"
+    }
+  ]
+}

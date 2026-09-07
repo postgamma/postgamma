@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.extension-state-policy",
+  "extension_id": "postgamma_sdk_probe",
+  "contract": {
+    "file_scope_mutable_state": 0,
+    "instance_state": "pgmex instance shared memory",
+    "session_state": "pgmex logical-session state",
+    "unknown_state": "fail-closed"
+  }
+}

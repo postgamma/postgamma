@@ -1,0 +1,8 @@
+{
+	global:
+		pgm_bootstrap_run;
+		pgm_bootstrap_probe_private_libpq;
+		pgm_bootstrap_probe_static_module;
+	local:
+		*;
+};

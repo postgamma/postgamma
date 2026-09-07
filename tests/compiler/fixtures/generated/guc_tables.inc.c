@@ -1,0 +1,1 @@
+	{.variable = &work_mem},

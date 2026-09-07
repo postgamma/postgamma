@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.backend-execution-policy",
+  "executions": [
+    {
+      "symbol": "B_ARCHIVER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The WAL archiver is a long-lived server execution with an upstream main function."
+    },
+    {
+      "symbol": "B_AUTOVAC_LAUNCHER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The autovacuum launcher is a long-lived server execution."
+    },
+    {
+      "symbol": "B_AUTOVAC_WORKER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "Each autovacuum worker is launched as an independent backend execution."
+    },
+    {
+      "symbol": "B_BACKEND",
+      "disposition": "thread",
+      "execution_class": "client",
+      "rationale": "A normal client connection uses one backend execution thread in threaded runtime."
+    },
+    {
+      "symbol": "B_BG_WORKER",
+      "disposition": "thread",
+      "execution_class": "dynamic",
+      "rationale": "Background workers include extension workers and short-lived parallel workers."
+    },
+    {
+      "symbol": "B_BG_WRITER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The background writer is a long-lived server execution."
+    },
+    {
+      "symbol": "B_CHECKPOINTER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The checkpointer is a long-lived server execution."
+    },
+    {
+      "symbol": "B_DATACHECKSUMSWORKER_LAUNCHER",
+      "disposition": "forbidden",
+      "rationale": "Upstream declares no launchable main function; a request must fail closed until a dedicated adapter exists."
+    },
+    {
+      "symbol": "B_DATACHECKSUMSWORKER_WORKER",
+      "disposition": "forbidden",
+      "rationale": "Upstream declares no launchable main function; a request must fail closed until a dedicated adapter exists."
+    },
+    {
+      "symbol": "B_DEAD_END_BACKEND",
+      "disposition": "thread",
+      "execution_class": "client",
+      "rationale": "Connection rejection and early startup failures still require isolated backend execution."
+    },
+    {
+      "symbol": "B_INVALID",
+      "disposition": "forbidden",
+      "rationale": "The invalid sentinel is not a launchable backend execution."
+    },
+    {
+      "symbol": "B_IO_WORKER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "Each PostgreSQL asynchronous I/O worker requires an independent execution."
+    },
+    {
+      "symbol": "B_LOGGER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The logging collector requires explicit descriptor ownership and shutdown in one process."
+    },
+    {
+      "symbol": "B_SLOTSYNC_WORKER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The replication slot synchronization worker has an upstream main function."
+    },
+    {
+      "symbol": "B_STANDALONE_BACKEND",
+      "disposition": "forbidden",
+      "rationale": "Standalone mode is the supervisor execution itself and is never launched as a child."
+    },
+    {
+      "symbol": "B_STARTUP",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "Startup and recovery run in a dedicated backend execution."
+    },
+    {
+      "symbol": "B_WAL_RECEIVER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The WAL receiver is a long-lived replication execution."
+    },
+    {
+      "symbol": "B_WAL_SENDER",
+      "disposition": "logical_alias",
+      "rationale": "A WAL sender starts as B_BACKEND and changes its logical type after authentication."
+    },
+    {
+      "symbol": "B_WAL_SUMMARIZER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The WAL summarizer is a long-lived server execution."
+    },
+    {
+      "symbol": "B_WAL_WRITER",
+      "disposition": "thread",
+      "execution_class": "dedicated",
+      "rationale": "The WAL writer is a long-lived server execution."
+    }
+  ]
+}

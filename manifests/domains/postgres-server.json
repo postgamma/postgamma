@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgres-source-domain",
+  "id": "postgres-server",
+  "description": "All translation units that can execute inside a PostgreSQL server process",
+  "translation_unit_prefixes": [
+    "contrib/",
+    "src/backend/",
+    "src/common/",
+    "src/pl/",
+    "src/port/",
+    "src/test/modules/",
+    "src/tutorial/"
+  ],
+  "translation_unit_files": [
+    "src/test/regress/regress.c",
+    "src/timezone/localtime.c",
+    "src/timezone/pgtz.c",
+    "src/timezone/strftime.c"
+  ],
+  "required_defines": [],
+  "required_any_defines": [],
+  "excluded_defines": ["FRONTEND", "USE_PRIVATE_ENCODING_FUNCS"],
+  "required_output_suffixes": [],
+  "excluded_output_suffixes": [],
+  "binding_anchor_file_suffixes": [
+    "src/backend/utils/guc_tables.inc.c",
+    "src/include/utils/guc_tables.inc.c"
+  ]
+}

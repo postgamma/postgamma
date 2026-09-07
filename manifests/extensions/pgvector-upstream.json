@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/pgvector/pgvector.git",
+  "path": "third_party/pgvector",
+  "ref_name": "v0.8.6",
+  "version": "0.8.6",
+  "commit": "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c"
+}

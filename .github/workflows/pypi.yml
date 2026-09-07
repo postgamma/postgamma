@@ -1,0 +1,55 @@
+name: Publish Python wheels
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: vars.POSTGAMMA_PYPI_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/postgamma/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Validate the published release identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 buildsys/product_version.py \
+            --root . --tag "$RELEASE_TAG"
+
+      - name: Download wheels and their signed-off manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist release-metadata
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "release-manifest.json" \
+            --pattern "SHA256SUMS" \
+            --dir release-metadata
+          cp release-metadata/release-manifest.json dist/
+          cp release-metadata/SHA256SUMS dist/
+          python3 buildsys/prepare_release_assets.py verify-wheels \
+            --root . --bundle dist --tag "$RELEASE_TAG"
+          rm dist/release-manifest.json dist/SHA256SUMS
+
+      - name: Publish the verified wheels through PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

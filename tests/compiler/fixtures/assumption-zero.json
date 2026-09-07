@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.semantic-assumption-fixture",
+  "symbols": [],
+  "assumptions": [
+    {
+      "id": "assume.no-process-signal",
+      "callee": "forbidden_process_signal",
+      "expected_matches": 0,
+      "allowed_source_file_suffixes": [
+        "assumption_zero_clean.c",
+        "assumption_zero_forbidden.c"
+      ]
+    }
+  ]
+}

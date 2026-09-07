@@ -1,0 +1,136 @@
+name: PostgreSQL upstream canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Canary profile
+        required: true
+        default: weekly
+        type: choice
+        options:
+          - daily
+          - weekly
+  schedule:
+    - cron: "17 2 * * 0"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: upstream-canary-${{ github.ref }}-${{ inputs.profile || 'weekly' }}
+  cancel-in-progress: false
+
+env:
+  CANARY_PROFILE: ${{ inputs.profile || 'weekly' }}
+  PG_REPOSITORY: ${{ vars.PG_REPOSITORY }}
+  PGVECTOR_REPOSITORY: ${{ vars.PGVECTOR_REPOSITORY }}
+
+jobs:
+  upstream-canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        postgresql_ref:
+          - REL_19_STABLE
+          - master
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Check source changes and prior test results
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PG_BRANCH: ${{ matrix.postgresql_ref }}
+        run: |
+          python3 buildsys/plan_upstream_ci.py --root . \
+            --profile "$CANARY_PROFILE" --branch "$PG_BRANCH"
+
+      - name: Install build dependencies
+        if: steps.plan.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bison build-essential clang flex libclang-dev libipc-run-perl \
+            libreadline-dev libssl-dev llvm-dev zlib1g-dev
+
+      - name: Test ${{ steps.plan.outputs.identity }}
+        if: steps.plan.outputs.run == 'true'
+        env:
+          PG_COMMIT: ${{ steps.plan.outputs.postgres_commit }}
+        run: |
+          make source-init
+          git -C postgres fetch --no-tags origin "$PG_COMMIT"
+          make upstream-canary PG_REF="$PG_COMMIT" \
+            PG_CONFIGURE_ARGS="--without-icu --enable-debug --enable-cassert --enable-tap-tests --enable-injection-points" \
+            JOBS=4
+
+      - name: Upload canary evidence
+        if: always() && steps.plan.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-canary-${{ matrix.postgresql_ref }}-${{ github.run_id }}
+          path: |
+            build/reports/upstream-canary-*.json
+            build/upstream-canary/candidates/*/logs/
+          if-no-files-found: warn
+          retention-days: 30
+
+  embedded-product:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Check source changes and prior test results
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 buildsys/plan_upstream_ci.py --root . --profile "$CANARY_PROFILE"
+
+      - name: Install build dependencies
+        if: steps.plan.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bison build-essential clang flex libclang-dev libipc-run-perl \
+            libreadline-dev libssl-dev llvm-dev strace util-linux zlib1g-dev
+
+      - name: Initialize pinned source dependencies
+        if: steps.plan.outputs.run == 'true'
+        run: make source-init
+
+      - name: Test ${{ steps.plan.outputs.identity }}
+        if: steps.plan.outputs.run == 'true'
+        run: |
+          targets=(embedded-runtime-fast-check embedded-multi-instance-check embedded-conformance-check)
+          if [ "$CANARY_PROFILE" = weekly ]; then
+            targets=(complete-source-check)
+          fi
+          make "${targets[@]}" \
+            PG_CONFIGURE_ARGS="--without-icu --enable-debug --enable-cassert" \
+            JOBS=4
+
+      - name: Upload embedded product evidence
+        if: always() && steps.plan.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: embedded-product-${{ github.run_id }}
+          path: |
+            build/embedded-bootstrap/reports/
+            build/embedded-kernel/reports/
+            build/embedded-logical/reports/
+            build/embedded-release/reports/
+            build/embedded-conformance/reports/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.guc-control-ownership",
+  "symbols": [
+    {
+      "id": "pg.guc.control.check_errcode",
+      "name": "GUC_check_errcode_value",
+      "c_type": "int",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_CHECK_ERRCODE",
+      "runtime_field": "check_errcode",
+      "runtime_c_type": "int",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.check_errmsg",
+      "name": "GUC_check_errmsg_string",
+      "c_type": "string",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_CHECK_ERRMSG",
+      "runtime_field": "check_errmsg",
+      "runtime_c_type": "char *",
+      "initializer": "zero",
+      "declaration_file_suffixes": [
+        "src/backend/utils/misc/guc.c",
+        "src/include/utils/guc.h"
+      ]
+    },
+    {
+      "id": "pg.guc.control.check_errdetail",
+      "name": "GUC_check_errdetail_string",
+      "c_type": "string",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_CHECK_ERRDETAIL",
+      "runtime_field": "check_errdetail",
+      "runtime_c_type": "char *",
+      "initializer": "zero",
+      "declaration_file_suffixes": [
+        "src/backend/utils/misc/guc.c",
+        "src/include/utils/guc.h"
+      ]
+    },
+    {
+      "id": "pg.guc.control.check_errhint",
+      "name": "GUC_check_errhint_string",
+      "c_type": "string",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_CHECK_ERRHINT",
+      "runtime_field": "check_errhint",
+      "runtime_c_type": "char *",
+      "initializer": "zero",
+      "declaration_file_suffixes": [
+        "src/backend/utils/misc/guc.c",
+        "src/include/utils/guc.h"
+      ]
+    },
+    {
+      "id": "pg.guc.control.memory_context",
+      "name": "GUCMemoryContext",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_MEMORY_CONTEXT",
+      "runtime_field": "memory_context",
+      "runtime_c_type": "MemoryContext",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.hashtab",
+      "name": "guc_hashtab",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_HASHTAB",
+      "runtime_field": "hashtab",
+      "runtime_c_type": "HTAB *",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.nondef_list",
+      "name": "guc_nondef_list",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_NONDEF_LIST",
+      "runtime_field": "nondef_list",
+      "runtime_c_type": "dlist_head",
+      "initializer": "dlist",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.stack_list",
+      "name": "guc_stack_list",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_STACK_LIST",
+      "runtime_field": "stack_list",
+      "runtime_c_type": "slist_head",
+      "initializer": "slist",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.report_list",
+      "name": "guc_report_list",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_REPORT_LIST",
+      "runtime_field": "report_list",
+      "runtime_c_type": "slist_head",
+      "initializer": "slist",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.reserved_prefixes",
+      "name": "reserved_class_prefix",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_RESERVED_PREFIXES",
+      "runtime_field": "reserved_prefixes",
+      "runtime_c_type": "List *",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.nest_level",
+      "name": "GUCNestLevel",
+      "c_type": "int",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_NEST_LEVEL",
+      "runtime_field": "nest_level",
+      "runtime_c_type": "int",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.reporting_enabled",
+      "name": "reporting_enabled",
+      "c_type": "bool",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_REPORTING_ENABLED",
+      "runtime_field": "reporting_enabled",
+      "runtime_c_type": "bool",
+      "initializer": "zero",
+      "declaration_file_suffixes": ["src/backend/utils/misc/guc.c"]
+    },
+    {
+      "id": "pg.guc.control.configure_names",
+      "name": "ConfigureNames",
+      "c_type": "any",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_CONTROL_CONFIGURE_NAMES",
+      "runtime_field": "configure_names",
+      "runtime_c_type": "struct config_generic *",
+      "initializer": "configure_names",
+      "declaration_file_suffixes": ["src/include/utils/guc_tables.h"]
+    }
+  ]
+}

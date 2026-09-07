@@ -1,0 +1,510 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.c-public-api-contract",
+  "postgresql_major": 19,
+  "abi": {
+    "major": 1,
+    "minor": 3,
+    "encoding": "major_shift_16_or_minor",
+    "state": "frozen",
+    "delivered_through": "embedded-release",
+    "release_confirmed_at": "embedded-release",
+    "core_freeze_after": "runtime-events",
+    "additive_surfaces_after_freeze": [
+      "arrow",
+      "management",
+      "logical-backup",
+      "logical-restore",
+      "maintenance",
+      "multi-instance",
+      "bundled-extensions"
+    ]
+  },
+  "headers": [
+    "embedded-c/include/postgamma/postgamma.h",
+    "embedded-c/include/postgamma/postgamma_arrow.h"
+  ],
+  "implementation_owners": {
+    "public_core": "embedded-c/src/postgamma.c",
+    "public_protocol": "embedded-c/src/postgamma_protocol.c",
+    "event_router": "embedded-c/src/postgamma_events.c",
+    "copy_adapter": "embedded-c/src/postgamma_copy.c",
+    "management_adapter": "embedded-c/src/postgamma_management.c",
+    "logical_management_adapter": "embedded-c/src/postgamma_logical_management.c",
+    "arrow_adapter": "embedded-c/src/postgamma_arrow.c"
+  },
+  "test_owners": {
+    "public_api": "tests/embedded/kernel/public_api_driver.c",
+    "api_contract": "tests/embedded/api/api_contract_consumer.c",
+    "ordered_results": "tests/embedded/api/ordered_results_driver.c",
+    "streaming": "tests/embedded/api/chunked_results_driver.c",
+    "copy": "tests/embedded/api/copy_driver.c",
+    "events": "tests/embedded/api/events_driver.c",
+    "management": "tests/embedded/api/management_driver.c",
+    "arrow": "tests/embedded/api/arrow_driver.c",
+    "logical_management": "tests/embedded/logical/logical_stream_driver.c",
+    "multi_instance_extensions": "tests/embedded/release/multi_instance_driver.c"
+  },
+  "profiles": {
+    "metadata": {
+      "ownership": "returns a borrowed static value or an integer value",
+      "blocking": "never blocks",
+      "thread_safety": "safe from any host thread",
+      "callback_context": "does not dispatch callbacks",
+      "errors": "has no error output",
+      "allowed_states": [
+        "library-loaded"
+      ]
+    },
+    "open": {
+      "ownership": "returns one caller-owned handle on success and no handle on failure",
+      "blocking": "may block within the documented startup deadline",
+      "thread_safety": "the output handle is unpublished until success",
+      "callback_context": "does not dispatch user callbacks before publication",
+      "errors": "clears error first and returns one owned diagnostic when allocation permits",
+      "allowed_states": [
+        "parent-open",
+        "no-existing-handle"
+      ]
+    },
+    "close": {
+      "ownership": "consumes the handle only on PGM_STATUS_OK and permits retry otherwise",
+      "blocking": "may block only within the supplied deadline",
+      "thread_safety": "requires external serialization except for documented cancel or inspection",
+      "callback_context": "callbacks caused by progress run on the calling host thread",
+      "errors": "returns BUSY while public children exist and an owned diagnostic on failure",
+      "allowed_states": [
+        "open",
+        "failed-but-closable"
+      ]
+    },
+    "inspect": {
+      "ownership": "returns a borrowed view or copies a value into caller storage",
+      "blocking": "never performs SQL progress and takes only bounded internal locks",
+      "thread_safety": "read-only inspection is allowed from the documented secondary thread",
+      "callback_context": "does not dispatch callbacks",
+      "errors": "invalid handles or output storage return a deterministic status",
+      "allowed_states": [
+        "open",
+        "active",
+        "terminal-not-freed"
+      ]
+    },
+    "submit": {
+      "ownership": "copies submission inputs and returns one caller-owned request on success",
+      "blocking": "does bounded submission work but does not wait for SQL completion",
+      "thread_safety": "one submitting thread per connection with one active request",
+      "callback_context": "does not invoke a user callback before returning",
+      "errors": "rejects invalid options before submission and returns an owned diagnostic",
+      "allowed_states": [
+        "connection-idle"
+      ]
+    },
+    "progress": {
+      "ownership": "does not transfer ownership unless an explicit output says so",
+      "blocking": "poll and progress are nonblocking; wait honors its deadline",
+      "thread_safety": "one progress or wait thread per request",
+      "callback_context": "dispatches callbacks only on the calling host thread",
+      "errors": "normal AGAIN or END is reported through availability state, not pgm_status",
+      "allowed_states": [
+        "pending",
+        "running",
+        "result-ready",
+        "copy-active",
+        "terminal-not-freed"
+      ]
+    },
+    "accessor": {
+      "ownership": "returns a borrowed view whose lifetime is bounded by its owner handle",
+      "blocking": "never blocks",
+      "thread_safety": "requires the owner not to be concurrently mutated or freed",
+      "callback_context": "does not dispatch callbacks",
+      "errors": "status-returning accessors reject invalid indexes and storage",
+      "allowed_states": [
+        "owned"
+      ]
+    },
+    "free": {
+      "ownership": "consumes the owned handle and accepts NULL or an invalidated no-op only where documented",
+      "blocking": "ordinary values do not block; request retirement is bounded",
+      "thread_safety": "must not race an operation on the same handle",
+      "callback_context": "request retirement may dispatch only on the calling host thread",
+      "errors": "void destructors cannot report failure and follow their fail-closed contract",
+      "allowed_states": [
+        "owned",
+        "terminal-not-freed"
+      ]
+    },
+    "copy_io": {
+      "ownership": "retains the COPY handle and reports partial byte ownership through consumed or produced",
+      "blocking": "never waits for unbounded queue capacity and reports AGAIN through pgm_io_state",
+      "thread_safety": "one I/O owner thread; one other thread may cancel or inspect",
+      "callback_context": "duplex progress dispatches callbacks only on the calling host thread",
+      "errors": "a failure leaves the connection reusable or explicitly failed after bounded retirement",
+      "allowed_states": [
+        "copy-active",
+        "copy-finishing"
+      ]
+    },
+    "event": {
+      "ownership": "returns or inspects one caller-owned routed event",
+      "blocking": "next-event honors its deadline; accessors never block",
+      "thread_safety": "one event consumer model per instance",
+      "callback_context": "dispatch invokes callbacks only on the calling host thread",
+      "errors": "queue overflow is an observable event and monotonic telemetry, never silent loss",
+      "allowed_states": [
+        "instance-open",
+        "event-owned"
+      ]
+    },
+    "management": {
+      "ownership": "returns or progresses one instance-owned operation handle",
+      "blocking": "progress is caller-driven and waitable access never runs a subprocess",
+      "thread_safety": "one progress owner and one documented cancellation thread",
+      "callback_context": "callbacks run only on the progressing host thread",
+      "errors": "unsupported operations fail closed without subprocesses or network endpoints",
+      "allowed_states": [
+        "instance-open",
+        "operation-active",
+        "operation-terminal"
+      ]
+    },
+    "management_stream": {
+      "ownership": "copies operation options and returns one caller-owned operation handle",
+      "blocking": "submission is bounded; progress transfers at most one quantum and reports backpressure",
+      "thread_safety": "one progress owner and one documented cancellation thread per operation",
+      "callback_context": "stream callbacks run only on the host thread calling progress",
+      "errors": "callback, archive, and PostgreSQL failures become owned operation diagnostics",
+      "allowed_states": [
+        "instance-open",
+        "operation-active",
+        "operation-terminal"
+      ]
+    }
+  },
+  "handles": [
+    {
+      "name": "pgm_instance",
+      "parent": null,
+      "constructors": ["pgm_instance_open"],
+      "destructor": "pgm_instance_close",
+      "phase": "cluster-lifecycle"
+    },
+    {
+      "name": "pgm_connection",
+      "parent": "pgm_instance",
+      "constructors": ["pgm_connection_open"],
+      "destructor": "pgm_connection_close",
+      "phase": "cluster-lifecycle"
+    },
+    {
+      "name": "pgm_statement",
+      "parent": "pgm_connection",
+      "constructors": ["pgm_statement_prepare"],
+      "destructor": "pgm_statement_close",
+      "phase": "ordered-results"
+    },
+    {
+      "name": "pgm_request",
+      "parent": "pgm_connection",
+      "constructors": [
+        "pgm_execute_async",
+        "pgm_execute_async_ex",
+        "pgm_execute_script_async",
+        "pgm_statement_execute_async"
+      ],
+      "destructor": "pgm_request_free",
+      "phase": "session-execution"
+    },
+    {
+      "name": "pgm_result",
+      "parent": "pgm_request",
+      "constructors": [
+        "pgm_execute",
+        "pgm_request_wait",
+        "pgm_request_next_result"
+      ],
+      "destructor": "pgm_result_free",
+      "phase": "session-execution"
+    },
+    {
+      "name": "pgm_copy",
+      "parent": "pgm_request",
+      "constructors": ["pgm_result_take_copy"],
+      "destructor": "pgm_copy_close",
+      "phase": "copy-streaming"
+    },
+    {
+      "name": "pgm_event",
+      "parent": "pgm_instance",
+      "constructors": ["pgm_instance_next_event"],
+      "destructor": "pgm_event_free",
+      "phase": "runtime-events"
+    },
+    {
+      "name": "pgm_operation",
+      "parent": "pgm_instance",
+      "constructors": [
+        "pgm_instance_checkpoint_async",
+        "pgm_instance_logical_dump_async",
+        "pgm_instance_logical_restore_async",
+        "pgm_instance_maintenance_async"
+      ],
+      "destructor": "pgm_operation_free",
+      "phase": "arrow-management"
+    },
+    {
+      "name": "pgm_error",
+      "parent": null,
+      "constructors": ["internal:error-output"],
+      "destructor": "pgm_error_free",
+      "phase": "cluster-lifecycle"
+    }
+  ],
+  "numeric_registry": [
+    {"group": "abi", "allow_value_aliases": true, "values": {"PGM_ABI_VERSION": 65539, "PGM_ABI_VERSION_MAJOR": 1, "PGM_ABI_VERSION_MINOR": 3}},
+    {"group": "status", "values": {"PGM_STATUS_OK": 0, "PGM_STATUS_INVALID_ARGUMENT": 1, "PGM_STATUS_BUSY": 2, "PGM_STATUS_TIMEOUT": 3, "PGM_STATUS_CANCELED": 4, "PGM_STATUS_IO_ERROR": 5, "PGM_STATUS_POSTGRES_ERROR": 6, "PGM_STATUS_CONNECTION_FAILED": 7, "PGM_STATUS_INSTANCE_FAILED": 8, "PGM_STATUS_FORKED_PROCESS": 9, "PGM_STATUS_VERSION_MISMATCH": 10, "PGM_STATUS_UNSUPPORTED": 11, "PGM_STATUS_OUT_OF_MEMORY": 12, "PGM_STATUS_INTERNAL_ERROR": 13, "PGM_STATUS_REENTRANT_CALL": 14}},
+    {"group": "format", "values": {"PGM_FORMAT_TEXT": 0, "PGM_FORMAT_BINARY": 1}},
+    {"group": "shutdown", "values": {"PGM_SHUTDOWN_SMART": 0, "PGM_SHUTDOWN_FAST": 1, "PGM_SHUTDOWN_IMMEDIATE": 2}},
+    {"group": "request", "values": {"PGM_REQUEST_PENDING": 0, "PGM_REQUEST_RUNNING": 1, "PGM_REQUEST_COMPLETED": 2, "PGM_REQUEST_CANCELED": 3, "PGM_REQUEST_FAILED": 4}},
+    {"group": "availability", "values": {"PGM_AVAILABILITY_READY": 0, "PGM_AVAILABILITY_AGAIN": 1, "PGM_AVAILABILITY_END": 2}},
+    {"group": "io", "values": {"PGM_IO_PROGRESS": 0, "PGM_IO_AGAIN": 1, "PGM_IO_END": 2}},
+    {"group": "result", "values": {"PGM_RESULT_COMMAND_OK": 0, "PGM_RESULT_TUPLES_OK": 1, "PGM_RESULT_COPY_IN": 2, "PGM_RESULT_COPY_OUT": 3, "PGM_RESULT_EMPTY_QUERY": 4, "PGM_RESULT_TUPLES_CHUNK": 5, "PGM_RESULT_ERROR": 6}},
+    {"group": "transaction", "values": {"PGM_TRANSACTION_IDLE": 0, "PGM_TRANSACTION_ACTIVE": 1, "PGM_TRANSACTION_INTRANS": 2, "PGM_TRANSACTION_INERROR": 3, "PGM_TRANSACTION_UNKNOWN": 4}},
+    {"group": "pin", "bitmask": true, "values": {"PGM_PIN_TRANSACTION": 1, "PGM_PIN_ADVISORY_LOCK": 2, "PGM_PIN_PORTAL": 4, "PGM_PIN_COPY": 8, "PGM_PIN_OTHER": 16}},
+    {"group": "delivery", "values": {"PGM_DELIVERY_MATERIALIZED": 0, "PGM_DELIVERY_CHUNKED": 1}},
+    {"group": "event", "values": {"PGM_EVENT_LOG": 0, "PGM_EVENT_NOTICE": 1, "PGM_EVENT_NOTIFICATION": 2, "PGM_EVENT_OVERFLOW": 3}},
+    {"group": "diagnostic", "values": {"PGM_DIAG_SQLSTATE": 1, "PGM_DIAG_SEVERITY": 2, "PGM_DIAG_MESSAGE": 3, "PGM_DIAG_DETAIL": 4, "PGM_DIAG_HINT": 5, "PGM_DIAG_POSITION": 6, "PGM_DIAG_INTERNAL_POSITION": 7, "PGM_DIAG_INTERNAL_QUERY": 8, "PGM_DIAG_CONTEXT": 9, "PGM_DIAG_SCHEMA": 10, "PGM_DIAG_TABLE": 11, "PGM_DIAG_COLUMN": 12, "PGM_DIAG_DATATYPE": 13, "PGM_DIAG_CONSTRAINT": 14, "PGM_DIAG_SOURCE_FILE": 15, "PGM_DIAG_SOURCE_LINE": 16, "PGM_DIAG_SOURCE_FUNCTION": 17}},
+    {"group": "operation", "values": {"PGM_OPERATION_PENDING": 0, "PGM_OPERATION_RUNNING": 1, "PGM_OPERATION_COMPLETED": 2, "PGM_OPERATION_CANCELED": 3, "PGM_OPERATION_FAILED": 4}},
+    {"group": "operation_kind", "values": {"PGM_OPERATION_CHECKPOINT": 0, "PGM_OPERATION_LOGICAL_DUMP": 1, "PGM_OPERATION_LOGICAL_RESTORE": 2, "PGM_OPERATION_MAINTENANCE": 3}},
+    {"group": "operation_phase", "values": {"PGM_OPERATION_PHASE_PENDING": 0, "PGM_OPERATION_PHASE_STARTING": 1, "PGM_OPERATION_PHASE_DATABASE": 2, "PGM_OPERATION_PHASE_ARCHIVE_IO": 3, "PGM_OPERATION_PHASE_HOST_IO": 4, "PGM_OPERATION_PHASE_FINALIZING": 5, "PGM_OPERATION_PHASE_TERMINAL": 6}},
+    {"group": "maintenance_kind", "values": {"PGM_MAINTENANCE_VACUUM": 0, "PGM_MAINTENANCE_ANALYZE": 1, "PGM_MAINTENANCE_VACUUM_ANALYZE": 2, "PGM_MAINTENANCE_REINDEX_DATABASE": 3}},
+    {"group": "logical_flag", "bitmask": true, "values": {"PGM_LOGICAL_SCHEMA_ONLY": 1, "PGM_LOGICAL_DATA_ONLY": 2, "PGM_LOGICAL_CLEAN": 4, "PGM_LOGICAL_CREATE": 8, "PGM_LOGICAL_NO_OWNER": 16, "PGM_LOGICAL_NO_PRIVILEGES": 32}},
+    {"group": "logical_flag_mask", "values": {"PGM_LOGICAL_FLAGS_ALL": 63}},
+    {"group": "capability", "bitmask": true, "values": {"PGM_CAP_PREPARED_STATEMENTS": 1, "PGM_CAP_CHUNKED_RESULTS": 2, "PGM_CAP_COPY_IN": 4, "PGM_CAP_COPY_OUT": 8, "PGM_CAP_ARROW_C_DATA": 16, "PGM_CAP_NOTIFICATIONS": 32, "PGM_CAP_REQUEST_NOTICES": 64, "PGM_CAP_STATUS_TELEMETRY": 128, "PGM_CAP_INSTANCE_EVENTS": 256, "PGM_CAP_MANAGEMENT_OPERATIONS": 512, "PGM_CAP_MULTIPLE_INSTANCES": 1024, "PGM_CAP_NATIVE_EXTENSION_LOADING": 2048, "PGM_CAP_LOGICAL_BACKUP": 4096, "PGM_CAP_LOGICAL_RESTORE": 8192, "PGM_CAP_PHYSICAL_BACKUP": 16384, "PGM_CAP_MAINTENANCE": 32768, "PGM_CAP_BUNDLED_EXTENSIONS": 65536}},
+    {"group": "extension_capability", "bitmask": true, "values": {"PGM_EXTENSION_CAP_THREAD_SAFE": 1, "PGM_EXTENSION_CAP_MULTI_INSTANCE_SAFE": 2, "PGM_EXTENSION_CAP_SESSION_MOBILITY_SAFE": 4, "PGM_EXTENSION_CAP_PARALLEL_WORKER_SAFE": 8, "PGM_EXTENSION_CAP_INSTANCE_SHMEM": 16, "PGM_EXTENSION_CAP_BACKGROUND_WORKER": 32, "PGM_EXTENSION_CAP_FILESYSTEM_READ": 64, "PGM_EXTENSION_CAP_FILESYSTEM_WRITE": 128, "PGM_EXTENSION_CAP_HOST_LIBRARY_DEPENDENCY": 256, "PGM_EXTENSION_CAP_PROCESS_GLOBAL_STATE": 512}}
+  ],
+  "functions": [
+    {"name": "pgm_abi_version", "phase": "session-execution", "profile": "metadata", "owner": "public_core", "test": "api_contract", "object": "library"},
+    {"name": "pgm_build_id", "phase": "session-execution", "profile": "metadata", "owner": "public_core", "test": "public_api", "object": "library"},
+    {"name": "pgm_capabilities", "phase": "c-api-foundation", "profile": "metadata", "owner": "public_core", "test": "api_contract", "object": "library"},
+    {"name": "pgm_postgresql_version", "phase": "session-execution", "profile": "metadata", "owner": "public_core", "test": "public_api", "object": "library"},
+    {"name": "pgm_status_name", "phase": "session-execution", "profile": "metadata", "owner": "public_core", "test": "public_api", "object": "library"},
+    {"name": "pgm_bundled_extension_count", "phase": "embedded-release", "profile": "metadata", "owner": "public_core", "test": "multi_instance_extensions", "object": "library"},
+    {"name": "pgm_bundled_extension_get", "phase": "embedded-release", "profile": "metadata", "owner": "public_core", "test": "multi_instance_extensions", "object": "library"},
+
+    {"name": "pgm_instance_open", "phase": "cluster-lifecycle", "profile": "open", "owner": "public_core", "test": "public_api", "object": "pgm_instance"},
+    {"name": "pgm_instance_close", "phase": "cluster-lifecycle", "profile": "close", "owner": "public_core", "test": "public_api", "object": "pgm_instance"},
+    {"name": "pgm_instance_get_telemetry", "phase": "runtime-events", "profile": "inspect", "owner": "event_router", "test": "events", "object": "pgm_instance"},
+    {"name": "pgm_instance_waitable", "phase": "runtime-events", "profile": "event", "owner": "event_router", "test": "events", "object": "pgm_instance"},
+    {"name": "pgm_instance_next_event", "phase": "runtime-events", "profile": "event", "owner": "event_router", "test": "events", "object": "pgm_instance"},
+    {"name": "pgm_instance_dispatch", "phase": "runtime-events", "profile": "event", "owner": "event_router", "test": "events", "object": "pgm_instance"},
+
+    {"name": "pgm_event_type", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_connection", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_request", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_log", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_notice", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_notification", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_overflow", "phase": "runtime-events", "profile": "accessor", "owner": "event_router", "test": "events", "object": "pgm_event"},
+    {"name": "pgm_event_free", "phase": "runtime-events", "profile": "free", "owner": "event_router", "test": "events", "object": "pgm_event"},
+
+    {"name": "pgm_connection_open", "phase": "cluster-lifecycle", "profile": "open", "owner": "public_core", "test": "public_api", "object": "pgm_connection"},
+    {"name": "pgm_connection_close", "phase": "cluster-lifecycle", "profile": "close", "owner": "public_core", "test": "public_api", "object": "pgm_connection"},
+    {"name": "pgm_connection_transaction_status", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_connection"},
+    {"name": "pgm_connection_get_status", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_connection"},
+    {"name": "pgm_connection_identity", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_connection"},
+    {"name": "pgm_connection_parameter_status", "phase": "runtime-events", "profile": "inspect", "owner": "public_protocol", "test": "events", "object": "pgm_connection"},
+
+    {"name": "pgm_execute", "phase": "session-execution", "profile": "progress", "owner": "public_core", "test": "public_api", "object": "pgm_connection", "ownership": "synchronous convenience that transfers one owned result and error"},
+    {"name": "pgm_execute_async", "phase": "session-execution", "profile": "submit", "owner": "public_core", "test": "public_api", "object": "pgm_connection"},
+    {"name": "pgm_execute_async_ex", "phase": "ordered-results", "profile": "submit", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_connection"},
+    {"name": "pgm_execute_script_async", "phase": "ordered-results", "profile": "submit", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_connection"},
+
+    {"name": "pgm_statement_prepare", "phase": "ordered-results", "profile": "open", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+    {"name": "pgm_statement_execute_async", "phase": "ordered-results", "profile": "submit", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+    {"name": "pgm_statement_describe", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+    {"name": "pgm_statement_parameter_type", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+    {"name": "pgm_statement_column", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+    {"name": "pgm_statement_close", "phase": "ordered-results", "profile": "close", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_statement"},
+
+    {"name": "pgm_request_poll", "phase": "session-execution", "profile": "progress", "owner": "public_core", "test": "public_api", "object": "pgm_request"},
+    {"name": "pgm_request_progress", "phase": "session-execution", "profile": "progress", "owner": "public_core", "test": "public_api", "object": "pgm_request"},
+    {"name": "pgm_request_waitable", "phase": "session-execution", "profile": "inspect", "owner": "public_core", "test": "public_api", "object": "pgm_request"},
+    {"name": "pgm_request_wait", "phase": "session-execution", "profile": "progress", "owner": "public_core", "test": "public_api", "object": "pgm_request", "ownership": "transfers at most one owned result and rejects multi-result, chunked, or COPY sequences"},
+    {"name": "pgm_request_cancel", "phase": "session-execution", "profile": "progress", "owner": "public_core", "test": "public_api", "object": "pgm_request"},
+    {"name": "pgm_request_next_result", "phase": "ordered-results", "profile": "progress", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_request", "ownership": "transfers one owned result while enforcing one outstanding result"},
+    {"name": "pgm_request_identity", "phase": "ordered-results", "profile": "inspect", "owner": "public_protocol", "test": "ordered_results", "object": "pgm_request"},
+    {"name": "pgm_request_free", "phase": "session-execution", "profile": "free", "owner": "public_core", "test": "public_api", "object": "pgm_request"},
+
+    {"name": "pgm_result_kind", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_row_count", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_column_count", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_command_status", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_column", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_value", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+    {"name": "pgm_result_take_copy", "phase": "copy-streaming", "profile": "open", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy", "ownership": "consumes and nulls the COPY-start result on success and returns an independent owned COPY handle"},
+    {"name": "pgm_result_export_arrow", "phase": "arrow-management", "profile": "accessor", "owner": "arrow_adapter", "test": "arrow", "object": "pgm_result", "ownership": "exports caller-owned Arrow objects without consuming the source result"},
+    {"name": "pgm_result_free", "phase": "session-execution", "profile": "free", "owner": "public_core", "test": "public_api", "object": "pgm_result"},
+
+    {"name": "pgm_copy_write", "phase": "copy-streaming", "profile": "copy_io", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy"},
+    {"name": "pgm_copy_finish", "phase": "copy-streaming", "profile": "copy_io", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy"},
+    {"name": "pgm_copy_read", "phase": "copy-streaming", "profile": "copy_io", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy"},
+    {"name": "pgm_copy_abort", "phase": "copy-streaming", "profile": "copy_io", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy"},
+    {"name": "pgm_copy_close", "phase": "copy-streaming", "profile": "close", "owner": "copy_adapter", "test": "copy", "object": "pgm_copy"},
+
+    {"name": "pgm_error_status", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+    {"name": "pgm_error_sqlstate", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+    {"name": "pgm_error_severity", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+    {"name": "pgm_error_message", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+    {"name": "pgm_error_detail", "phase": "session-execution", "profile": "accessor", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+    {"name": "pgm_error_field", "phase": "runtime-events", "profile": "accessor", "owner": "public_protocol", "test": "events", "object": "pgm_error"},
+    {"name": "pgm_error_free", "phase": "session-execution", "profile": "free", "owner": "public_core", "test": "public_api", "object": "pgm_error"},
+
+    {"name": "pgm_instance_checkpoint_async", "phase": "arrow-management", "profile": "management", "owner": "management_adapter", "test": "management", "object": "pgm_instance"},
+    {"name": "pgm_instance_logical_dump_async", "phase": "logical-management", "profile": "management_stream", "owner": "logical_management_adapter", "test": "logical_management", "object": "pgm_instance"},
+    {"name": "pgm_instance_logical_restore_async", "phase": "logical-management", "profile": "management_stream", "owner": "logical_management_adapter", "test": "logical_management", "object": "pgm_instance"},
+    {"name": "pgm_instance_maintenance_async", "phase": "logical-management", "profile": "management", "owner": "logical_management_adapter", "test": "logical_management", "object": "pgm_instance"},
+    {"name": "pgm_operation_progress", "phase": "arrow-management", "profile": "management", "owner": "management_adapter", "test": "management", "object": "pgm_operation"},
+    {"name": "pgm_operation_get_progress", "phase": "logical-management", "profile": "inspect", "owner": "logical_management_adapter", "test": "logical_management", "object": "pgm_operation"},
+    {"name": "pgm_operation_waitable", "phase": "arrow-management", "profile": "management", "owner": "management_adapter", "test": "management", "object": "pgm_operation"},
+    {"name": "pgm_operation_cancel", "phase": "arrow-management", "profile": "management", "owner": "management_adapter", "test": "management", "object": "pgm_operation"},
+    {"name": "pgm_operation_free", "phase": "arrow-management", "profile": "free", "owner": "management_adapter", "test": "management", "object": "pgm_operation"}
+  ],
+  "state_models": [
+    {
+      "name": "instance-lifecycle",
+      "initial": "absent",
+      "states": ["absent", "open", "failed", "closed"],
+      "terminal": ["closed"],
+      "transitions": [
+        {"operation": "pgm_instance_open", "from": "absent", "to": "open", "outcome": "ok"},
+        {"operation": "pgm_instance_close", "from": "open", "to": "open", "outcome": "retryable-failure"},
+        {"operation": "internal:instance-failure", "from": "open", "to": "failed", "outcome": "fatal"},
+        {"operation": "pgm_instance_close", "from": "open", "to": "closed", "outcome": "ok"},
+        {"operation": "pgm_instance_close", "from": "failed", "to": "closed", "outcome": "ok"}
+      ]
+    },
+    {
+      "name": "connection-lifecycle",
+      "initial": "absent",
+      "states": ["absent", "idle", "request-active", "failed", "closed"],
+      "terminal": ["closed"],
+      "transitions": [
+        {"operation": "pgm_connection_open", "from": "absent", "to": "idle", "outcome": "ok"},
+        {"operation": "pgm_execute_async_ex", "from": "idle", "to": "request-active", "outcome": "ok"},
+        {"operation": "pgm_request_free", "from": "request-active", "to": "idle", "outcome": "retired"},
+        {"operation": "internal:retirement-failure", "from": "request-active", "to": "failed", "outcome": "bounded-abort"},
+        {"operation": "pgm_connection_close", "from": "idle", "to": "closed", "outcome": "ok"},
+        {"operation": "pgm_connection_close", "from": "failed", "to": "closed", "outcome": "ok"}
+      ]
+    },
+    {
+      "name": "statement-lifecycle",
+      "initial": "absent",
+      "states": ["absent", "prepared", "request-active", "closed"],
+      "terminal": ["closed"],
+      "transitions": [
+        {"operation": "pgm_statement_prepare", "from": "absent", "to": "prepared", "outcome": "ok"},
+        {"operation": "pgm_statement_execute_async", "from": "prepared", "to": "request-active", "outcome": "ok"},
+        {"operation": "pgm_request_free", "from": "request-active", "to": "prepared", "outcome": "retired"},
+        {"operation": "pgm_statement_close", "from": "prepared", "to": "closed", "outcome": "ok"}
+      ]
+    },
+    {
+      "name": "request-protocol",
+      "initial": "absent",
+      "states": ["absent", "pending", "running", "result-ready", "copy-active", "completed", "canceled", "failed", "freed"],
+      "terminal": ["freed"],
+      "transitions": [
+        {"operation": "pgm_execute_async_ex", "from": "absent", "to": "pending", "outcome": "ok"},
+        {"operation": "pgm_request_progress", "from": "pending", "to": "running", "outcome": "progress"},
+        {"operation": "pgm_request_next_result", "from": "running", "to": "result-ready", "outcome": "result"},
+        {"operation": "pgm_result_free", "from": "result-ready", "to": "running", "outcome": "more-results"},
+        {"operation": "pgm_result_take_copy", "from": "result-ready", "to": "copy-active", "outcome": "copy-start"},
+        {"operation": "pgm_copy_close", "from": "copy-active", "to": "running", "outcome": "copy-ended"},
+        {"operation": "pgm_request_progress", "from": "running", "to": "completed", "outcome": "end"},
+        {"operation": "pgm_request_cancel", "from": "pending", "to": "canceled", "outcome": "canceled"},
+        {"operation": "pgm_request_cancel", "from": "running", "to": "canceled", "outcome": "canceled"},
+        {"operation": "internal:request-failure", "from": "running", "to": "failed", "outcome": "failed"},
+        {"operation": "pgm_request_free", "from": "completed", "to": "freed", "outcome": "released"},
+        {"operation": "pgm_request_free", "from": "canceled", "to": "freed", "outcome": "released"},
+        {"operation": "pgm_request_free", "from": "failed", "to": "freed", "outcome": "released"}
+      ]
+    },
+    {
+      "name": "copy-lifecycle",
+      "initial": "absent",
+      "states": ["absent", "active", "finishing", "aborted", "closed"],
+      "terminal": ["closed"],
+      "transitions": [
+        {"operation": "pgm_result_take_copy", "from": "absent", "to": "active", "outcome": "ok"},
+        {"operation": "pgm_copy_finish", "from": "active", "to": "finishing", "outcome": "progress"},
+        {"operation": "pgm_copy_abort", "from": "active", "to": "aborted", "outcome": "aborted"},
+        {"operation": "pgm_copy_close", "from": "active", "to": "closed", "outcome": "retired"},
+        {"operation": "pgm_copy_close", "from": "finishing", "to": "closed", "outcome": "retired"},
+        {"operation": "pgm_copy_close", "from": "aborted", "to": "closed", "outcome": "retired"}
+      ]
+    },
+    {
+      "name": "event-lifecycle",
+      "initial": "queued",
+      "states": ["queued", "owned", "dispatched", "dropped", "freed"],
+      "terminal": ["dispatched", "dropped", "freed"],
+      "transitions": [
+        {"operation": "pgm_instance_next_event", "from": "queued", "to": "owned", "outcome": "transferred"},
+        {"operation": "pgm_event_free", "from": "owned", "to": "freed", "outcome": "released"},
+        {"operation": "pgm_instance_dispatch", "from": "queued", "to": "dispatched", "outcome": "callback"},
+        {"operation": "internal:event-overflow", "from": "queued", "to": "dropped", "outcome": "observable-overflow"}
+      ]
+    },
+    {
+      "name": "operation-lifecycle",
+      "initial": "absent",
+      "states": ["absent", "pending", "running", "completed", "canceled", "failed", "freed"],
+      "terminal": ["freed"],
+      "transitions": [
+        {"operation": "pgm_instance_checkpoint_async", "from": "absent", "to": "pending", "outcome": "ok"},
+        {"operation": "pgm_instance_logical_dump_async", "from": "absent", "to": "pending", "outcome": "ok"},
+        {"operation": "pgm_instance_logical_restore_async", "from": "absent", "to": "pending", "outcome": "ok"},
+        {"operation": "pgm_instance_maintenance_async", "from": "absent", "to": "pending", "outcome": "ok"},
+        {"operation": "pgm_operation_progress", "from": "pending", "to": "running", "outcome": "progress"},
+        {"operation": "pgm_operation_progress", "from": "running", "to": "completed", "outcome": "ok"},
+        {"operation": "pgm_operation_cancel", "from": "pending", "to": "canceled", "outcome": "canceled"},
+        {"operation": "internal:operation-failure", "from": "running", "to": "failed", "outcome": "failed"},
+        {"operation": "pgm_operation_free", "from": "completed", "to": "freed", "outcome": "released"},
+        {"operation": "pgm_operation_free", "from": "canceled", "to": "freed", "outcome": "released"},
+        {"operation": "pgm_operation_free", "from": "failed", "to": "freed", "outcome": "released"}
+      ]
+    }
+  ],
+  "pre_v1_changes": [
+    {
+      "id": "explicit-result-kind-set",
+      "removed": {"PGM_RESULT_OTHER": 4},
+      "replacement": {"PGM_RESULT_EMPTY_QUERY": 4, "PGM_RESULT_TUPLES_CHUNK": 5, "PGM_RESULT_ERROR": 6},
+      "reason": "Replace a catch-all pre-release value with protocol-exact result kinds before ABI v1 freezes."
+    }
+  ],
+  "frozen_decisions": [
+    "result-handle-is-the-bounded-chunk",
+    "extended-single-statement-versus-simple-script",
+    "callbacks-only-on-host-progress-or-dispatch",
+    "backpressure-is-not-an-error-status",
+    "copy-out-is-an-exact-byte-stream",
+    "oversized-values-fail-at-a-hard-limit",
+    "core-abi-freezes-after-runtime-events",
+    "arrow-is-an-optional-adapter",
+    "management-uses-an-operation-handle",
+    "logical-archives-use-bounded-caller-driven-streams",
+    "frontend-tool-diagnostics-never-write-host-stderr",
+    "logical-tools-are-process-serialized-and-subprocess-free",
+    "one-routed-instance-event-queue",
+    "explicit-pre-v1-result-renumbering",
+    "transaction-pin-status-and-telemetry-are-core",
+    "copy-start-result-transfers-exclusive-ownership",
+    "notices-are-request-scoped-and-routed",
+    "scripts-use-distinct-options-and-text-results",
+    "no-raw-protocol-or-c-transaction-callback-in-v1"
+  ]
+}

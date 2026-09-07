@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.c-abi-release-baseline",
+  "postgresql_major": 19,
+  "abi": {
+    "major": 1,
+    "minor": 1,
+    "encoded_version": 65537,
+    "state": "frozen",
+    "release_milestone": "sdk-release",
+    "delivered_through": "arrow-management",
+    "symbol_version_node": "POSTGAMMA_1.0",
+    "evolution": "additive-within-major"
+  },
+  "core_baseline": {
+    "path": "manifests/api/c-core-abi-v1.json",
+    "encoded_version": 65536,
+    "frozen_through": "runtime-events",
+    "function_count": 63,
+    "complete_record_count": 16,
+    "opaque_record_count": 8,
+    "numeric_count": 91
+  },
+  "additive_functions": [
+    {
+      "name": "pgm_instance_checkpoint_async",
+      "function_type": "int (struct pgm_instance *, const struct pgm_checkpoint_options *, struct pgm_operation **, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_operation_cancel",
+      "function_type": "int (struct pgm_operation *, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_operation_free",
+      "function_type": "void (struct pgm_operation *)"
+    },
+    {
+      "name": "pgm_operation_progress",
+      "function_type": "int (struct pgm_operation *, int *, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_operation_waitable",
+      "function_type": "int (struct pgm_operation *, int *, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_result_export_arrow",
+      "function_type": "int (const struct pgm_result *, struct ArrowSchema *, struct ArrowArray *, struct pgm_error **)"
+    }
+  ],
+  "additive_complete_records": [
+    {
+      "name": "pgm_checkpoint_options",
+      "size": 8,
+      "alignment": 4,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "flags", "canonical_type": "unsigned int", "offset": 4}
+      ]
+    }
+  ],
+  "additive_opaque_records": [
+    "pgm_operation"
+  ],
+  "numeric_overrides": {
+    "PGM_ABI_VERSION": 65537,
+    "PGM_ABI_VERSION_MINOR": 1
+  },
+  "exported_symbol_count": 69,
+  "capabilities": {
+    "advertised_value": 1023,
+    "advertised": [
+      "PGM_CAP_PREPARED_STATEMENTS",
+      "PGM_CAP_CHUNKED_RESULTS",
+      "PGM_CAP_COPY_IN",
+      "PGM_CAP_COPY_OUT",
+      "PGM_CAP_ARROW_C_DATA",
+      "PGM_CAP_NOTIFICATIONS",
+      "PGM_CAP_REQUEST_NOTICES",
+      "PGM_CAP_STATUS_TELEMETRY",
+      "PGM_CAP_INSTANCE_EVENTS",
+      "PGM_CAP_MANAGEMENT_OPERATIONS"
+    ],
+    "reserved_unadvertised": [
+      "PGM_CAP_MULTIPLE_INSTANCES",
+      "PGM_CAP_NATIVE_EXTENSION_LOADING"
+    ]
+  },
+  "required_evidence": [
+    {"name": "bootstrap", "kind": "postgamma.bootstrap-evidence", "field": "bootstrap_complete", "value": true},
+    {"name": "memory_transport", "kind": "postgamma.memory-transport-evidence", "field": "status", "value": "pass"},
+    {"name": "thread_isolation", "kind": "postgamma.thread-isolation-report", "field": "status", "value": "passed"},
+    {"name": "lifecycle", "kind": "postgamma.kernel-lifecycle-evidence", "field": "status", "value": "pass"},
+    {"name": "query", "kind": "postgamma.kernel-query-evidence", "field": "status", "value": "pass"},
+    {"name": "public_api", "kind": "postgamma.public-c-api", "field": "status", "value": "pass"},
+    {"name": "cluster_creation", "kind": "postgamma.in-process-cluster-creation", "field": "status", "value": "pass"},
+    {"name": "session_executor", "kind": "postgamma.session-executor", "field": "status", "value": "pass"},
+    {"name": "executor_differential", "kind": "postgamma.executor-differential", "field": "status", "value": "pass"},
+    {"name": "crash_recovery", "kind": "postgamma.crash-recovery-evidence", "field": "status", "value": "pass"},
+    {"name": "soak", "kind": "postgamma.lifecycle-soak-evidence", "field": "status", "value": "pass"},
+    {"name": "api_contract", "kind": "postgamma.c-api-closure", "field": "status", "value": "pass"},
+    {"name": "ordered_results", "kind": "postgamma.ordered-results", "field": "status", "value": "pass"},
+    {"name": "bounded_streaming", "kind": "postgamma.chunked-results", "field": "status", "value": "pass"},
+    {"name": "copy", "kind": "postgamma.copy-streaming", "field": "status", "value": "pass"},
+    {"name": "events", "kind": "postgamma.runtime-events", "field": "status", "value": "pass"},
+    {"name": "arrow_management", "kind": "postgamma.arrow-management", "field": "status", "value": "pass"},
+    {"name": "installed_sdk", "kind": "postgamma.installed-c-sdk", "field": "status", "value": "pass"},
+    {"name": "sanitizers", "kind": "postgamma.release-sanitizer-evidence", "field": "status", "value": "pass"},
+    {"name": "portability", "kind": "postgamma.portability-evidence", "field": "status", "value": "pass"}
+  ],
+  "documented_unsupported": [
+    "pipeline mode",
+    "COPY BOTH and replication protocol",
+    "raw PostgreSQL protocol access",
+    "multiple live instances",
+    "arbitrary native extensions",
+    "C transaction callbacks",
+    "Python binding"
+  ]
+}

@@ -1,0 +1,1510 @@
+{
+  "decisions": [
+    {
+      "id": "external:PQauthDataHook",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "use the postgamma host callback registry; private libpq must not expose the process-global hook setter"
+    },
+    {
+      "id": "external:X86Features",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "external:__pg_log_level",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "external:max_ticks_no_overflow",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes immutable timing calibration"
+    },
+    {
+      "id": "external:pg_comp_crc32c",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes the selected CRC implementation"
+    },
+    {
+      "id": "external:pg_dir_create_mode",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "external:pg_enc2gettext_tbl",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "external:pg_file_create_mode",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "external:pg_g_threadlock",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "libpq's thread-lock setter and users are serialized by the registered lock contract"
+    },
+    {
+      "id": "external:pg_global_prng_state",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "use instance, tool, or connection-owned PRNG state"
+    },
+    {
+      "id": "external:pg_mode_mask",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "external:pg_popcount_aarch64_dummy_variable",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "external:pg_popcount_masked_optimized",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes the selected popcount implementation"
+    },
+    {
+      "id": "external:pg_popcount_optimized",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes the selected popcount implementation"
+    },
+    {
+      "id": "external:progname",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "external:ticks_per_ns_scaled",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes immutable timing calibration"
+    },
+    {
+      "id": "external:timing_clock_source",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes immutable timing calibration"
+    },
+    {
+      "id": "external:timing_initialized",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once owns timing initialization and publication"
+    },
+    {
+      "id": "external:timing_tsc_enabled",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes immutable timing calibration"
+    },
+    {
+      "id": "external:timing_tsc_frequency_khz",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once publishes immutable timing calibration"
+    },
+    {
+      "id": "function_static:src/bin/initdb/findtimezone.c:src/bin/initdb/findtimezone.c:identify_system_timezone:resultbuf",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/initdb/findtimezone.c:src/bin/initdb/findtimezone.c:pg_load_tz:tz",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c:main:long_options",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:dumpCommentExtended:empty_comment",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:dumpRelationStats_dumper:expected_te",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:dumpRelationStats_dumper:res",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:dumpRelationStats_dumper:rownum",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:fetchAttributeStats:restarted",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:fetchAttributeStats:te",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:get_next_possible_free_pg_type_oid:next_possible_free_oid",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:main:dopt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c:main:long_options",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c:main:long_options",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:disable_triggers",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:enable_row_security",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:if_exists",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_comments",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_data",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_data_for_failed_tables",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_policies",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_publications",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_schema",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_security_labels",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_statistics",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:no_subscriptions",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:outputNoTableAm",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:outputNoTablespaces",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:statistics_only",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:strict_names",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:use_setsessauth",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/bin/pg_dump/pg_restore.c:src/bin/pg_dump/pg_restore.c:main:with_statistics",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/common/md5_common.c:src/common/md5_common.c:bytesToHex:hex",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "function_static:src/common/unicode_norm.c:src/common/unicode_norm.c:get_code_decomposition:x",
+      "owner": "connection",
+      "rationale": "mutable compatibility state must follow the active private libpq connection"
+    },
+    {
+      "id": "function_static:src/interfaces/libpq/fe-connect.c:src/interfaces/libpq/fe-connect.c:default_threadlock:singlethread_lock",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "the pthread mutex is the synchronization primitive itself"
+    },
+    {
+      "id": "function_static:src/interfaces/libpq/fe-exec.c:src/interfaces/libpq/fe-exec.c:PQoidStatus:buf",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "copy command status into result-owned storage and use numeric OID access"
+    },
+    {
+      "id": "function_static:src/port/strerror.c:src/port/strerror.c:pg_strerror:errorstr_buf",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "use caller-owned pg_strerror_r storage"
+    },
+    {
+      "id": "function_static:src/timezone/localtime.c:src/timezone/localtime.c:gmtsub:gmtptr",
+      "owner": "library_synchronized",
+      "rationale": "one process-wide value with an explicit publication contract",
+      "synchronization": "pthread_once constructs and publishes the immutable GMT state"
+    },
+    {
+      "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:infile:nada",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:inrule:r",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:inzsub:z",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:writezone:tzh",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/findtimezone.c:src/bin/initdb/findtimezone.c::tzdirpath",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::authmethodhost",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::authmethodlocal",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::authwarning",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::backend_exec",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::bin_path",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::bki_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::builtin_locale_specified",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::caught_signal",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::conf_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::data_checksums",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::datlocale",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::debug",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::default_text_search_config",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::default_timezone",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::dictionary_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::do_sync",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::dynamic_shared_memory_type",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::encoding",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::encodingid",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::extra_guc_names",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::extra_guc_values",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::extra_options",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::features_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::found_existing_pgdata",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::found_existing_xlogdir",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::hba_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::hosts_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::icu_locale_specified",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::icu_rules",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::ident_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::info_schema_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::infoversion",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_collate",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_ctype",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_messages",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_monetary",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_numeric",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::lc_time",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::locale",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::locale_provider",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::made_new_pgdata",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::made_new_xlogdir",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::n_av_slots",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::n_buffers",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::n_connections",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::noclean",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::noinstructions",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::output_errno",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::output_failed",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::pg_data",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::pgdata_native",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::progname",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::pwfilename",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::pwprompt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::share_path",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::show_setting",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::success",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::superuser_password",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::sync_data_files",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::sync_method",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::sync_only",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::system_constraints_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::system_functions_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::system_views_file",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::username",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::wal_segment_size_mb",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/initdb/initdb.c:src/bin/initdb/initdb.c::xlog_dir",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/common.c:src/bin/pg_dump/common.c::allocedDumpIds",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/common.c:src/bin/pg_dump/common.c::catalogIdHash",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/common.c:src/bin/pg_dump/common.c::dumpIdMap",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/common.c:src/bin/pg_dump/common.c::lastDumpId",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/parallel.c:src/bin/pg_dump/parallel.c::shutdown_info",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/parallel.c:src/bin/pg_dump/parallel.c::signal_info",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_backup_utils.c:src/bin/pg_dump/pg_backup_utils.c::on_exit_nicely_index",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_backup_utils.c:src/bin/pg_dump/pg_backup_utils.c::on_exit_nicely_list",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::binaryUpgradeClassOids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::comments",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::compression_algorithm",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::dosync",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::extension_exclude_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::extension_exclude_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::extension_include_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::extension_include_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::extra_float_digits",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::foreign_servers_include_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::foreign_servers_include_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::g_last_builtin_oid",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::have_extra_float_digits",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::nbinaryUpgradeClassOids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::ncomments",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::nrolenames",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::nseclabels",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::nsequences",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::rolenames",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::schema_exclude_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::schema_exclude_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::schema_include_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::schema_include_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::seclabels",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::sequences",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::strict_names",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_exclude_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_exclude_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_exclude_patterns_and_children",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_include_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_include_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::table_include_patterns_and_children",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::tabledata_exclude_oids",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::tabledata_exclude_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump.c:src/bin/pg_dump/pg_dump.c::tabledata_exclude_patterns_and_children",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump_sort.c:src/bin/pg_dump/pg_dump_sort.c::postDataBoundId",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dump_sort.c:src/bin/pg_dump/pg_dump_sort.c::preDataBoundId",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::OPF",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::binary_upgrade",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::column_inserts",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::connstr",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::database_exclude_names",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::database_exclude_patterns",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::disable_dollar_quoting",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::disable_triggers",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::dosync",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::filename",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::if_exists",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::inserts",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::load_via_partition_root",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_comments",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_data",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_policies",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_publications",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_role_passwords",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_schema",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_security_labels",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_statistics",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_subscriptions",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_table_access_method",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_tablespaces",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_toast_compression",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::no_unlogged_table_data",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::on_conflict_do_nothing",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::output_clean",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::pg_dump_bin",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::pgdumpopts",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::restrict_key",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::role_catalog",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::sequence_data",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::server_version",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::skip_acls",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::statistics_only",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::use_setsessauth",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::verbose",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/bin/pg_dump/pg_dumpall.c:src/bin/pg_dump/pg_dumpall.c::with_statistics",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/instr_time.c:src/common/instr_time.c::tsc_info",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_ARRAY",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_ARRAY_ELEMENTS",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_EPSILON",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_GOAL",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_KEY_PAIRS",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_MORE_ARRAY_ELEMENTS",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_MORE_KEY_PAIRS",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_OBJECT",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_SCALAR_FALSE",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_SCALAR_NULL",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_SCALAR_NUMBER",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_SCALAR_STRING",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::JSON_PROD_SCALAR_TRUE",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::failed_inc_oom",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::failed_oom",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/jsonapi.c:src/common/jsonapi.c::td_parser_table",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::log_flags",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::log_locus_callback",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::log_logfile",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::log_pre_callback",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::progname",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::sgr_error",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::sgr_locus",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::sgr_note",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/logging.c:src/common/logging.c::sgr_warning",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/pg_lzcompress.c:src/common/pg_lzcompress.c::hist_entries",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/common/pg_lzcompress.c:src/common/pg_lzcompress.c::hist_start",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/interfaces/libpq/fe-connect.c:src/interfaces/libpq/fe-connect.c::supported_sasl_mechs",
+      "owner": "library_immutable",
+      "rationale": "reviewed as read-only after static initialization"
+    },
+    {
+      "id": "internal:src/interfaces/libpq/fe-exec.c:src/interfaces/libpq/fe-exec.c::static_client_encoding",
+      "owner": "connection",
+      "rationale": "mutable compatibility state must follow the active private libpq connection"
+    },
+    {
+      "id": "internal:src/interfaces/libpq/fe-exec.c:src/interfaces/libpq/fe-exec.c::static_std_strings",
+      "owner": "connection",
+      "rationale": "mutable compatibility state must follow the active private libpq connection"
+    },
+    {
+      "id": "internal:src/port/pqsignal.c:src/port/pqsignal.c::pqsignal_handlers",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "use host-neutral callback dispatch without installing or retaining process signal handlers"
+    },
+    {
+      "id": "internal:src/timezone/localtime.c:src/timezone/localtime.c::tm",
+      "owner": "forbidden",
+      "rationale": "the upstream process-global behavior is unsafe in an embedded host",
+      "replacement": "use caller or execution-context-owned pg_tm storage"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::attypes",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::bloat",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::charcnt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::chars",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::comment_leapexpires",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::corr",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::desigidx",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::directory",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::errors",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::filename",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::hi_time",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::isdsts",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::lcltime",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapcnt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapexpires",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapmaxyear",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapminyear",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapsec",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapseen",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::linenum",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::links",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::lo_time",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::max_abbrvar_len",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::max_format_len",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::max_year",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::min_year",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nlinks",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nlinks_alloc",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::noise",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nrules",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nrules_alloc",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nzones",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::nzones_alloc",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::print_abbrevs",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::print_cutoff",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::progname",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::psxrules",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rfilename",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rlinenum",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::roll",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rules",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::timecnt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::timecnt_alloc",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::trans",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::ttisstds",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::ttisuts",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::typecnt",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::tzdefault",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::utoffs",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::warnings",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::zones",
+      "owner": "tool",
+      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    }
+  ],
+  "kind": "postgamma.frontend-tool-state-ownership",
+  "policy": "Every mutable frontend/tool object has a reviewed library, tool, connection, or forbidden owner. New source candidates require review.",
+  "schema_version": 1
+}

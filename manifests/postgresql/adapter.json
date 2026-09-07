@@ -1,0 +1,1045 @@
+{
+  "schema_version": 2,
+  "kind": "postgamma.postgresql-adapter",
+  "id": "postgresql-19-threaded-runtime",
+  "compatibility_scope": "source discovery, state virtualization, generated threaded role runtime hooks, and generated-tree build integration",
+  "supported_postgresql_majors": [19],
+  "fact_sources": {
+    "backend_execution_catalog": {
+      "path": "src/include/postmaster/proctypelist.h",
+      "parser": "postgresql.proctypelist.v1"
+    },
+    "guc_catalog": {
+      "path": "src/backend/utils/misc/guc_parameters.dat",
+      "parser": "postgresql.guc-parameters-dat.v1"
+    }
+  },
+  "backend_inheritance": {
+    "source_file": "src/backend/postmaster/launch_backend.c",
+    "contract_function": "save_backend_variables",
+    "extra_compile_arguments": ["-DEXEC_BACKEND"]
+  },
+  "execution_model_assumptions": [
+    {
+      "id": "assume.fork-confined-to-fork-process",
+      "callee": "fork",
+      "expected_matches": 1,
+      "allowed_source_file_suffixes": [
+        "src/backend/postmaster/fork_process.c"
+      ],
+      "rationale": "A direct fork from any other server path can strand locks held by other role threads."
+    },
+    {
+      "id": "assume.role-launches-use-postmaster-child-launch",
+      "callee": "postmaster_child_launch",
+      "expected_matches": 4,
+      "allowed_source_file_suffixes": [
+        "src/backend/postmaster/postmaster.c",
+        "src/backend/postmaster/syslogger.c"
+      ],
+      "rationale": "Every process-model PostgreSQL role launch must remain visible to the threaded launch hook."
+    }
+  ],
+  "runtime_hooks": [
+    {
+      "id": "pg.bootstrap.bind-execution-context",
+      "enclosing_function": "main",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "int postgamma_bootstrap_guard pg_attribute_unused() = (postgamma_server_execution_context_bootstrap(), 0);",
+      "source_file_suffixes": ["src/backend/main/main.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.stack.use-role-thread-limit",
+      "enclosing_function": "get_stack_depth_rlimit",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "ssize_t postgamma_stack_limit = postgamma_backend_stack_depth_limit(); if (postgamma_stack_limit >= 0) return postgamma_stack_limit;",
+      "source_file_suffixes": ["src/backend/utils/misc/stack_depth.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.guc.bind-builtin-state",
+      "enclosing_function": "InitializeGUCOptions",
+      "anchor_callee": "build_guc_variables",
+      "position": "before",
+      "code": "postgamma_bind_builtin_guc_variables();",
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.guc.bind-info-state",
+      "enclosing_function": "GucInfoMain",
+      "anchor_callee": "build_guc_variables",
+      "position": "before",
+      "code": "postgamma_bind_builtin_guc_variables();",
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.postmaster.apply-embedded-defaults",
+      "enclosing_function": "PostmasterMain",
+      "anchor_callee": "InitializeGUCOptions",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_postmaster_apply_embedded_defaults();",
+      "source_file_suffixes": ["src/backend/postmaster/postmaster.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.guc.transfer-custom-postmaster-state",
+      "enclosing_function": "can_skip_gucvar",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "if (postgamma_guc_state_requires_transfer(gconf)) return false;",
+      "source_file_suffixes": ["src/backend/utils/misc/guc.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.backend.launch-thread",
+      "enclosing_function": "postmaster_child_launch",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "return postgamma_postmaster_child_launch((int) child_type, child_slot, startup_data, startup_data_len, client_sock, child_process_kinds[child_type].main_fn, child_process_kinds[child_type].shmem_attach, child_process_kinds[child_type].name);",
+      "source_file_suffixes": ["src/backend/postmaster/launch_backend.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.signal.bind-thread-handler",
+      "enclosing_function": "pqsignal_be",
+      "anchor_callee": "sigemptyset",
+      "position": "before",
+      "code": "#ifndef FRONTEND\nif (postgamma_backend_pqsignal(signo, func)) return;\n#endif",
+      "source_file_suffixes": ["src/port/pqsignal.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.bootstrap.bind-memory-input",
+      "enclosing_function": "BootstrapModeMain",
+      "anchor_callee": "StartTransactionCommand",
+      "position": "before",
+      "code": "if (postgamma_bootstrap_scanner_bind(scanner) != 0) elog(ERROR, \"could not bind embedded bootstrap input\");",
+      "source_file_suffixes": ["src/backend/bootstrap/bootstrap.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.single-user.read-memory-input",
+      "enclosing_function": "interactive_getc",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "int postgamma_input; if (postgamma_standalone_input_getc(&postgamma_input)) { CHECK_FOR_INTERRUPTS(); ProcessClientReadInterrupt(false); return postgamma_input; }",
+      "source_file_suffixes": ["src/backend/tcop/postgres.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.collation.skip-process-enumeration-in-embedded-mode",
+      "enclosing_function": "pg_import_system_collations",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "if (postgamma_embedded_skip_system_collation_import()) PG_RETURN_INT32(0);",
+      "source_file_suffixes": ["src/backend/commands/collationcmds.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.module.load-static-function-in-embedded-mode",
+      "enclosing_function": "load_external_function",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "void *postgamma_result; if (postgamma_embedded_load_external_function(filename, funcname, signalNotFound, filehandle, &postgamma_result)) return postgamma_result;",
+      "source_file_suffixes": ["src/backend/utils/fmgr/dfmgr.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.module.lookup-static-function-in-embedded-mode",
+      "enclosing_function": "lookup_external_function",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "void *postgamma_result; if (postgamma_embedded_lookup_external_function(filehandle, funcname, &postgamma_result)) return postgamma_result;",
+      "source_file_suffixes": ["src/backend/utils/fmgr/dfmgr.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.module.load-static-library-in-embedded-mode",
+      "enclosing_function": "load_file",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "if (postgamma_embedded_load_file(filename, restricted)) return;",
+      "source_file_suffixes": ["src/backend/utils/fmgr/dfmgr.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.extension.activate-bundled-at-shared-preload-phase",
+      "enclosing_function": "process_shared_preload_libraries",
+      "anchor_callee": "load_libraries",
+      "position": "before",
+      "code": "postgamma_load_bundled_extensions();",
+      "source_file_suffixes": ["src/backend/utils/init/miscinit.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.extension.reset-session-on-discard-all",
+      "enclosing_function": "DiscardAll",
+      "anchor_callee": "ResetSequenceCaches",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_extension_reset_current_session();",
+      "source_file_suffixes": ["src/backend/commands/discard.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.transport.read-memory-endpoint",
+      "enclosing_function": "secure_raw_read",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "{ ssize_t postgamma_transport_result; if (postgamma_backend_transport_read(ptr, len, &postgamma_transport_result)) return postgamma_transport_result; }",
+      "source_file_suffixes": ["src/backend/libpq/be-secure.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.transport.write-memory-endpoint",
+      "enclosing_function": "secure_raw_write",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "{ ssize_t postgamma_transport_result; if (postgamma_backend_transport_write(ptr, len, &postgamma_transport_result)) return postgamma_transport_result; }",
+      "source_file_suffixes": ["src/backend/libpq/be-secure.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.signal.route-auxiliary-thread-role",
+      "enclosing_function": "pg_signal_backend",
+      "anchor_callee": "BackendPidGetProc",
+      "position": "after",
+      "code": "if (proc == NULL && postgamma_backend_pid_is_compat(pid)) { if (kill(pid, 0) != 0) { ereport(WARNING, (errmsg(\"could not find threaded backend role %d: %m\", pid))); return SIGNAL_BACKEND_ERROR; } if (!superuser()) return SIGNAL_BACKEND_NOSUPERUSER; if (kill(pid, sig) != 0) { ereport(WARNING, (errmsg(\"could not send signal to threaded backend role %d: %m\", pid))); return SIGNAL_BACKEND_ERROR; } return SIGNAL_BACKEND_SUCCESS; }",
+      "source_file_suffixes": ["src/backend/storage/ipc/signalfuncs.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.exit.leave-backend-thread",
+      "enclosing_function": "proc_exit",
+      "anchor_callee": "exit",
+      "position": "before",
+      "code": "postgamma_backend_exit(code);",
+      "source_file_suffixes": ["src/backend/storage/ipc/ipc.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.error.contain-backend-panic",
+      "enclosing_function": "errfinish",
+      "anchor_callee": "abort",
+      "position": "before",
+      "code": "postgamma_backend_panic();",
+      "source_file_suffixes": ["src/backend/utils/error/elog.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.process.reject-backend-fork",
+      "enclosing_function": "fork_process",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "return postgamma_forbidden_fork_process();",
+      "source_file_suffixes": ["src/backend/postmaster/fork_process.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.wait.reserve-backend-control-event",
+      "enclosing_function": "CreateWaitEventSet",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "nevents = postgamma_backend_wait_event_capacity(nevents);",
+      "source_file_suffixes": ["src/backend/storage/ipc/waiteventset.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.wait.attach-backend-control-event",
+      "enclosing_function": "WaitEventSetWait",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "postgamma_backend_attach_wait_event(set);",
+      "source_file_suffixes": ["src/backend/storage/ipc/waiteventset.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.postmaster.report-embedded-state",
+      "enclosing_function": "UpdatePMState",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "postgamma_postmaster_report_state(newState);",
+      "source_file_suffixes": ["src/backend/postmaster/postmaster.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.postmaster.enforce-embedded-policy",
+      "enclosing_function": "PostmasterMain",
+      "anchor_callee": "SelectConfigFiles",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_postmaster_enforce_embedded_policy();",
+      "source_file_suffixes": ["src/backend/postmaster/postmaster.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.postmaster.dispatch-embedded-control-event",
+      "enclosing_function": "ServerLoop",
+      "anchor_callee": "ResetLatch",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_postmaster_dispatch_control_event(&events[i]);",
+      "source_file_suffixes": ["src/backend/postmaster/postmaster.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "pg.checkpointer.observe-embedded-checkpoint-state",
+      "enclosing_function": "CheckpointerMain",
+      "anchor_callee": "ConditionVariableBroadcast",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_postgres_checkpoint_observe();",
+      "source_file_suffixes": ["src/backend/postmaster/checkpointer.c"],
+      "expected_matches": 3
+    },
+    {
+      "id": "pg.telemetry.log-thread-summary",
+      "enclosing_function": "ExitPostmaster",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "postgamma_backend_log_telemetry();",
+      "source_file_suffixes": ["src/backend/postmaster/postmaster.c"],
+      "expected_matches": 1
+    }
+  ],
+  "generated_support": {
+    "copies": [
+      {
+        "id": "runtime.guc-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/guc_runtime.h",
+        "target": "src/include/postgamma/guc_runtime.h"
+      },
+      {
+        "id": "runtime.contract-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/contract_runtime.h",
+        "target": "src/include/postgamma/contract_runtime.h"
+      },
+      {
+        "id": "runtime.guc-state-layout",
+        "source_root": "runtime",
+        "source": "include/postgamma/guc_state_layout.h",
+        "target": "src/include/postgamma/guc_state_layout.h"
+      },
+      {
+        "id": "runtime.guc-descriptors",
+        "source_root": "runtime",
+        "source": "include/postgamma/guc_descriptors.inc",
+        "target": "src/include/postgamma/guc_descriptors.inc"
+      },
+      {
+        "id": "runtime.guc-control-facts",
+        "source_root": "runtime",
+        "source": "include/postgamma/guc_control_facts.inc",
+        "target": "src/include/postgamma/guc_control_facts.inc"
+      },
+      {
+        "id": "runtime.embedded-guc-policy",
+        "source_root": "runtime",
+        "source": "include/postgamma/embedded_guc_policy.inc",
+        "target": "src/include/postgamma/embedded_guc_policy.inc"
+      },
+      {
+        "id": "runtime.tool-state-header",
+        "source_root": "runtime",
+        "source": "include/postgamma/tool_state_runtime.h",
+        "target": "src/include/postgamma/tool_state_runtime.h"
+      },
+      {
+        "id": "runtime.tool-state-layout",
+        "source_root": "runtime",
+        "source": "include/postgamma/tool_state_layout.h",
+        "target": "src/include/postgamma/tool_state_layout.h"
+      },
+      {
+        "id": "runtime.tool-state-descriptors",
+        "source_root": "runtime",
+        "source": "include/postgamma/tool_state_descriptors.inc",
+        "target": "src/include/postgamma/tool_state_descriptors.inc"
+      },
+      {
+        "id": "runtime.backend-state-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/backend_state_runtime.h",
+        "target": "src/include/postgamma/backend_state_runtime.h"
+      },
+      {
+        "id": "runtime.backend-state-layout",
+        "source_root": "runtime",
+        "source": "include/postgamma/backend_state_layout.h",
+        "target": "src/include/postgamma/backend_state_layout.h"
+      },
+      {
+        "id": "runtime.backend-state-descriptors",
+        "source_root": "runtime",
+        "source": "include/postgamma/backend_state_descriptors.inc",
+        "target": "src/include/postgamma/backend_state_descriptors.inc"
+      },
+      {
+        "id": "runtime.thread-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/thread_runtime.h",
+        "target": "src/include/postgamma/thread_runtime.h"
+      },
+      {
+        "id": "runtime.backend-execution-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/backend_execution_runtime.h",
+        "target": "src/include/postgamma/backend_execution_runtime.h"
+      },
+      {
+        "id": "runtime.instance-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/instance_runtime.h",
+        "target": "src/include/postgamma/instance_runtime.h"
+      },
+      {
+        "id": "runtime.path-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/path_runtime.h",
+        "target": "src/include/postgamma/path_runtime.h"
+      },
+      {
+        "id": "runtime.postmaster-control-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postmaster_control_runtime.h",
+        "target": "src/include/postgamma/postmaster_control_runtime.h"
+      },
+      {
+        "id": "runtime.embedded-kernel-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/embedded_kernel.h",
+        "target": "src/include/postgamma/embedded_kernel.h"
+      },
+      {
+        "id": "runtime.postgres-backend-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_backend_runtime.h",
+        "target": "src/include/postgamma/postgres_backend_runtime.h"
+      },
+      {
+        "id": "runtime.static-module-provider-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/static_module_provider.h",
+        "target": "src/include/postgamma/static_module_provider.h"
+      },
+      {
+        "id": "runtime.postgres-latch-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_latch_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_latch_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-postmaster-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_postmaster_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_postmaster_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-checkpoint-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_checkpoint_runtime.h",
+        "target": "src/include/postgamma/postgres_checkpoint_runtime.h"
+      },
+      {
+        "id": "runtime.postgres-checkpoint-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_checkpoint_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_checkpoint_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-pqcomm-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_pqcomm_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_pqcomm_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-be-secure-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_be_secure_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_be_secure_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-waiteventset-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_waiteventset_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_waiteventset_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-aset-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_aset_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_aset_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-snapmgr-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_snapmgr_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_snapmgr_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-elog-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_elog_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_elog_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-fd-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_fd_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_fd_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-xlog-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_xlog_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_xlog_runtime_impl.h"
+      },
+      {
+        "id": "runtime.postgres-syslogger-implementation",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_syslogger_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_syslogger_runtime_impl.h"
+      },
+      {
+        "id": "runtime.backend-execution-facts",
+        "source_root": "runtime",
+        "source": "include/postgamma/backend_execution.inc",
+        "target": "src/include/postgamma/backend_execution.inc"
+      },
+      {
+        "id": "runtime.extension-sdk",
+        "source_root": "project",
+        "source": "embedded-c/include/postgamma/postgamma_extension.h",
+        "target": "src/include/postgamma/postgamma_extension.h"
+      },
+      {
+        "id": "runtime.extension-runtime-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/extension_runtime.h",
+        "target": "src/include/postgamma/extension_runtime.h"
+      },
+      {
+        "id": "runtime.backend-inheritance-facts",
+        "source_root": "runtime",
+        "source": "include/postgamma/backend_inheritance.inc",
+        "target": "src/include/postgamma/backend_inheritance.inc"
+      },
+      {
+        "id": "runtime.execution-context",
+        "source_root": "project",
+        "source": "runtime/src/execution_context.c",
+        "target": "src/backend/utils/init/postgamma_execution_context.c"
+      },
+      {
+        "id": "runtime.guc-bridge",
+        "source_root": "project",
+        "source": "runtime/src/postgres_guc_runtime.c",
+        "target": "src/backend/utils/init/postgres_guc_bridge.c"
+      },
+      {
+        "id": "runtime.backend-state",
+        "source_root": "project",
+        "source": "runtime/src/backend_state_runtime.c",
+        "target": "src/backend/utils/init/postgres_backend_state.c"
+      },
+      {
+        "id": "runtime.thread-runtime",
+        "source_root": "project",
+        "source": "runtime/src/thread_runtime.c",
+        "target": "src/backend/utils/init/postgamma_thread_runtime.c"
+      },
+      {
+        "id": "runtime.backend-execution-runtime",
+        "source_root": "project",
+        "source": "runtime/src/backend_execution_runtime.c",
+        "target": "src/backend/utils/init/postgamma_backend_execution_runtime.c"
+      },
+      {
+        "id": "runtime.instance-runtime",
+        "source_root": "project",
+        "source": "runtime/src/instance_runtime.c",
+        "target": "src/backend/utils/init/postgamma_instance_runtime.c"
+      },
+      {
+        "id": "runtime.path-runtime",
+        "source_root": "project",
+        "source": "runtime/src/path_runtime.c",
+        "target": "src/backend/utils/init/postgamma_path_runtime.c"
+      },
+      {
+        "id": "runtime.extension-runtime",
+        "source_root": "project",
+        "source": "runtime/src/postgres_extension_runtime.c",
+        "target": "src/backend/utils/init/postgamma_extension_runtime.c"
+      },
+      {
+        "id": "runtime.postmaster-control-runtime",
+        "source_root": "project",
+        "source": "runtime/src/postmaster_control_runtime.c",
+        "target": "src/backend/utils/init/postgamma_postmaster_control_runtime.c"
+      },
+      {
+        "id": "runtime.postgres-backend-runtime",
+        "source_root": "project",
+        "source": "runtime/src/postgres_backend_runtime.c",
+        "target": "src/backend/postmaster/postgamma_backend_runtime.c"
+      }
+    ],
+    "edits": [
+      {
+        "id": "header.install-runtime-accessors",
+        "path": "src/include/c.h",
+        "mode": "insert_after",
+        "match": "#define C_H",
+        "content": "\n\n/* POSTGAMMA GENERATED BACKEND STATE SUPPORT */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#include \"postgamma/guc_runtime.h\"\n#else\n#define POSTGAMMA_GUC_VALUE(original) (original)\n#define POSTGAMMA_BACKEND_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_BACKEND_STATE_RELOCATED_VALUE(original, bridge) (original)\n#endif\n\n/* POSTGAMMA GENERATED FRONTEND TOOL STATE SUPPORT */\n#ifdef POSTGAMMA_FRONTEND_TOOL\n#include \"postgamma/tool_state_runtime.h\"\n#else\n#define POSTGAMMA_TOOL_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_TOOL_STATE_RELOCATED_VALUE(original, bridge) (original)\n#endif\n\n/* Shared source selects its state owner from the active compile domain. */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_BACKEND_STATE_VALUE(POSTGAMMA_BACKEND_STATE_SLOT_##id, original)\n#elif defined(POSTGAMMA_FRONTEND_TOOL)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_TOOL_STATE_VALUE(POSTGAMMA_TOOL_STATE_SLOT_##id, original)\n#else\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) (original)\n#endif",
+        "expected_matches": 1,
+        "reject_if_present": "/* POSTGAMMA GENERATED BACKEND STATE SUPPORT */"
+      },
+      {
+        "id": "header.mark-server-domain",
+        "path": "src/include/postgres.h",
+        "mode": "insert_after",
+        "match": "#define POSTGRES_H",
+        "content": "\n\n/* POSTGAMMA GENERATED SERVER COMPILATION DOMAIN */\n#ifndef FRONTEND\n#define POSTGAMMA_BACKEND 1\n#endif",
+        "expected_matches": 1,
+        "reject_if_present": "/* POSTGAMMA GENERATED SERVER COMPILATION DOMAIN */"
+      },
+      {
+        "id": "header.install-thread-boundary",
+        "path": "src/include/postgres.h",
+        "mode": "insert_after",
+        "match": "#include \"c.h\"",
+        "content": "\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#include \"postgamma/postgres_backend_runtime.h\"\n#endif",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_backend_runtime.h\""
+      },
+      {
+        "id": "header.dispatch-thread-signals-at-interrupt-check",
+        "path": "src/include/miscadmin.h",
+        "mode": "replace",
+        "match": "#define CHECK_FOR_INTERRUPTS() \\\ndo { \\\n\tif (INTERRUPTS_PENDING_CONDITION()) \\\n\t\tProcessInterrupts(); \\\n} while(0)",
+        "content": "#define CHECK_FOR_INTERRUPTS() \\\ndo { \\\n\tpostgamma_dispatch_pending_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION()) \\\n\t\tProcessInterrupts(); \\\n} while(0)",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_dispatch_pending_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION())"
+      },
+      {
+        "id": "generated-header.route-lwlock-array-through-role-state",
+        "path": "src/backend/storage/lmgr/generate-lwlocknames.pl",
+        "mode": "replace",
+        "match": "\t\tprintf $h \"#define %-32s (&MainLWLockArray[$lockidx].lock)\\n\",\n\t\t  $lockname . \"Lock\";",
+        "content": "\t\tprintf $h \"#define %-32s (&POSTGAMMA_BACKEND_STATE_GLOBAL(MainLWLockArray)[$lockidx].lock)\\n\",\n\t\t  $lockname . \"Lock\";",
+        "expected_matches": 1,
+        "reject_if_present": "POSTGAMMA_BACKEND_STATE_GLOBAL(MainLWLockArray)[$lockidx]"
+      },
+      {
+        "id": "port.expose-thread-signal-boundary",
+        "path": "src/port/pqsignal.c",
+        "mode": "insert_after",
+        "match": "#include \"miscadmin.h\"",
+        "content": "\n#include \"postgamma/postgres_backend_runtime.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_backend_runtime.h\""
+      },
+      {
+        "id": "wait.include-posix-semaphore-deadline-support",
+        "path": "src/backend/port/posix_sema.c",
+        "mode": "insert_after",
+        "match": "#include <signal.h>",
+        "content": "\n#include <time.h>",
+        "expected_matches": 1,
+        "reject_if_present": "#include <time.h>"
+      },
+      {
+        "id": "wait.poll-threaded-posix-semaphore-signals",
+        "path": "src/backend/port/posix_sema.c",
+        "mode": "replace",
+        "match": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\tdo\n\t{\n\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t} while (errStatus < 0 && errno == EINTR);\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"sem_wait failed: %m\");\n}",
+        "content": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/*\n\t * Native signals cannot interrupt a threaded backend's semaphore wait:\n\t * PostgreSQL signals are delivered through the role registry.  Bound the\n\t * wait so crash-shutdown signals can be dispatched without relying on an\n\t * unsafe process-wide signal handler.\n\t */\n\tif (postgamma_in_backend_thread())\n\t{\n\t\tfor (;;)\n\t\t{\n\t\t\tstruct timespec deadline;\n\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\tif (clock_gettime(CLOCK_REALTIME, &deadline) != 0)\n\t\t\t\telog(FATAL, \"clock_gettime failed: %m\");\n\t\t\tdeadline.tv_nsec += 100000000L;\n\t\t\tif (deadline.tv_nsec >= 1000000000L)\n\t\t\t{\n\t\t\t\tdeadline.tv_sec++;\n\t\t\t\tdeadline.tv_nsec -= 1000000000L;\n\t\t\t}\n\t\t\terrStatus = sem_timedwait(PG_SEM_REF(sema), &deadline);\n\t\t\tif (errStatus == 0)\n\t\t\t\treturn;\n\t\t\tif (errno != EINTR && errno != ETIMEDOUT)\n\t\t\t\tbreak;\n\t\t}\n\t}\n\telse\n\t{\n\t\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\t\tdo\n\t\t{\n\t\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t\t} while (errStatus < 0 && errno == EINTR);\n\t}\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"semaphore wait failed: %m\");\n}",
+        "expected_matches": 1,
+        "reject_if_present": "sem_timedwait(PG_SEM_REF(sema), &deadline)"
+      },
+      {
+        "id": "wait.limit-block-to-role-timeout",
+        "path": "src/backend/storage/ipc/waiteventset.c",
+        "mode": "replace",
+        "match": "\t\trc = WaitEventSetWaitBlock(set, cur_timeout,\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);",
+        "content": "\t\trc = WaitEventSetWaitBlock(set,\n\t\t\t\t\t\t\t\t   postgamma_backend_adjust_wait_timeout(cur_timeout),\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);\n\t\trc = postgamma_backend_filter_wake_events(occurred_events, rc);\n\t\tpostgamma_dispatch_pending_signals();",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_backend_adjust_wait_timeout(cur_timeout)"
+      },
+      {
+        "id": "wait.retry-after-role-timeout",
+        "path": "src/backend/storage/ipc/waiteventset.c",
+        "mode": "insert_before",
+        "match": "\t\tif (rc == -1)\n\t\t\tbreak;\t\t\t\t/* timeout occurred */",
+        "content": "\t\tif (postgamma_backend_timeout_wait_expired(rc) && set->latch != NULL)\n\t\t\tcontinue;\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_backend_timeout_wait_expired(rc)"
+      },
+      {
+        "id": "locale.keep-environment-instance-owned",
+        "path": "src/backend/utils/adt/pg_locale.c",
+        "mode": "replace",
+        "match": "\tif (setenv(envvar, result, 1) != 0)\n\t\treturn NULL;",
+        "content": "\tif (!postgamma_locale_environment_is_private() &&\n\t\tsetenv(envvar, result, 1) != 0)\n\t\treturn NULL;",
+        "expected_matches": 1,
+        "reject_if_present": "!postgamma_locale_environment_is_private() &&\n\t\tsetenv(envvar, result, 1)"
+      },
+      {
+        "id": "wait.install-latch-cleanup-bridge",
+        "path": "src/backend/storage/ipc/latch.c",
+        "mode": "insert_after",
+        "match": "static WaitEventSet *LatchWaitSet;",
+        "content": "\n#include \"postgamma/postgres_latch_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_latch_runtime_impl.h\""
+      },
+      {
+        "id": "memory.install-allocset-cleanup-bridge",
+        "path": "src/backend/utils/mmgr/aset.c",
+        "mode": "insert_after",
+        "match": "static AllocSetFreeList context_freelists[2] =\n{\n\t{\n\t\t0, NULL\n\t},\n\t{\n\t\t0, NULL\n\t}\n};",
+        "content": "\n\n#include \"postgamma/postgres_aset_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_aset_runtime_impl.h\""
+      },
+      {
+        "id": "memory.install-snapshot-cleanup-bridge",
+        "path": "src/backend/utils/time/snapmgr.c",
+        "mode": "insert_after",
+        "match": "static SnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};\nstatic SnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};\nstatic SnapshotData CatalogSnapshotData = {SNAPSHOT_MVCC};",
+        "content": "\n#include \"postgamma/postgres_snapmgr_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_snapmgr_runtime_impl.h\""
+      },
+      {
+        "id": "error.install-syslog-cleanup-bridge",
+        "path": "src/backend/utils/error/elog.c",
+        "mode": "insert_after",
+        "match": "static void write_syslog(int level, const char *line);\n#endif",
+        "content": "\n\n#include \"postgamma/postgres_elog_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_elog_runtime_impl.h\""
+      },
+      {
+        "id": "postmaster.own-data-directory-option-in-context",
+        "path": "src/backend/postmaster/postmaster.c",
+        "mode": "replace",
+        "match": "\t\t\t\tuserDoption = strdup(optctx.optarg);",
+        "content": "\t\t\t\tuserDoption = pstrdup(optctx.optarg);",
+        "expected_matches": 1,
+        "reject_if_present": "userDoption = pstrdup(optctx.optarg);"
+      },
+      {
+        "id": "postmaster.install-embedded-control-bridge",
+        "path": "src/backend/postmaster/postmaster.c",
+        "mode": "insert_after",
+        "match": "static void InitPostmasterDeathWatchHandle(void);",
+        "content": "\n\n#include \"postgamma/postgres_postmaster_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_postmaster_runtime_impl.h\""
+      },
+      {
+        "id": "checkpointer.install-embedded-management-bridge",
+        "path": "src/backend/postmaster/checkpointer.c",
+        "mode": "insert_after",
+        "match": "static CheckpointerShmemStruct *CheckpointerShmem;",
+        "content": "\n\n#include \"postgamma/postgres_checkpoint_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_checkpoint_runtime_impl.h\""
+      },
+      {
+        "id": "pqcomm.install-memory-address-bridge",
+        "path": "src/backend/libpq/pqcomm.c",
+        "mode": "insert_after",
+        "match": "WaitEventSet *FeBeWaitSet;",
+        "content": "\n\n#include \"postgamma/postgres_pqcomm_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_pqcomm_runtime_impl.h\""
+      },
+      {
+        "id": "secure.install-memory-wait-bridge",
+        "path": "src/backend/libpq/be-secure.c",
+        "mode": "insert_after",
+        "match": "#include \"utils/wait_event.h\"",
+        "content": "\n#include \"postgamma/postgres_be_secure_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_be_secure_runtime_impl.h\""
+      },
+      {
+        "id": "postmaster.allow-embedded-no-listener",
+        "path": "src/backend/postmaster/postmaster.c",
+        "mode": "insert_before",
+        "match": "\t\tereport(FATAL,\n\t\t\t\t(errmsg(\"no socket created for listening\")));",
+        "content": "\t\tif (postgamma_postmaster_listener_required())\n",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_postmaster_listener_required()"
+      },
+      {
+        "id": "wait.install-support-cleanup-bridge",
+        "path": "src/backend/storage/ipc/waiteventset.c",
+        "mode": "insert_before",
+        "match": "#if defined(WAIT_USE_SELF_PIPE) || defined(WAIT_USE_SIGNALFD)\nstatic void drain(void);\n#endif",
+        "content": "#include \"postgamma/postgres_waiteventset_runtime_impl.h\"\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_waiteventset_runtime_impl.h\""
+      },
+      {
+        "id": "file.install-cleanup-bridge",
+        "path": "src/backend/storage/file/fd.c",
+        "mode": "insert_before",
+        "match": "/*\n * Remove temporary and temporary relation files left over from a prior\n * postmaster session",
+        "content": "#include \"postgamma/postgres_fd_runtime_impl.h\"\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_fd_runtime_impl.h\""
+      },
+      {
+        "id": "xlog.install-cleanup-bridge",
+        "path": "src/backend/access/transam/xlog.c",
+        "mode": "insert_before",
+        "match": "/*\n * Preallocate log files beyond the specified log endpoint.",
+        "content": "#include \"postgamma/postgres_xlog_runtime_impl.h\"\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_xlog_runtime_impl.h\""
+      },
+      {
+        "id": "syslogger.install-descriptor-transfer-bridge",
+        "path": "src/backend/postmaster/syslogger.c",
+        "mode": "insert_before",
+        "match": "/*\n * Main entry point for syslogger process",
+        "content": "#include \"postgamma/postgres_syslogger_runtime_impl.h\"\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_syslogger_runtime_impl.h\""
+      },
+      {
+        "id": "build.mark-backend-domain",
+        "path": "src/backend/common.mk",
+        "mode": "insert_before",
+        "match": "subsysfilename = objfiles.txt",
+        "content": "# POSTGAMMA GENERATED SERVER COMPILATION DOMAIN\noverride CPPFLAGS += -DPOSTGAMMA_BACKEND\n\n",
+        "expected_matches": 1,
+        "reject_if_present": "# POSTGAMMA GENERATED SERVER COMPILATION DOMAIN"
+      },
+      {
+        "id": "build.mark-common-server-objects",
+        "path": "src/common/Makefile",
+        "mode": "replace",
+        "match": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@",
+        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@",
+        "expected_matches": 1,
+        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@"
+      },
+      {
+        "id": "build.mark-port-server-objects",
+        "path": "src/port/Makefile",
+        "mode": "replace",
+        "match": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@",
+        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@",
+        "expected_matches": 1,
+        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@"
+      },
+      {
+        "id": "build.link-private-runtime",
+        "path": "src/backend/utils/init/Makefile",
+        "mode": "insert_after",
+        "match": "OBJS = \\\n\tglobals.o \\\n",
+        "content": "\tpostgamma_execution_context.o \\\n\tpostgamma_thread_runtime.o \\\n\tpostgamma_backend_execution_runtime.o \\\n\tpostgamma_instance_runtime.o \\\n\tpostgamma_path_runtime.o \\\n\tpostgamma_extension_runtime.o \\\n\tpostgamma_postmaster_control_runtime.o \\\n\tpostgres_guc_bridge.o \\\n\tpostgres_backend_state.o \\\n",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_execution_context.o"
+      },
+      {
+        "id": "build.link-postgres-backend-runtime",
+        "path": "src/backend/postmaster/Makefile",
+        "mode": "insert_after",
+        "match": "OBJS = \\\n\tautovacuum.o \\\n",
+        "content": "\tpostgamma_backend_runtime.o \\\n",
+        "expected_matches": 1,
+        "reject_if_present": "postgamma_backend_runtime.o"
+      },
+      {
+        "id": "build.link-pthread-runtime",
+        "path": "src/backend/Makefile",
+        "mode": "insert_after",
+        "match": "LIBS += $(LDAP_LIBS_BE) $(ICU_LIBS) $(LIBURING_LIBS)",
+        "content": "\nLIBS += -pthread",
+        "expected_matches": 1,
+        "reject_if_present": "LIBS += -pthread"
+      }
+    ]
+  },
+  "test_adaptations": [
+    {
+      "id": "catalog.register-thread-role-crash-bridge",
+      "path": "src/include/catalog/pg_proc.dat",
+      "mode": "insert_before",
+      "match": "{ oid => '2621', descr => 'reload configuration files',\n  proname => 'pg_reload_conf', provolatile => 'v', prorettype => 'bool',\n  proargtypes => '', prosrc => 'pg_reload_conf', proacl => '{POSTGRES=X}' },",
+      "content": "{ oid => '9716', descr => 'crash a threaded backend role',\n  proname => 'pg_postgamma_crash_backend', proisstrict => 't',\n  provolatile => 'v', prorettype => 'bool', proargtypes => 'int4 int4',\n  proargnames => '{pid,signal}', prosrc => 'pg_postgamma_crash_backend',\n  proacl => '{POSTGRES=X}' },\n\n{ oid => '9717', descr => 'pause or resume a threaded backend role',\n  proname => 'pg_postgamma_pause_backend', proisstrict => 't',\n  provolatile => 'v', prorettype => 'bool', proargtypes => 'int4 bool',\n  proargnames => '{pid,pause}', prosrc => 'pg_postgamma_pause_backend',\n  proacl => '{POSTGRES=X}' },\n\n",
+      "expected_matches": 1,
+      "reject_if_present": "proname => 'pg_postgamma_crash_backend'"
+    },
+    {
+        "id": "test.route-io-worker-signal-through-role-registry",
+        "path": "src/test/modules/test_aio/t/002_io_workers.pl",
+        "mode": "replace",
+        "match": "\t# terminate IO worker with SIGINT\n\tis(PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'INT', $pid),\n\t\t0, \"random io worker process signalled with INT\");",
+        "content": "\t# The activity PID is a role compatibility token in the threaded tree.\n\t# Route SIGINT through PostgreSQL so the role registry can target it.\n\tis($node->safe_psql('postgres', \"SELECT pg_cancel_backend($pid);\"),\n\t\t't', \"random io worker role signalled with INT\");",
+        "expected_matches": 1,
+        "reject_if_present": "random io worker role signalled with INT"
+      },
+      {
+        "id": "test.route-checksum-launcher-signal-through-role-registry",
+        "path": "src/test/modules/test_checksums/t/002_restarts.pl",
+        "mode": "replace",
+        "match": "is(PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'INT', $pid),\n\t0, \"datachecksums launcher process signalled with INT\");",
+        "content": "is($node->safe_psql('postgres', \"SELECT pg_cancel_backend($pid);\"),\n\t't', \"datachecksums launcher role signalled with INT\");",
+        "expected_matches": 1,
+        "reject_if_present": "datachecksums launcher role signalled with INT"
+      },
+      {
+        "id": "test.remove-process-pid-from-threaded-shm-scenario",
+        "path": "src/test/recovery/t/017_shm.pl",
+        "mode": "replace",
+        "match": "my $slow_pid = $gnat->safe_psql('postgres',\n\t\"SELECT pid FROM pg_stat_activity WHERE query = '$slow_query'\");\n$gnat->kill9;",
+        "content": "# A busy threaded role cannot outlive the host process.\n$gnat->kill9;",
+        "expected_matches": 1,
+        "reject_if_present": "# A busy threaded role cannot outlive the host process."
+      },
+      {
+        "id": "test.validate-threaded-shm-host-lifetime",
+        "path": "src/test/recovery/t/017_shm.pl",
+        "mode": "replace_between",
+        "start": "# Reject ordinary startup.",
+        "end": "# now startup should work\npoll_start($gnat);\nlog_ipcs();",
+        "content": "# Process-backed PostgreSQL tests that a backend can keep shared memory\n# alive after postmaster death.  A thread cannot outlive its host, so the\n# threaded invariant is that the same data directory can restart cleanly.\npoll_start($gnat);\nis($gnat->safe_psql('postgres', 'SELECT 1'), '1',\n\t'busy threaded role did not outlive its host process');\n$slow_client->finish;    # client has detected host termination\nlog_ipcs();",
+        "expected_matches": 1,
+        "reject_if_present": "# Process-backed PostgreSQL tests that a backend can keep shared memory"
+      },
+      {
+        "id": "test.pause-replication-roles-through-role-registry",
+        "path": "src/test/recovery/t/019_replslot_limit.pl",
+        "mode": "replace",
+        "match": "kill 'STOP', $senderpid, $receiverpid;",
+        "content": "is($node_primary3->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($senderpid, true)\"),\n\t't', 'paused threaded walsender role');\nis($node_standby3->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($receiverpid, true)\"),\n\t't', 'paused threaded walreceiver role');",
+        "expected_matches": 1,
+        "reject_if_present": "'paused threaded walsender role'"
+      },
+      {
+        "id": "test.resume-replication-sender-through-role-registry",
+        "path": "src/test/recovery/t/019_replslot_limit.pl",
+        "mode": "replace",
+        "match": "kill 'CONT', $senderpid;",
+        "content": "is($node_primary3->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($senderpid, false)\"),\n\t't', 'resumed threaded walsender role');",
+        "expected_matches": 1,
+        "reject_if_present": "'resumed threaded walsender role'"
+      },
+      {
+        "id": "test.resume-replication-receiver-through-role-registry",
+        "path": "src/test/recovery/t/019_replslot_limit.pl",
+        "mode": "replace",
+        "match": "kill 'CONT', $receiverpid;",
+        "content": "is($node_standby3->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($receiverpid, false)\"),\n\t't', 'resumed threaded walreceiver role');",
+        "expected_matches": 1,
+        "reject_if_present": "'resumed threaded walreceiver role'"
+      },
+      {
+        "id": "test.pause-subscription-receiver-through-role-registry",
+        "path": "src/test/subscription/t/038_walsnd_shutdown_timeout.pl",
+        "mode": "replace",
+        "match": "kill 'STOP', $receiverpid;",
+        "content": "is($node_standby->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($receiverpid, true)\"),\n\t't', 'paused threaded walreceiver role');",
+        "expected_matches": 1,
+        "reject_if_present": "'paused threaded walreceiver role'"
+      },
+      {
+        "id": "test.resume-subscription-receiver-through-role-registry",
+        "path": "src/test/subscription/t/038_walsnd_shutdown_timeout.pl",
+        "mode": "replace",
+        "match": "kill 'CONT', $receiverpid;",
+        "content": "is($node_standby->safe_psql('postgres',\n\t\"SELECT pg_postgamma_pause_backend($receiverpid, false)\"),\n\t't', 'resumed threaded walreceiver role');",
+        "expected_matches": 1,
+        "reject_if_present": "'resumed threaded walreceiver role'"
+      },
+      {
+        "id": "test.configure-crash-restart-prepared-transactions",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "insert_after",
+        "match": "compute_query_id = 'regress'",
+        "content": "\nmax_prepared_transactions = 10",
+        "expected_matches": 1,
+        "reject_if_present": "max_prepared_transactions = 10"
+      },
+      {
+        "id": "test.prepare-crash-restart-semaphore-blocker",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "insert_after",
+        "match": "my $stats_reset = $node->safe_psql(\n\t'postgres', q[\n\t\tCREATE EXTENSION pg_stat_statements;\n\t\tSELECT stats_reset FROM pg_stat_statements_info;\n\t]);",
+        "content": "\n\n# Keep a relation lock alive across the crash.  The monitor below will wait\n# inside PGSemaphoreLock(), exercising crash-signal delivery to a blocked\n# threaded backend rather than the latch-based pg_sleep() path.\n$node->safe_psql(\n\t'postgres', q[\n\t\tCREATE TABLE postgamma_semaphore_blocker(id integer);\n\t\tBEGIN;\n\t\tLOCK TABLE postgamma_semaphore_blocker IN ACCESS EXCLUSIVE MODE;\n\t\tPREPARE TRANSACTION 'postgamma_semaphore_blocker';\n\t]);",
+        "expected_matches": 1,
+        "reject_if_present": "CREATE TABLE postgamma_semaphore_blocker"
+      },
+      {
+        "id": "test.block-crash-restart-monitor-in-semaphore-wait",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "replace",
+        "match": "# Start longrunning query in second session; its failure will signal that\n# crash-restart has occurred.  The initial wait for the trivial select is to\n# be sure that psql successfully connected to backend.\n$monitor_stdin .= q[\nSELECT $$psql-connected$$;\nSELECT pg_sleep(3600);\n];\nok( pump_until(\n\t\t$monitor, $psql_timeout, \\$monitor_stdout, qr/psql-connected/m),\n\t'monitor connected');",
+        "content": "# Block the second session behind the prepared transaction.  Its failure will\n# signal that crash-restart has occurred.  Waiting until pg_stat_activity\n# reports the relation-lock wait makes the semaphore path deterministic.\n$monitor_stdin .= q[\nSELECT $$psql-connected:$$ || pg_backend_pid();\nSELECT count(*) FROM postgamma_semaphore_blocker;\n];\nok( pump_until(\n\t\t$monitor, $psql_timeout, \\$monitor_stdout, qr/psql-connected/m),\n\t'monitor connected');\nmy ($monitor_pid) = $monitor_stdout =~ /psql-connected:([[:digit:]]+)/;\nok(defined($monitor_pid), 'acquired monitor pid');\nis( $node->poll_query_until(\n\t\t'postgres',\n\t\t\"SELECT wait_event_type = 'Lock' AND wait_event = 'relation' \"\n\t\t  . \"FROM pg_stat_activity WHERE pid = $monitor_pid\"),\n\t'1',\n\t'monitor is blocked in the relation-lock semaphore wait');",
+        "expected_matches": 1,
+        "reject_if_present": "monitor is blocked in the relation-lock semaphore wait"
+      },
+      {
+        "id": "test.cleanup-crash-restart-semaphore-blocker",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "insert_after",
+        "match": "is($node->poll_query_until('postgres', undef, ''),\n\t\"1\", \"reconnected after SIGQUIT\");",
+        "content": "\n\n$node->safe_psql(\n\t'postgres', q[\n\t\tROLLBACK PREPARED 'postgamma_semaphore_blocker';\n\t\tDROP TABLE postgamma_semaphore_blocker;\n\t]);",
+        "expected_matches": 1,
+        "reject_if_present": "ROLLBACK PREPARED 'postgamma_semaphore_blocker'"
+      },
+      {
+        "id": "test.route-crash-restart-sigquit-through-role-registry",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "replace",
+        "match": "# kill once with QUIT - we expect psql to exit, while emitting error message first\nmy $ret = PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'QUIT', $pid);\n\n# Exactly process should have been alive to be killed\nis($ret, 0, \"killed process with SIGQUIT\");",
+        "content": "# A compatibility PID names a threaded role, not a host process.\n# The following connection may itself be closed by the resulting crash cycle.\n$node->psql('postgres',\n\t\"SELECT pg_postgamma_crash_backend($pid, 3)\");",
+        "expected_matches": 1,
+        "reject_if_present": "# A compatibility PID names a threaded role, not a host process."
+      },
+      {
+        "id": "test.route-crash-restart-sigkill-through-role-registry",
+        "path": "src/test/recovery/t/013_crash_restart.pl",
+        "mode": "replace",
+        "match": "# kill with SIGKILL this time - we expect the backend to exit, without\n# being able to emit an error message\n$ret = PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'KILL', $pid);\nis($ret, 0, \"killed process with KILL\");",
+        "content": "# Crash the threaded role without running its PostgreSQL signal handler.\n$node->psql('postgres',\n\t\"SELECT pg_postgamma_crash_backend($pid, 9)\");",
+        "expected_matches": 1,
+        "reject_if_present": "# Crash the threaded role without running its PostgreSQL signal handler."
+      },
+      {
+        "id": "test.route-temp-file-first-sigkill-through-role-registry",
+        "path": "src/test/recovery/t/022_crash_temp_files.pl",
+        "mode": "replace",
+        "match": "# Kill with SIGKILL\nmy $ret = PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'KILL', $pid);\nis($ret, 0, 'killed process with KILL');",
+        "content": "# Crash the first threaded role without running its PostgreSQL signal handler.\n$node->psql('postgres',\n\t\"SELECT pg_postgamma_crash_backend($pid, 9)\");",
+        "expected_matches": 1,
+        "reject_if_present": "# Crash the first threaded role without running its PostgreSQL signal handler."
+      },
+      {
+        "id": "test.route-temp-file-second-sigkill-through-role-registry",
+        "path": "src/test/recovery/t/022_crash_temp_files.pl",
+        "mode": "replace",
+        "match": "# Kill with SIGKILL\n$ret = PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'KILL', $pid);\nis($ret, 0, 'killed process with KILL');",
+        "content": "# Crash the second threaded role without running its PostgreSQL signal handler.\n$node->psql('postgres',\n\t\"SELECT pg_postgamma_crash_backend($pid, 9)\");",
+        "expected_matches": 1,
+        "reject_if_present": "# Crash the second threaded role without running its PostgreSQL signal handler."
+      },
+      {
+        "id": "test.route-promote-sigkill-through-role-registry",
+        "path": "src/test/recovery/t/041_checkpoint_at_promote.pl",
+        "mode": "replace",
+        "match": "my $ret = PostgreSQL::Test::Utils::system_log('pg_ctl', 'kill', 'KILL', $pid);\nis($ret, 0, 'killed process with KILL');",
+        "content": "# Crash the threaded role without running its PostgreSQL signal handler.\nmy $ret;\n$node_standby->psql('postgres',\n\t\"SELECT pg_postgamma_crash_backend($pid, 9)\");",
+        "expected_matches": 1,
+        "reject_if_present": "# Crash the threaded role without running its PostgreSQL signal handler."
+      }
+  ]
+}

@@ -1,0 +1,4 @@
+comment = 'postgamma SDK bundled extension lifecycle probe'
+default_version = '1.0'
+module_pathname = '$libdir/postgamma_sdk_probe'
+relocatable = true

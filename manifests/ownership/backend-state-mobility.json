@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.backend-state-mobility",
+  "review_fingerprint": {
+    "candidate_ids_sha256": "29dc61bee46264fb7f75c37738c5ae2c8a1402ab0744b0d46d121ef98eae0534",
+    "ownership_decisions_sha256": "b3e64d29b5680fa991f92f019b1290988a59df4d84ffe92c76c28dd4757011c3"
+  },
+  "owner_defaults": {
+    "immutable": {
+      "semantic_owner": "immutable",
+      "mobility": "portable",
+      "rationale": "Read-only state is independent of a logical session and native carrier."
+    },
+    "instance": {
+      "semantic_owner": "instance",
+      "mobility": "portable",
+      "rationale": "The value belongs to an instance and is reachable from every carrier through the instance context."
+    },
+    "managed_guc": {
+      "semantic_owner": "logical_backend",
+      "mobility": "portable",
+      "rationale": "Generated GUC storage lives in heap-backed logical role or session state; parameter ownership refines semantic_owner."
+    },
+    "role": {
+      "semantic_owner": "logical_backend",
+      "mobility": "portable",
+      "rationale": "Generated role storage follows the logical PostgreSQL backend and is not native-thread storage."
+    },
+    "session": {
+      "semantic_owner": "session",
+      "mobility": "portable",
+      "rationale": "Generated session storage follows the SQL session execution context."
+    }
+  },
+  "overrides": [
+    {
+      "id": "external:PG_exception_stack",
+      "semantic_owner": "logical_backend",
+      "mobility": "carrier_only",
+      "rebind_hook": "fresh_outer_error_boundary",
+      "quiescence": "must_be_null_at_yield",
+      "rationale": "The value may point into the current C stack and must never survive release of a carrier."
+    },
+    {
+      "id": "external:apply_error_context_stack",
+      "semantic_owner": "logical_backend",
+      "mobility": "pin_while_active",
+      "rebind_hook": "verify_error_context_quiescence",
+      "quiescence": "must_be_null_before_migration",
+      "rationale": "Logical replication callbacks may contain carrier-stack addresses while an apply operation is active."
+    },
+    {
+      "id": "external:error_context_stack",
+      "semantic_owner": "logical_backend",
+      "mobility": "carrier_only",
+      "rebind_hook": "verify_error_context_quiescence",
+      "quiescence": "must_be_null_at_yield",
+      "rationale": "Error callbacks are commonly stack allocated and cannot move with the logical backend."
+    },
+    {
+      "id": "internal:src/backend/utils/misc/stack_depth.c:src/backend/utils/misc/stack_depth.c::stack_base_ptr",
+      "semantic_owner": "logical_backend",
+      "mobility": "rebind_required",
+      "rebind_hook": "set_stack_base",
+      "quiescence": "restore_previous_stack_base_at_unbind",
+      "rationale": "Stack-depth accounting must be rebound to the native stack used for each execution quantum."
+    },
+    {
+      "id": "internal:@generated/src/backend/utils/misc/guc-file.c:@generated/src/backend/utils/misc/guc-file.c::GUC_flex_fatal_jmp",
+      "semantic_owner": "logical_backend",
+      "mobility": "carrier_only",
+      "rebind_hook": "verify_guc_parser_quiescence",
+      "quiescence": "must_restore_saved_value_before_yield",
+      "rationale": "The generated GUC lexer temporarily points at a parser stack jump buffer and restores the saved value before returning."
+    }
+  ],
+  "runtime_carrier_fields": [
+    {
+      "name": "previous_execution",
+      "bind_hook": "postgamma_execution_context_bind",
+      "unbind_hook": "postgamma_execution_context_restore",
+      "rationale": "Restores the worker TLS root after a quantum."
+    },
+    {
+      "name": "previous_stack_base",
+      "bind_hook": "set_stack_base",
+      "unbind_hook": "restore_stack_base",
+      "rationale": "Prevents stack-depth metadata from leaking between carriers."
+    },
+    {
+      "name": "exit_jump",
+      "bind_hook": "sigsetjmp",
+      "unbind_hook": "clear_exit_jump_ready",
+      "rationale": "The terminal error boundary is allocated on the active carrier."
+    },
+    {
+      "name": "saved_errno",
+      "bind_hook": "save_errno",
+      "unbind_hook": "restore_errno",
+      "rationale": "The C runtime error slot is carrier-local and must not become session state."
+    },
+    {
+      "name": "previous_locale",
+      "bind_hook": "uselocale",
+      "unbind_hook": "uselocale",
+      "rationale": "The worker locale must be restored before it executes another session."
+    },
+    {
+      "name": "exit_jump_ready",
+      "bind_hook": "arm_outer_error_boundary",
+      "unbind_hook": "clear_exit_jump_ready",
+      "rationale": "An armed jump target is valid only on its creating carrier."
+    },
+    {
+      "name": "execution_bound",
+      "bind_hook": "postgamma_bind_backend_session",
+      "unbind_hook": "postgamma_unbind_backend_session",
+      "rationale": "Tracks exclusive ownership of the carrier frame."
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.semantic-injection-fixture",
+  "symbols": [],
+  "assumptions": [
+    {
+      "id": "assume.memory-context-entry",
+      "callee": "MemoryContextInit",
+      "expected_matches": 1,
+      "allowed_source_file_suffixes": ["injection.c"]
+    }
+  ],
+  "injections": [
+    {
+      "id": "fixture.entry",
+      "enclosing_function": "main",
+      "anchor_callee": "__function_entry__",
+      "position": "entry",
+      "code": "postgamma_at_entry();\ntrace += 0;",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "fixture.before",
+      "enclosing_function": "main",
+      "anchor_callee": "MemoryContextInit",
+      "position": "before",
+      "code": "#ifndef FRONTEND\npostgamma_before_anchor();\ntrace += 0;\n#endif",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "fixture.after",
+      "enclosing_function": "main",
+      "anchor_callee": "MemoryContextInit",
+      "position": "after",
+      "code": "postgamma_after_anchor();\ntrace += 0;",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "fixture.after-declaration",
+      "enclosing_function": "declaration_anchor",
+      "anchor_callee": "LookupValue",
+      "position": "after",
+      "code": "postgamma_after_declaration();",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 1
+    },
+    {
+      "id": "fixture.after-enclosing-statement",
+      "enclosing_function": "main",
+      "anchor_callee": "ConditionalAnchor",
+      "position": "after_enclosing_statement",
+      "code": "postgamma_after_conditional();",
+      "source_file_suffixes": ["injection.c"],
+      "expected_matches": 1
+    }
+  ]
+}

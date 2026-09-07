@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block htmltitle %}
+  {% if page and page.is_homepage %}
+    <title>{{ config.site_name }} - {{ config.site_description }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}

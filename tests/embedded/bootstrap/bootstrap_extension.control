@@ -1,0 +1,4 @@
+comment = 'postgamma bootstrap statically linked extension probe'
+default_version = '1.0'
+module_pathname = '$libdir/bootstrap_extension'
+relocatable = true

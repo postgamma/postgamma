@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.guc-ownership",
+  "symbols": [
+    {
+      "id": "fixture.enable_hashjoin",
+      "name": "enable_hashjoin",
+      "c_type": "int",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_VALUE(enable_hashjoin)",
+      "declaration_file_suffixes": ["guc_macro.c"]
+    }
+  ]
+}

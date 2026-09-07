@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.python-release-baseline",
+  "release": {
+    "name": "postgamma",
+    "version": "0.1.0a1",
+    "state": "alpha",
+    "public_api_version": 1
+  },
+  "postgresql": {
+    "major": 19,
+    "abi_version": 65539,
+    "build_id": "postgamma-0.1.0a1-pg19",
+    "capabilities": 112639
+  },
+  "python": {
+    "requires_python": ">=3.10",
+    "implementation": "CPython",
+    "tags": [
+      "cp310",
+      "cp311",
+      "cp312",
+      "cp313",
+      "cp314"
+    ],
+    "manylinux_policy": "manylinux_2_28_x86_64"
+  },
+  "wheel": {
+    "kernel_linkage": "static",
+    "build_kernel_archive": "libpostgamma_python_abi1.a",
+    "bundled_kernel_library": false,
+    "native_dynamic_export": "PyInit__native",
+    "static_kernel_marker": "postgamma/_resources/lib/postgamma-static-kernel.json",
+    "metadata_version": "2.4",
+    "description_content_type": "text/markdown",
+    "license_expression": "Apache-2.0",
+    "project_urls": {
+      "Homepage": "https://postgamma.com"
+    },
+    "project_license": {
+      "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "NOTICE": "db5e2854154f8d331b970cf94093706f8d87b58fcaad01b990256e7536cdc61e"
+    },
+    "third_party_licenses": {
+      "THIRD_PARTY_NOTICES": "b5107ecdb41860f5a8c7381083520fe10311939a74da7a79f4899bdcc1a7a876",
+      "LICENSE.pgvector": "6bba9ebeb73e27477463b05e5ef1bf303bccbddb3db9bbc95905d351604d6a87",
+      "LICENSE.postgresql": "3d6af92ff8a4c2cdf69afb1cf44edea727922f5cd0cf8b5f72b11cdecac8fdfd"
+    },
+    "source_distribution": false
+  },
+  "dbapi": {
+    "apilevel": "2.0",
+    "threadsafety": 2,
+    "paramstyle": "numeric"
+  },
+  "documentation": {
+    "examples": [
+      "quickstart",
+      "async-concurrency",
+      "backup-restore",
+      "vector-search"
+    ]
+  },
+  "limits": {
+    "default_result_bytes": 16777216,
+    "default_value_bytes": 8388608,
+    "default_worker_count": 4
+  },
+  "public_exports": [
+    "Array",
+    "ArrowResult",
+    "AsyncConnection",
+    "AsyncCopy",
+    "AsyncDatabase",
+    "AsyncPreparedStatement",
+    "AsyncRowStream",
+    "BINARY",
+    "Binary",
+    "BundledExtension",
+    "Capability",
+    "Column",
+    "Connection",
+    "ConnectionStatus",
+    "CopyIn",
+    "CopyOut",
+    "Cursor",
+    "DataError",
+    "DATETIME",
+    "Database",
+    "DatabaseError",
+    "EncodedParameter",
+    "Error",
+    "Event",
+    "EventKind",
+    "ForkedProcessError",
+    "IntegrityError",
+    "InterfaceError",
+    "InternalError",
+    "Json",
+    "LogEvent",
+    "LogicalFlags",
+    "MaintenanceKind",
+    "NUMBER",
+    "NotSupportedError",
+    "NoticeEvent",
+    "NotificationEvent",
+    "Operation",
+    "OperationKind",
+    "OperationPhase",
+    "OperationProgress",
+    "OperationState",
+    "OpenMode",
+    "OperationalError",
+    "ProgrammingError",
+    "QueryCanceledError",
+    "QueryTimeoutError",
+    "ROWID",
+    "RawValue",
+    "Request",
+    "Result",
+    "RowStream",
+    "STRING",
+    "Date",
+    "DateFromTicks",
+    "Time",
+    "TimeFromTicks",
+    "Timestamp",
+    "TimestampFromTicks",
+    "PreparedStatement",
+    "OverflowEvent",
+    "PinReason",
+    "StatementDescription",
+    "Warning",
+    "__version__",
+    "apilevel",
+    "connect",
+    "connect_async",
+    "capabilities",
+    "library_info",
+    "paramstyle",
+    "register_codec",
+    "threadsafety",
+    "unregister_codec"
+  ],
+  "unsupported": [
+    "source distributions",
+    "pipeline mode",
+    "COPY BOTH and replication",
+    "physical backup and restore",
+    "unbundled native extension loading",
+    "non-Linux wheel policies"
+  ],
+  "publish_authorized": false
+}

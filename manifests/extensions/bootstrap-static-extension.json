@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.static-extension-manifest",
+  "id": "postgresql-19-bootstrap-static-extension",
+  "public_symbols": [
+    "pgm_bootstrap_run",
+    "pgm_bootstrap_probe_private_libpq",
+    "pgm_bootstrap_probe_static_module"
+  ],
+  "required_hidden_kernel_symbols": ["fmgr_info", "palloc"],
+  "forbidden_dynamic_symbols": [
+    "Pg_magic_func",
+    "_PG_init",
+    "fmgr_info",
+    "palloc",
+    "pg_finfo_bootstrap_extension_answer",
+    "bootstrap_extension_answer"
+  ],
+  "unregistered_linker_symbols": ["pgm_bootstrap_unregistered_extension_probe"],
+  "modules": [
+    {
+      "id": "bootstrap_extension",
+      "logical_name": "bootstrap_extension",
+      "source": "tests/embedded/bootstrap/bootstrap_extension.c",
+      "header": "tests/embedded/bootstrap/bootstrap_extension.h",
+      "control": "tests/embedded/bootstrap/bootstrap_extension.control",
+      "sql": "tests/embedded/bootstrap/bootstrap_extension--1.0.sql",
+      "capabilities": ["link-probe", "module-init", "sql-function-v1"],
+      "symbols": [
+        {
+          "logical_name": "Pg_magic_func",
+          "linker_name": "pgm_bootstrap_extension_magic",
+          "signature": "pg_magic"
+        },
+        {
+          "logical_name": "_PG_init",
+          "linker_name": "pgm_bootstrap_extension_init",
+          "signature": "void"
+        },
+        {
+          "logical_name": "pg_finfo_bootstrap_extension_answer",
+          "linker_name": "pg_finfo_bootstrap_extension_answer",
+          "signature": "pg_finfo"
+        },
+        {
+          "logical_name": "pgm_bootstrap_extension_init_count",
+          "linker_name": "pgm_bootstrap_extension_init_count",
+          "signature": "int"
+        },
+        {
+          "logical_name": "pgm_bootstrap_extension_link_probe",
+          "linker_name": "pgm_bootstrap_extension_link_probe",
+          "signature": "int"
+        },
+        {
+          "logical_name": "bootstrap_extension_answer",
+          "linker_name": "bootstrap_extension_answer",
+          "signature": "pg_function"
+        }
+      ]
+    }
+  ]
+}

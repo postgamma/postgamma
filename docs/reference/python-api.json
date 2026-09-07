@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.python-api-documentation",
+  "groups": [
+    {
+      "title": "Product metadata",
+      "description": "Runtime identity, capability discovery, and DB-API module metadata.",
+      "members": [
+        {"name": "__version__", "render": "attribute", "summary": "Python package version."},
+        {"name": "library_info", "render": "object"},
+        {"name": "capabilities", "render": "object"},
+        {"name": "Capability", "render": "object"},
+        {"name": "apilevel", "render": "attribute", "summary": "PEP 249 API level, currently `2.0`."},
+        {"name": "threadsafety", "render": "attribute", "summary": "PEP 249 thread-safety level, currently `2`."},
+        {"name": "paramstyle", "render": "attribute", "summary": "PEP 249 cursor parameter style, currently `numeric`."}
+      ]
+    },
+    {
+      "title": "Database objects",
+      "description": "Lazy instances, logical sessions, materialized results, and DB-API cursors.",
+      "members": [
+        {"name": "Database", "render": "object"},
+        {"name": "OpenMode", "render": "object"},
+        {"name": "Connection", "render": "object"},
+        {"name": "Cursor", "render": "object"},
+        {"name": "Result", "render": "object"},
+        {"name": "Column", "render": "object"},
+        {"name": "connect", "render": "object"}
+      ]
+    },
+    {
+      "title": "Requests and streaming",
+      "description": "Caller-driven requests, bounded rows, COPY, prepared statements, and scheduler state.",
+      "members": [
+        {"name": "Request", "render": "object"},
+        {"name": "RowStream", "render": "object"},
+        {"name": "CopyIn", "render": "object", "inherited_members": true},
+        {"name": "CopyOut", "render": "object", "inherited_members": true},
+        {"name": "PreparedStatement", "render": "object"},
+        {"name": "StatementDescription", "render": "object"},
+        {"name": "ConnectionStatus", "render": "object"},
+        {"name": "PinReason", "render": "object"}
+      ]
+    },
+    {
+      "title": "Asyncio",
+      "description": "Event-loop adapters over the same native handles and level-triggered waitables.",
+      "members": [
+        {"name": "AsyncDatabase", "render": "object"},
+        {"name": "AsyncConnection", "render": "object"},
+        {"name": "AsyncRowStream", "render": "object"},
+        {"name": "AsyncCopy", "render": "object"},
+        {"name": "AsyncPreparedStatement", "render": "object"},
+        {"name": "connect_async", "render": "object"}
+      ]
+    },
+    {
+      "title": "Management and events",
+      "description": "Instance events, bundled-extension metadata, checkpoints, maintenance, and logical archives.",
+      "members": [
+        {"name": "Event", "render": "object"},
+        {"name": "EventKind", "render": "object"},
+        {"name": "LogEvent", "render": "object"},
+        {"name": "NoticeEvent", "render": "object"},
+        {"name": "NotificationEvent", "render": "object"},
+        {"name": "OverflowEvent", "render": "object"},
+        {"name": "BundledExtension", "render": "object"},
+        {"name": "LogicalFlags", "render": "object"},
+        {"name": "MaintenanceKind", "render": "object"},
+        {"name": "Operation", "render": "object"},
+        {"name": "OperationKind", "render": "object"},
+        {"name": "OperationPhase", "render": "object"},
+        {"name": "OperationProgress", "render": "object"},
+        {"name": "OperationState", "render": "object"}
+      ]
+    },
+    {
+      "title": "Values and adapters",
+      "description": "Lossless unknown values, explicit encoders, custom codecs, and Arrow C Data export.",
+      "members": [
+        {"name": "RawValue", "render": "object"},
+        {"name": "EncodedParameter", "render": "object"},
+        {"name": "Json", "render": "object"},
+        {"name": "Array", "render": "object"},
+        {"name": "register_codec", "render": "object"},
+        {"name": "unregister_codec", "render": "object"},
+        {"name": "ArrowResult", "render": "object"}
+      ]
+    },
+    {
+      "title": "DB-API constructors and type objects",
+      "description": "PEP 249 constructors and comparison objects.",
+      "members": [
+        {"name": "Date", "render": "object"},
+        {"name": "Time", "render": "object"},
+        {"name": "Timestamp", "render": "object"},
+        {"name": "DateFromTicks", "render": "object"},
+        {"name": "TimeFromTicks", "render": "object"},
+        {"name": "TimestampFromTicks", "render": "object"},
+        {"name": "Binary", "render": "object"},
+        {"name": "STRING", "render": "attribute", "summary": "DB-API string type comparison object."},
+        {"name": "BINARY", "render": "attribute", "summary": "DB-API binary type comparison object."},
+        {"name": "NUMBER", "render": "attribute", "summary": "DB-API numeric type comparison object."},
+        {"name": "DATETIME", "render": "attribute", "summary": "DB-API date and time type comparison object."},
+        {"name": "ROWID", "render": "attribute", "summary": "DB-API row identifier type comparison object."}
+      ]
+    },
+    {
+      "title": "Exceptions",
+      "description": "PEP 249 errors plus explicit timeout, cancellation, and fork failures.",
+      "members": [
+        {"name": "Warning", "render": "object"},
+        {"name": "Error", "render": "object"},
+        {"name": "InterfaceError", "render": "object"},
+        {"name": "DatabaseError", "render": "object"},
+        {"name": "DataError", "render": "object"},
+        {"name": "OperationalError", "render": "object"},
+        {"name": "IntegrityError", "render": "object"},
+        {"name": "InternalError", "render": "object"},
+        {"name": "ProgrammingError", "render": "object"},
+        {"name": "NotSupportedError", "render": "object"},
+        {"name": "QueryCanceledError", "render": "object"},
+        {"name": "QueryTimeoutError", "render": "object"},
+        {"name": "ForkedProcessError", "render": "object"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "baseline_id": "pg19-embedded-default-linux-session-v2",
+  "postgresql_major": 19,
+  "profile": "embedded-default",
+  "measurement_source": "linux-procfs",
+  "budgets": {
+    "max_cold_open_to_ready_ms": 5000,
+    "max_warm_open_to_ready_ms": 3000,
+    "max_immediate_open_to_ready_ms": 3000,
+    "max_recovery_open_to_ready_ms": 8000,
+    "max_any_open_to_ready_ms": 8000,
+    "max_peak_rss_delta_kib": 98304,
+    "max_peak_virtual_delta_kib": 1048576,
+    "max_peak_thread_delta": 12,
+    "max_peak_fd_delta": 32,
+    "expected_dedicated_threads_per_cycle": 7,
+    "min_supervisor_stack_bytes": 4194304,
+    "max_supervisor_stack_bytes": 4194304,
+    "min_dedicated_stack_bytes": 4194304,
+    "max_dedicated_stack_bytes": 4194304,
+    "min_client_stack_bytes": 8388608,
+    "max_client_stack_bytes": 8388608,
+    "min_stack_guard_bytes": 65536,
+    "max_dedicated_peak_reservation_bytes": 33554432,
+    "max_client_peak_reservation_bytes": 33554432
+  }
+}

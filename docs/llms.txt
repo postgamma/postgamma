@@ -1,0 +1,58 @@
+# PostGamma
+
+> PostGamma embeds PostgreSQL 19 directly inside a Python or native application process. It starts no database server process and opens no network socket.
+
+The first public release provides a CPython wheel and a static C SDK with bundled pgvector 0.8.6. A persistent database path is a PostgreSQL cluster directory, not a single file. A missing final cluster directory is created by default when its parent exists. Enable vector SQL objects per logical database with CREATE EXTENSION vector.
+
+## Start here
+
+- [Python quickstart](getting-started/): Create, query, close, and reopen a persistent cluster.
+- [When to use PostGamma](getting-started/why-postgamma/): Compare the application boundary with SQLite, DuckDB, PGlite, and a PostgreSQL server.
+- [Static C quickstart](getting-started/c-static/): Link the static SDK and run its validated native example.
+- [Installation](getting-started/installation/): Choose a wheel or static C SDK.
+- [Downloads](downloads/): Release status, binary forms, checksums, and source builds.
+- [Database paths and creation](getting-started/database-paths/): Exact path, open-mode, logical database, and recovery rules.
+
+## Python guides
+
+- [Python overview](python/): Choose top-level connect, a managed Database, or asyncio.
+- [Database and DB-API](python/database-and-dbapi/): Execute SQL, bind parameters, fetch results, and use cursors.
+- [Asyncio](python/asyncio/): Drive native waitables from an event loop.
+- [Streaming and COPY](python/streaming-and-copy/): Process bounded large transfers.
+- [Management and logical backup](python/management/): Checkpoint, maintain, dump, and restore.
+- [Events, codecs, and Arrow](python/integration/): Integrate diagnostics and data formats.
+- [Python type mapping](python/types/): Map PostgreSQL OIDs to Python values without guessing.
+
+## C SDK guides
+
+- [C SDK overview](c/): Learn the handle hierarchy and seven-operation core.
+- [Build, link, and deploy](c/build-and-link/): Consume libpostgamma.a and its resource pack.
+- [Ownership and concurrency](c/ownership-and-concurrency/): Handle lifetime and thread-safety rules.
+- [Asynchronous execution](c/async/): Progress requests without blocking the host loop.
+- [Streaming and COPY](c/streaming-and-copy/): Use bounded row and COPY state machines.
+- [Management and logical backup](c/management/): Drive instance operations.
+
+## Concepts and compatibility
+
+- [Architecture](concepts/architecture/): Understand the in-process boundary.
+- [Connections and concurrency](concepts/concurrency/): Sessions, workers, pinning, threads, and fork.
+- [Transactions](concepts/transactions/): Autocommit, context managers, rollback, and capacity.
+- [Durability and recovery](concepts/durability/): Understand commit, crash recovery, checkpoints, and maintenance defaults.
+- [Resource footprint](concepts/resource-footprint/): Size startup, memory, threads, and result buffers.
+- [Security model](concepts/security/): Understand trusted inputs, SQL authority, extensions, and process scope.
+- [PostgreSQL compatibility](compatibility/postgresql/): Preserved behavior and major-version rules.
+- [Platforms and glibc](compatibility/platforms/): Binary and static-archive portability.
+- [Limits](compatibility/limits/): Resource defaults and unsupported capabilities.
+- [Troubleshooting](troubleshooting/): Diagnose package, path, SQL, concurrency, and link failures.
+
+## Exact reference
+
+- [Python API reference](python/reference/): All public Python exports and signatures.
+- [C API reference](c/reference/): All public C types, constants, structures, and functions.
+- [Extension SDK reference](extensions/reference/): Reviewed bundled-extension ABI.
+- [Vector search with pgvector](extensions/pgvector/): Enable bundled pgvector 0.8.6 and build HNSW or IVFFlat indexes.
+- [Status and error reference](reference/errors/): Map C status, SQLSTATE, and Python exceptions.
+- [Release notes](releases/): Version history, artifact identity, and upgrade rules.
+- [Versioning policy](releases/versioning/): Product versions, tags, ABI identities, and immutable artifacts.
+- [PostGamma 0.1.0a1](releases/0.1.0a1/): First Python and static C alpha candidate.
+- [License](about/license/): Apache-2.0 project terms and PostgreSQL/pgvector notice layout.
