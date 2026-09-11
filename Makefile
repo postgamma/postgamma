@@ -1140,6 +1140,11 @@ help:
 	@echo "  python-package-check           build and validate the local wheel"
 	@echo "  static-sdk-package             build the tested static C SDK archive"
 	@echo "  docs                           build the documentation website strictly"
+	@echo "  wasm-setup                     install reusable Wasm probe tools"
+	@echo "  doctor-wasm                    validate SDK, npm dependencies, and Chromium"
+	@echo "  wasm-probe-build               compile the Wasm toolchain smoke probe"
+	@echo "  wasm-probe-check               run the Wasm smoke probe in Chromium"
+	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"
 	@echo "  publication-check              validate product metadata and attribution"
@@ -5377,3 +5382,5 @@ check-head: doctor-full-test doctor-python python-release-candidate-check
 clean:
 	@$(PYTHON) buildsys/reset_directory.py \
 		--path "$(BUILD_DIR)" --within "$(ROOT)" --remove-only
+
+include $(ROOT)/buildsys/wasm.mk

@@ -1,0 +1,9 @@
+{
+  "name": "@postgamma/wasm",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "PostGamma WebAssembly development tools",
+  "engines": {"node": ">=20"},
+  "devDependencies": {"playwright": "1.63.0"}
+}

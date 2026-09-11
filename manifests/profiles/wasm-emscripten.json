@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-probe-profile",
+  "status": "candidate",
+  "target": "wasm32-emscripten-pthreads",
+  "emsdk": {
+    "version": "6.0.9",
+    "repository": "https://github.com/emscripten-core/emsdk.git",
+    "commit": "5eb0bde7585670252e8ba05e9d361627bffd08b5"
+  },
+  "browser_host_packages": {
+    "ubuntu-24.04-x86_64": [
+      "libasound2t64", "libatk-bridge2.0-0t64", "libatk1.0-0t64",
+      "libatspi2.0-0t64", "libcairo2", "libcups2t64", "libdbus-1-3",
+      "libdrm2", "libgbm1", "libglib2.0-0t64", "libnspr4", "libnss3",
+      "libpango-1.0-0", "libx11-6", "libxcb1", "libxcomposite1",
+      "libxdamage1", "libxext6", "libxfixes3", "libxkbcommon0", "libxrandr2"
+    ]
+  },
+  "compile_flags": ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"],
+  "link_flags": [
+    "--no-entry",
+    "-pthread",
+    "-sMODULARIZE=1",
+    "-sEXPORT_ES6=1",
+    "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\"]",
+    "-sENVIRONMENT=worker",
+    "-sPTHREAD_POOL_SIZE=1",
+    "-sPTHREAD_POOL_SIZE_STRICT=2",
+    "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",
+    "-sINITIAL_MEMORY=33554432",
+    "-sMAXIMUM_MEMORY=134217728",
+    "-sALLOW_MEMORY_GROWTH=1",
+    "-sSTACK_SIZE=1048576",
+    "-sDEFAULT_PTHREAD_STACK_SIZE=1048576",
+    "-sSUPPORT_LONGJMP=emscripten",
+    "-sFILESYSTEM=0"
+  ],
+  "modes": {
+    "debug": {
+      "compile_flags": ["-O0", "-g3"],
+      "link_flags": ["-O0", "-g3", "-sASSERTIONS=2"]
+    },
+    "release": {
+      "compile_flags": ["-O2"],
+      "link_flags": ["-O2", "-sASSERTIONS=1"]
+    }
+  }
+}

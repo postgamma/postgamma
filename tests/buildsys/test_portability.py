@@ -15,6 +15,14 @@ import check_portability  # noqa: E402
 
 
 class PortabilityTests(unittest.TestCase):
+    def test_npm_dependencies_are_not_project_owned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "wasm/node_modules/vendor").mkdir(parents=True)
+            (root / "wasm/package.json").write_text("{}")
+            (root / "wasm/node_modules/vendor/source.js").write_text("downloaded")
+            self.assertEqual(check_portability.project_files(root), [root / "wasm/package.json"])
+
     def test_third_party_trees_are_not_project_owned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

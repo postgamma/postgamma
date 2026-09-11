@@ -367,6 +367,18 @@ The documentation build treats warnings and broken references as errors. The
 static site is written to `build/docs/site/`; see
 [Documentation website](#documentation-website) to preview it locally.
 
+### Run the WebAssembly toolchain probe
+
+```sh
+make wasm-setup
+make wasm-probe-check
+```
+
+These commands install reusable SDK/browser tools and run a small C/pthread
+probe in Chromium. They do not build the PostgreSQL kernel for browsers yet.
+`make wasm-clean` retains the installed tools. See the
+[Wasm probe commands](wasm/README.md) for configuration, reports, and reuse.
+
 ### Build a complete local release candidate
 
 Maintainers can run the complete local release gate with:

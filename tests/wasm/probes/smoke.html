@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>postgamma Wasm toolchain probe</title>
+<link rel="icon" href="data:,">
+<p id="status">Running the WebAssembly toolchain probe.</p>
+<script type="module">
+  window.probeResult = null;
+  function finish(result) {
+    window.probeResult = {...result, isolated: crossOriginIsolated};
+    document.querySelector('#status').textContent = JSON.stringify(window.probeResult);
+  }
+  if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
+    finish({status: 'failed', error: 'Cross-origin isolation and shared memory are required.'});
+  } else {
+    const worker = new Worker('./smoke-worker.mjs', {type: 'module'});
+    worker.onmessage = ({data}) => { finish(data); worker.terminate(); };
+    worker.onerror = (error) => {
+      finish({status: 'failed', error: error.message});
+      worker.terminate();
+    };
+  }
+</script>
+</html>

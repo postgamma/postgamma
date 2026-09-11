@@ -1,0 +1,182 @@
+"""Exercise Wasm build isolation, evidence, and environment failure handling."""
+
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+import sys
+import subprocess
+import tempfile
+import unittest
+from unittest import mock
+import urllib.error
+import urllib.request
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "buildsys"))
+
+import wasm  # noqa: E402
+import wasm_toolchain as toolchain  # noqa: E402
+
+
+class WasmTests(unittest.TestCase):
+    def config(self, root: Path) -> toolchain.Configuration:
+        profile_path = ROOT / "manifests/profiles/wasm-emscripten.json"
+        return toolchain.Configuration(
+            root, root / "build", root / ".deps/wasm", root / ".deps/wasm/emsdk/test",
+            profile_path, toolchain.read_json(profile_path), "debug", False,
+        )
+
+    def test_dependency_overrides_cannot_be_cleaned_with_build_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build = root / "build"
+            for deps, sdk in ((build / "cache", root / "sdk"),
+                              (root / "deps", build / "sdk")):
+                with self.assertRaisesRegex(toolchain.WasmError, "outside BUILD_DIR"):
+                    toolchain.validate_directories(root, build, deps, sdk)
+            with self.assertRaisesRegex(toolchain.WasmError, "source checkout"):
+                toolchain.validate_directories(root, root, root / "deps", root / "sdk")
+
+    def test_symlinked_dependency_cache_is_checked_after_resolution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "wasm").mkdir()
+            (root / "build/cache").mkdir(parents=True)
+            (root / "wasm/node_modules").symlink_to(root / "build/cache", target_is_directory=True)
+            with self.assertRaisesRegex(toolchain.WasmError, "outside BUILD_DIR"):
+                toolchain.validate_directories(root, root / "build", root / "deps", root / "sdk")
+
+    def test_wasm_output_cannot_alias_a_native_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "build/reference").mkdir(parents=True)
+            (root / "build/wasm").symlink_to(root / "build/reference", target_is_directory=True)
+            with self.assertRaisesRegex(toolchain.WasmError, "symlink"):
+                toolchain.validate_directories(root, root / "build", root / "deps", root / "sdk")
+
+    def test_configuration_changes_do_not_reuse_the_same_target_directory(self):
+        config = self.config(ROOT)
+        tools = {key: "initial" for key in ("emcc_version", "emcc_sha256", "clang_version",
+                                           "clang_sha256", "sdk_config_sha256",
+                                           "wasm_ld_sha256", "wasm_opt_sha256")}
+        original = toolchain.fingerprint(wasm.build_configuration(config, tools))
+        changed = copy.deepcopy(config)
+        changed.mode = "release"
+        self.assertNotEqual(original, toolchain.fingerprint(wasm.build_configuration(changed, tools)))
+        changed = copy.deepcopy(config)
+        changed.profile["link_flags"].append("-sSUPPORT_LONGJMP=wasm")
+        self.assertNotEqual(original, toolchain.fingerprint(wasm.build_configuration(changed, tools)))
+        tools["clang_sha256"] = "different compiler"
+        self.assertNotEqual(original, toolchain.fingerprint(wasm.build_configuration(config, tools)))
+
+    def test_changed_source_and_corrupt_or_missing_output_invalidate_reuse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary)
+            artifact = site / "smoke.wasm"
+            artifact.write_bytes(b"first module")
+            inputs = {"source_sha256": "first source"}
+            receipt = {"inputs": inputs, "outputs": {artifact.name: toolchain.digest(artifact)}}
+            self.assertTrue(wasm.outputs_match(receipt, inputs, site))
+            self.assertFalse(wasm.outputs_match(receipt, {"source_sha256": "new source"}, site))
+            artifact.write_bytes(b"corrupt module")
+            self.assertFalse(wasm.outputs_match(receipt, inputs, site))
+            artifact.unlink()
+            self.assertFalse(wasm.outputs_match(receipt, inputs, site))
+            self.assertFalse(wasm.outputs_match({"inputs": inputs}, inputs, site))
+
+    def test_missing_sdk_fails_before_probe_build_and_retains_each_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(Path(temporary))
+            for _ in range(2):
+                with self.assertRaisesRegex(toolchain.WasmError, "make wasm-setup"):
+                    wasm.probe(config, check=True)
+            reports = list((config.build / "wasm/doctor").glob("*/report.json"))
+            self.assertEqual(len(reports), 2)
+            self.assertTrue(all(toolchain.read_json(path)["status"] == "failed" for path in reports))
+            self.assertFalse((config.build / "wasm" / config.target).exists())
+            self.assertFalse(config.deps.exists())
+
+    def test_failed_browser_details_are_visible_to_the_caller(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            config = self.config(directory)
+            toolchain.write_json(directory / "browser.json", {"status": "failed", "error": "libexample.so missing"})
+            with mock.patch.object(wasm, "run", side_effect=toolchain.WasmError("command failed")):
+                with self.assertRaisesRegex(toolchain.WasmError, "libexample.so missing"):
+                    wasm.run_browser(config, {"node": "node"}, {}, directory)
+
+    def test_http_assets_have_required_headers_and_missing_asset_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary)
+            (site / "smoke.html").write_text("probe")
+            (site / "smoke.mjs").write_text("export default 1;")
+            (site / "smoke.wasm").write_bytes(b"\0asm")
+            with wasm.serve(site) as url:
+                for name, mime in (("smoke.html", "text/html"), ("smoke.mjs", "text/javascript"),
+                                   ("smoke.wasm", "application/wasm")):
+                    with urllib.request.urlopen(url.rsplit("/", 1)[0] + "/" + name) as response:
+                        self.assertEqual(response.headers["Cross-Origin-Opener-Policy"], "same-origin")
+                        self.assertEqual(response.headers["Cross-Origin-Embedder-Policy"], "require-corp")
+                        self.assertIn(mime, response.headers["Content-Type"])
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(url + ".missing")
+                self.assertEqual(raised.exception.code, 404)
+
+    def test_wasm_clean_retains_native_output_and_installed_tools(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self.config(root)
+            (root / "buildsys").mkdir()
+            (root / "buildsys/reset_directory.py").symlink_to(ROOT / "buildsys/reset_directory.py")
+            for name in ("build/wasm/probe", "build/reference/native.o", ".deps/wasm/sdk",
+                         "wasm/node_modules/package"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("retain")
+            wasm.clean(config)
+            self.assertFalse((root / "build/wasm").exists())
+            for name in ("build/reference/native.o", ".deps/wasm/sdk", "wasm/node_modules/package"):
+                self.assertEqual((root / name).read_text(), "retain")
+
+    def test_apt_plan_pins_versions_and_refuses_private_libc_replacement(self):
+        self.assertEqual(toolchain.apt_download_plan(
+            "Inst libexample (1:2.0-1 Ubuntu:24.04 [amd64])\n"
+            "Inst libsecond [1.0] (2.0 Ubuntu:24.04 [amd64])\n"
+            "Conf libexample (1:2.0-1 Ubuntu:24.04 [amd64])\n"
+        ), ["libexample=1:2.0-1", "libsecond=2.0"])
+        with self.assertRaisesRegex(toolchain.WasmError, "host libc"):
+            toolchain.apt_download_plan("Inst libc6 (2.39 Ubuntu:24.04 [amd64])")
+        with self.assertRaisesRegex(toolchain.WasmError, "unrecognized"):
+            toolchain.apt_download_plan("Inst an unexpected format")
+
+    def test_browser_library_path_is_not_added_to_compiler_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(Path(temporary))
+            local = config.deps / "browser-libs/root/usr/lib/x86_64-linux-gnu"
+            local.mkdir(parents=True)
+            env = {"PATH": "/usr/bin", "LD_LIBRARY_PATH": "/opt/host-libs"}
+            browser = toolchain.browser_environment(config, env)
+            self.assertEqual(env["LD_LIBRARY_PATH"], "/opt/host-libs")
+            self.assertEqual(browser["LD_LIBRARY_PATH"], str(local) + ":/opt/host-libs")
+
+    def test_command_timeout_retains_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "run.log"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                toolchain.run([sys.executable, "-c", "import time; print('started', flush=True); time.sleep(10)"],
+                              log, timeout=0.2)
+            self.assertIn("started", log.read_text())
+
+    def test_unimplemented_kernel_commands_fail_even_with_a_wasm_source_directory(self):
+        for target in ("wasm", "wasm-check", "wasm-check-full", "wasm-serve"):
+            result = subprocess.run(["make", "--no-print-directory", target], cwd=ROOT,
+                                    text=True, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not implemented yet", result.stderr)
+            self.assertIn("make wasm-probe-check", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
