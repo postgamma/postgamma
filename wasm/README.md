@@ -1,8 +1,8 @@
 # PostGamma WebAssembly probes
 
 The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
-stacks, and basic libc interfaces in Chromium. They do not build a PostgreSQL
-kernel or provide a browser SQL API.
+stacks, basic libc interfaces, waits, deadlines, and cancellation in Chromium.
+They do not build a PostgreSQL kernel or provide a browser SQL API.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -11,6 +11,7 @@ From the repository root:
 make wasm-setup
 make wasm-probe-check
 make wasm-platform-check
+make wasm-wait-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -34,6 +35,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-probe-build` | Check the environment and incrementally compile the smoke probe. |
 | `make wasm-probe-check` | Build as needed, serve with COOP/COEP headers, and run the probe in Chromium. |
 | `make wasm-platform-check` | Run the ABI, pthread, TLS, stack, semaphore, memory stream, entropy, and locale probes. |
+| `make wasm-wait-check` | Run wait/notify, deadline conversion and rescheduling, cancellation, close, and stale-event probes. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -68,14 +70,39 @@ Reports retain integration boundaries: unsigned i64 exports require
 `BigInt.asUintN(64, value)` at the JS boundary; the pinned SDK rejects
 `sem_init(pshared=1)` with a direct `ENOTSUP` return; accepted named locales still
 use bytewise `strcoll`. The probes validate these behaviors explicitly. Full
-PostgreSQL locale support, wait/cancel races, ERROR recovery, initdb, SQL, and
+PostgreSQL locale support, kernel wait/cancel behavior, ERROR recovery, initdb, SQL, and
 persistence require later checks.
+
+The wait probe uses shared request state and Emscripten futex wait/wake in
+three precreated pthreads. A 30-second wait is held for about a second while
+control messages continue, then explicitly notified. Other cases use infinite
+waits. A raw wake without a pending event must not complete a request. Explicit
+test gates force notifications before sleep, notifications between predicate
+checks and sleep, and timer reset/disarm after the futex has timed out.
+
+Monotonic wait deadlines and PostgreSQL-epoch realtime timer deadlines retain
+their own units and origins; each wake recomputes the earlier remaining timeout.
+Thirteen clock conversion cases cover expiration, rounding, large differences,
+and resampling after a changed wall-clock reading. These last cases inject
+input samples into the conversion function; they do not change the system clock.
+A separate diagnostic blocks the control Worker's JS event loop while a
+pthread deadline completes, checking that it does not depend on a queued JS timer.
+
+The suite also checks three-waiter cancellation isolation, close while blocked,
+late request/timer generations, and 64 completion/cancellation races. `WASM_SEED`
+selects the reproducible action order and timing inputs for these races; browser
+scheduling can still differ. Reports retain the seed, request/timer identities,
+nanosecond timestamps as strings, actual futex results, and partial event traces
+on failure. Harness timeouts only stop failed runs; they never notify the tested
+waiter. This is a candidate platform mechanism, not a PostgreSQL wait adapter
+or proof of SQL cancellation, deadlock detection, logical signal dispatch, or
+ERROR cleanup. The current PostgreSQL adapter still requires descriptor wakeups.
 
 Each build uses
 `build/wasm/wasm32-emscripten-pthreads/<mode>/<config-id>/`. Configuration changes
 select a separate directory; unchanged probe inputs and verified outputs are
 reused. Each attempt retains `runs/<run-id>/report.json` and logs.
-`reports/smoke.json` or `reports/platform.json` points to the latest attempt,
+`reports/smoke.json`, `reports/platform.json`, or `reports/wait.json` points to the latest attempt,
 including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
@@ -91,6 +118,8 @@ Useful overrides:
 ```sh
 make wasm-probe-check WASM_MODE=release
 make wasm-platform-check WASM_MODE=release
+make wasm-wait-check WASM_MODE=release
+make wasm-wait-check WASM_SEED=17
 make wasm-probe-build WASM_PROBE=platform
 make wasm-setup WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_DEPS_DIR=/opt/postgamma-wasm-tools

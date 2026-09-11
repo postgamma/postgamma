@@ -373,11 +373,12 @@ static site is written to `build/docs/site/`; see
 make wasm-setup
 make wasm-probe-check
 make wasm-platform-check
+make wasm-wait-check
 ```
 
 These commands install reusable SDK/browser tools and run the toolchain smoke
-probe and ABI, pthread, TLS, stack, and libc probes in Chromium. They do not
-build the PostgreSQL kernel for browsers yet.
+probe and ABI, pthread, TLS, stack, libc, wait, deadline, and cancellation probes
+in Chromium. They do not build the PostgreSQL kernel for browsers yet.
 `make wasm-clean` retains the installed tools. See the
 [Wasm probe commands](wasm/README.md) for configuration, reports, and reuse.
 

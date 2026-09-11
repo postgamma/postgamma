@@ -47,6 +47,13 @@
     }
   },
   "probes": {
+    "wait": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
     "platform": {
       "link_flags": [
         "-sPTHREAD_POOL_SIZE=3",

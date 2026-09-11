@@ -1145,6 +1145,7 @@ help:
 	@echo "  wasm-probe-build               compile the Wasm toolchain smoke probe"
 	@echo "  wasm-probe-check               run the Wasm smoke probe in Chromium"
 	@echo "  wasm-platform-check            check Wasm ABI, pthread, TLS, stack, and libc"
+	@echo "  wasm-wait-check                check Wasm waits, deadlines, and cancellation"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"

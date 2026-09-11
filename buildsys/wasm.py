@@ -32,6 +32,8 @@ PROBES = {
                  "headers": ["platform.h"],
                  "harness": ["platform.html", "platform-page.mjs", "platform-worker.mjs",
                              "stack-overflow-worker.mjs"]},
+    "wait": {"scope": "wait-deadline-cancellation", "modules": {"wait": ["wait.c", "wait-clock.c"]},
+             "headers": ["wait-clock.h"], "harness": ["wait.html", "wait-page.mjs", "wait-worker.mjs"]},
 }
 
 
@@ -171,7 +173,9 @@ def probe_sources(root: Path, name: str) -> dict:
     return {name: digest(root / "tests/wasm/probes" / name) for name in names}
 
 
-def probe(config: Configuration, check: bool, name: str = "smoke") -> None:
+def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1) -> None:
+    if not 1 <= seed <= 0xffffffff:
+        raise WasmError("probe seed must be a nonzero uint32")
     spec = PROBES[name]
     tools, env, doctor_report = doctor(config)
     selected = build_configuration(config, tools)
@@ -180,6 +184,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke") -> None:
     inputs = {"schema_version": 1, "kind": "postgamma.wasm-probe-inputs",
               "configuration": selected, "config_id": config_id,
               "source": source_identity(config), "tools": tools,
+              "runtime": {"seed": seed} if name == "wait" else {},
               "package_inputs": package_inputs(config)}
     write_json(directory / "inputs.json", inputs)
     current_run = directory / "runs" / run_id()
@@ -235,7 +240,8 @@ def probe(config: Configuration, check: bool, name: str = "smoke") -> None:
             run([tools["node"], "--test", str(config.root / "tests/wasm/browser/evidence.test.mjs")],
                 current_run / "harness-tests.log", env, config.root, timeout=30)
             report["harness_tests_passed"] = True
-            with serve(site, name + ".html") as url:
+            page = name + ".html" + (f"?seed={seed}" if name == "wait" else "")
+            with serve(site, page) as url:
                 report["browser"] = run_browser(config, tools, env, current_run, url)
             report["browser_probe_validated"] = True
         report["status"] = "passed" if check else "built"
@@ -273,6 +279,7 @@ def main() -> int:
     parser.add_argument("--target", default="wasm32-emscripten-pthreads")
     parser.add_argument("--mode", choices=("debug", "release"), default="debug")
     parser.add_argument("--probe", choices=tuple(PROBES), default="smoke")
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--node", default="")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--browser-executable", default="")
@@ -289,7 +296,7 @@ def main() -> int:
         elif args.command == "clean":
             clean(config)
         else:
-            probe(config, args.command == "probe-check", args.probe)
+            probe(config, args.command == "probe-check", args.probe, args.seed)
     except (WasmError, OSError, ValueError, subprocess.TimeoutExpired) as error:
         parser.exit(2, f"wasm: error: {error}\n")
     return 0
