@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {parseArgs} from 'node:util';
+import {classifyPageErrors} from './evidence.mjs';
 
 const {values} = parseArgs({options: {
   root: {type: 'string'},
@@ -21,12 +22,13 @@ const report = {
   browserRevisions: JSON.parse(readFileSync(resolve(dirname(require.resolve('playwright-core/package.json')), 'browsers.json'))).browsers,
   console: [],
   pageErrors: [],
+  pageErrorDetails: [],
   failedRequests: [],
 };
 if (values.describe) {
   console.log(JSON.stringify(report));
 } else {
-  let context;
+  let context, page;
   try {
     context = await chromium.launchPersistentContext(values.profile, {
       headless: true,
@@ -35,9 +37,12 @@ if (values.describe) {
     });
     report.browserVersion = context.browser().version();
     report.profile = values.profile;
-    const page = context.pages()[0] || await context.newPage();
+    page = context.pages()[0] || await context.newPage();
     page.on('console', (message) => report.console.push({type: message.type(), text: message.text()}));
-    page.on('pageerror', (error) => report.pageErrors.push(String(error)));
+    page.on('pageerror', (error) => {
+      report.pageErrors.push(String(error));
+      report.pageErrorDetails.push({name: error.name, message: error.message, stack: error.stack || ''});
+    });
     page.on('requestfailed', (request) => report.failedRequests.push({
       url: request.url(), error: request.failure()?.errorText,
     }));
@@ -52,7 +57,10 @@ if (values.describe) {
       if (report.probe.status !== 'passed' || !report.probe.isolated ||
           !report.probe.worker || !report.probe.sharedMemory)
         throw new Error(`Wasm probe failed: ${JSON.stringify(report.probe)}`);
-      if (report.pageErrors.length || report.failedRequests.length)
+      const classified = classifyPageErrors(report.pageErrorDetails, report.probe, values.url);
+      report.expectedPageErrors = classified.expected;
+      report.unexpectedPageErrors = classified.unexpected;
+      if (report.unexpectedPageErrors.length || report.failedRequests.length)
         throw new Error('Browser page or asset errors occurred.');
     } else {
       await page.goto('about:blank');
@@ -63,6 +71,17 @@ if (values.describe) {
     report.error = String(error.stack || error);
     process.exitCode = 1;
   } finally {
+    if (values.url && page && !page.isClosed()) {
+      try {
+        const partial = await page.evaluate(() => ({
+          probe: window.probeResult, events: window.probeEvents || [],
+        }));
+        report.events = partial.events;
+        if (partial.probe) report.probe = partial.probe;
+      } catch (error) {
+        report.evidenceError = String(error);
+      }
+    }
     if (context) await context.close();
     writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
   }

@@ -1,7 +1,8 @@
 # PostGamma WebAssembly probes
 
-The current commands validate the Wasm toolchain and a small C/pthread probe in
-Chromium. They do not build a PostgreSQL kernel or provide a browser SQL API.
+The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
+stacks, and basic libc interfaces in Chromium. They do not build a PostgreSQL
+kernel or provide a browser SQL API.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -9,6 +10,7 @@ From the repository root:
 ```sh
 make wasm-setup
 make wasm-probe-check
+make wasm-platform-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -31,6 +33,7 @@ the doctor reports missing libraries before compiling probes.
 | `make doctor-wasm` | Validate compiler/package identities and actually launch Chromium. |
 | `make wasm-probe-build` | Check the environment and incrementally compile the smoke probe. |
 | `make wasm-probe-check` | Build as needed, serve with COOP/COEP headers, and run the probe in Chromium. |
+| `make wasm-platform-check` | Run the ABI, pthread, TLS, stack, semaphore, memory stream, entropy, and locale probes. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -39,11 +42,41 @@ shared Wasm memory. Compilation, browser launch, asset errors, and timeouts
 fail the command and retain a report. This is not a complete thread, ABI,
 error-recovery, SQL, or persistence test.
 
+The platform probe creates three concurrent pthreads from a precreated pool,
+holds them on semaphores and a condition variable while the control Worker
+responds to messages, then explicitly wakes and joins them. A second round
+checks pool reuse, TLS initialization, `errno`, thread-specific destructors,
+thread-local locales, 32/64-bit atomics, and indirect C calls. Stack reports
+include requested and actual bounds, live frame usage, and remaining space for
+256 KiB, 512 KiB, and 1 MiB pthread stacks.
+
+Two separate module instances deliberately overflow 64 KiB control and pthread
+stacks with `STACK_OVERFLOW_CHECK=2`. They must produce the matching stack
+diagnostic; a timeout or unrelated exception fails. The browser report retains
+expected exceptions and rejects other page or asset errors. These checks measure
+the Wasm linear-memory C stack, not the VM call stack or PostgreSQL stack needs.
+An allocated guard area is not evidence of native page protection.
+
+The libc checks exercise semaphore counts, cross-thread wakeup and absolute
+timeouts, `open_memstream`, `fopencookie` read/write/seek/close callbacks and
+deferred write errors. `/dev/urandom` and `getentropy` reach the browser's actual
+Web Crypto provider; instrumentation counts calls while retaining the original
+random implementation. Sample checks do not assess randomness quality. This
+probe enables the SDK's in-memory filesystem, not persistent storage.
+
+Reports retain integration boundaries: unsigned i64 exports require
+`BigInt.asUintN(64, value)` at the JS boundary; the pinned SDK rejects
+`sem_init(pshared=1)` with a direct `ENOTSUP` return; accepted named locales still
+use bytewise `strcoll`. The probes validate these behaviors explicitly. Full
+PostgreSQL locale support, wait/cancel races, ERROR recovery, initdb, SQL, and
+persistence require later checks.
+
 Each build uses
 `build/wasm/wasm32-emscripten-pthreads/<mode>/<config-id>/`. Configuration changes
 select a separate directory; unchanged probe inputs and verified outputs are
 reused. Each attempt retains `runs/<run-id>/report.json` and logs.
-`reports/smoke.json` points to the latest attempt, including failures.
+`reports/smoke.json` or `reports/platform.json` points to the latest attempt,
+including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
 browser pass and always set `kernel_validated` to false.
@@ -57,6 +90,8 @@ Useful overrides:
 
 ```sh
 make wasm-probe-check WASM_MODE=release
+make wasm-platform-check WASM_MODE=release
+make wasm-probe-build WASM_PROBE=platform
 make wasm-setup WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_EMSDK_DIR=/opt/emsdk

@@ -1,6 +1,7 @@
 # SDK settings are passed only to the Wasm driver, never to native builds.
 WASM_TARGET ?= wasm32-emscripten-pthreads
 WASM_MODE ?= debug
+WASM_PROBE ?= smoke
 WASM_DEPS_DIR ?= $(ROOT)/.deps/wasm
 WASM_PROFILE ?= $(ROOT)/manifests/profiles/wasm-emscripten.json
 WASM_EMSDK_DIR ?=
@@ -15,6 +16,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 	$(if $(WASM_BROWSER_EXECUTABLE),--browser-executable "$(WASM_BROWSER_EXECUTABLE)")
 
 .PHONY: wasm-setup doctor-wasm wasm-probe-build wasm-probe-check wasm-clean
+.PHONY: wasm-platform-check
 .PHONY: wasm wasm-check wasm-check-full wasm-serve
 
 wasm-setup:
@@ -24,10 +26,13 @@ doctor-wasm:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" doctor $(POSTGAMMA_WASM_ARGS)
 
 wasm-probe-build:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-build $(POSTGAMMA_WASM_ARGS)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-build $(POSTGAMMA_WASM_ARGS) --probe "$(WASM_PROBE)"
 
 wasm-probe-check:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS) --probe "$(WASM_PROBE)"
+
+wasm-platform-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS) --probe platform
 
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)

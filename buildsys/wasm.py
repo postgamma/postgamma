@@ -23,6 +23,18 @@ from wasm_toolchain import (
 )
 
 
+PROBES = {
+    "smoke": {"scope": "toolchain-smoke", "modules": {"smoke": ["smoke.c"]},
+              "headers": [], "harness": ["smoke.html", "smoke-worker.mjs"]},
+    "platform": {"scope": "abi-pthread-tls-stack-libc",
+                 "modules": {"platform": ["platform.c", "platform-libc.c", "platform-threads.c"],
+                             "stack-overflow": ["stack-overflow.c"]},
+                 "headers": ["platform.h"],
+                 "harness": ["platform.html", "platform-page.mjs", "platform-worker.mjs",
+                             "stack-overflow-worker.mjs"]},
+}
+
+
 class ProbeHandler(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map,
                       ".mjs": "text/javascript", ".wasm": "application/wasm"}
@@ -39,12 +51,12 @@ class ProbeHandler(SimpleHTTPRequestHandler):
 
 
 @contextmanager
-def serve(directory: Path):
+def serve(directory: Path, page: str = "smoke.html"):
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(ProbeHandler, directory=str(directory)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}/smoke.html"
+        yield f"http://127.0.0.1:{server.server_port}/{page}"
     finally:
         server.shutdown()
         server.server_close()
@@ -114,6 +126,8 @@ def build_configuration(config: Configuration, tools: dict) -> dict:
     return {
         "profile": config.profile,
         "mode": config.mode,
+        "builder_sha256": digest(Path(__file__)),
+        "probe_layout": PROBES,
         "compiler": {key: tools[key] for key in (
             "emcc_version", "emcc_sha256", "clang_version", "clang_sha256",
             "sdk_config_sha256", "wasm_ld_sha256", "wasm_opt_sha256",
@@ -151,7 +165,14 @@ def outputs_match(receipt: dict, expected: dict, directory: Path) -> bool:
                 for name, value in outputs.items()))
 
 
-def probe(config: Configuration, check: bool) -> None:
+def probe_sources(root: Path, name: str) -> dict:
+    spec = PROBES[name]
+    names = spec["headers"] + [source for sources in spec["modules"].values() for source in sources]
+    return {name: digest(root / "tests/wasm/probes" / name) for name in names}
+
+
+def probe(config: Configuration, check: bool, name: str = "smoke") -> None:
+    spec = PROBES[name]
     tools, env, doctor_report = doctor(config)
     selected = build_configuration(config, tools)
     config_id = fingerprint(selected)
@@ -164,53 +185,70 @@ def probe(config: Configuration, check: bool) -> None:
     current_run = directory / "runs" / run_id()
     current_run.mkdir(parents=True)
     report = {"schema_version": 1, "kind": "postgamma.wasm-probe-evidence",
-              "status": "failed", "scope": "toolchain-smoke",
+              "status": "failed", "scope": spec["scope"], "probe": name,
               "kernel_validated": False, "browser_probe_validated": False,
               "inputs": inputs, "doctor_report": str(doctor_report)}
     try:
-        source = config.root / "tests/wasm/probes/smoke.c"
-        site = directory / "probes/smoke"
+        site = directory / "probes" / name
         site.mkdir(parents=True, exist_ok=True)
         stamp = site / "build.json"
-        expected = {"configuration": selected, "source_sha256": digest(source)}
+        expected = {"configuration": selected, "sources": probe_sources(config.root, name)}
         previous = read_json(stamp) if stamp.is_file() else {}
         reuse = outputs_match(previous, expected, site)
         if not reuse:
             print(f"wasm probe: compiling {config.target}/{config.mode}/{config_id}", flush=True)
             compiler = [sys.executable, tools["emcc"]]
             mode_flags = config.profile["modes"][config.mode]
-            run([*compiler, *config.profile["compile_flags"], *mode_flags["compile_flags"],
-                 "-c", str(source), "-o", str(site / "smoke.o")],
-                current_run / "build.log", env, config.root)
-            run([*compiler, *mode_flags["link_flags"], *config.profile["link_flags"],
-                 str(site / "smoke.o"), "-o", str(site / "smoke.mjs")],
-                current_run / "build.log", env, config.root)
+            settings = config.profile.get("probes", {}).get(name, {})
+            required = set()
+            for module, sources in spec["modules"].items():
+                objects = []
+                for filename in sources:
+                    source = config.root / "tests/wasm/probes" / filename
+                    obj = site / (source.stem + ".o")
+                    run([*compiler, *config.profile["compile_flags"], *mode_flags["compile_flags"],
+                         "-c", str(source), "-o", str(obj)],
+                        current_run / "build.log", env, config.root)
+                    objects.append(str(obj))
+                    required.add(obj.name)
+                run([*compiler, *mode_flags["link_flags"], *config.profile["link_flags"],
+                     *settings.get("link_flags", []),
+                     *settings.get("module_link_flags", {}).get(module, []),
+                     *objects, "-o", str(site / (module + ".mjs"))],
+                    current_run / "build.log", env, config.root)
+                required.update({module + ".mjs", module + ".wasm"})
             outputs = {path.name: digest(path) for path in site.iterdir()
-                       if path.name.startswith("smoke.") and path.suffix in {".o", ".mjs", ".wasm", ".map"}}
-            if not {"smoke.o", "smoke.mjs", "smoke.wasm"} <= outputs.keys():
+                       if path.name in required or
+                       (path.suffix == ".map" and any(path.name.startswith(m + ".") for m in spec["modules"]))}
+            if not required <= outputs.keys():
                 raise WasmError("compiler did not produce all required probe assets")
             write_json(stamp, {"inputs": expected, "outputs": outputs})
-        for name in ("smoke.html", "smoke-worker.mjs"):
-            source_fixture = config.root / "tests/wasm/probes" / name
-            destination = site / name
+        for filename in spec["harness"]:
+            source_fixture = config.root / "tests/wasm/probes" / filename
+            destination = site / filename
             if not destination.exists() or digest(destination) != digest(source_fixture):
                 shutil.copyfile(source_fixture, destination)
         report["build_reused"] = reuse
         report["artifacts"] = read_json(stamp)["outputs"]
-        report["harness"] = {name: digest(site / name) for name in ("smoke.html", "smoke-worker.mjs")}
+        report["harness"] = {filename: digest(site / filename) for filename in spec["harness"]}
         if check:
-            with serve(site) as url:
+            run([tools["node"], "--test", str(config.root / "tests/wasm/browser/evidence.test.mjs")],
+                current_run / "harness-tests.log", env, config.root, timeout=30)
+            report["harness_tests_passed"] = True
+            with serve(site, name + ".html") as url:
                 report["browser"] = run_browser(config, tools, env, current_run, url)
             report["browser_probe_validated"] = True
         report["status"] = "passed" if check else "built"
         print(f"wasm probe: {report['status']}; build {'reused' if reuse else 'compiled'}", flush=True)
     except Exception as error:
         report["error"] = str(error)
+        if (current_run / "browser.json").is_file():
+            report["browser"] = read_json(current_run / "browser.json")
         raise
     finally:
         write_json(current_run / "report.json", report)
-        write_json(directory / "reports/smoke.json", {"run_report": str(current_run / "report.json"),
-                                                       "status": report["status"]})
+        write_json(directory / "reports" / (name + ".json"),
+                   {"run_report": str(current_run / "report.json"), "status": report["status"]})
         print(f"wasm probe report: {current_run / 'report.json'}", flush=True)
 
 
@@ -234,6 +272,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--target", default="wasm32-emscripten-pthreads")
     parser.add_argument("--mode", choices=("debug", "release"), default="debug")
+    parser.add_argument("--probe", choices=tuple(PROBES), default="smoke")
     parser.add_argument("--node", default="")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--browser-executable", default="")
@@ -250,7 +289,7 @@ def main() -> int:
         elif args.command == "clean":
             clean(config)
         else:
-            probe(config, args.command == "probe-check")
+            probe(config, args.command == "probe-check", args.probe)
     except (WasmError, OSError, ValueError, subprocess.TimeoutExpired) as error:
         parser.exit(2, f"wasm: error: {error}\n")
     return 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+import shutil
 import sys
 import subprocess
 import tempfile
@@ -97,6 +98,57 @@ class WasmTests(unittest.TestCase):
             self.assertTrue(all(toolchain.read_json(path)["status"] == "failed" for path in reports))
             self.assertFalse((config.build / "wasm" / config.target).exists())
             self.assertFalse(config.deps.exists())
+
+    def test_secondary_translation_units_and_headers_invalidate_probe_reuse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "tests/wasm/probes"
+            shutil.copytree(ROOT / "tests/wasm/probes", sources)
+            artifact = root / "platform.wasm"
+            artifact.write_bytes(b"module")
+            expected = wasm.probe_sources(root, "platform")
+            receipt = {"inputs": expected, "outputs": {artifact.name: toolchain.digest(artifact)}}
+            self.assertTrue(wasm.outputs_match(receipt, expected, root))
+            for filename in ("platform.h", "platform-libc.c", "platform-threads.c", "stack-overflow.c"):
+                path = sources / filename
+                original = path.read_text()
+                path.write_text(original + "\n/* changed input */\n")
+                self.assertFalse(wasm.outputs_match(receipt, wasm.probe_sources(root, "platform"), root))
+                path.write_text(original)
+
+    def test_failed_platform_probe_retains_partial_browser_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(ROOT)
+            config.build = Path(temporary)
+            selected = {"test": "partial-evidence"}
+            directory = config.build / "wasm" / config.target / config.mode / toolchain.fingerprint(selected)
+            site = directory / "probes/platform"
+            site.mkdir(parents=True)
+            artifact = site / "platform.wasm"
+            artifact.write_bytes(b"module")
+            toolchain.write_json(site / "build.json", {
+                "inputs": {"configuration": selected, "sources": wasm.probe_sources(ROOT, "platform")},
+                "outputs": {artifact.name: toolchain.digest(artifact)},
+            })
+
+            def fail_browser(config, tools, env, run_directory, url):
+                toolchain.write_json(run_directory / "browser.json", {
+                    "status": "failed", "error": "timed out", "events": [{"ready": True}],
+                })
+                raise toolchain.WasmError("timed out")
+
+            with mock.patch.object(wasm, "doctor", return_value=({"node": "node"}, {}, Path("doctor.json"))), \
+                 mock.patch.object(wasm, "build_configuration", return_value=selected), \
+                 mock.patch.object(wasm, "source_identity", return_value={}), \
+                 mock.patch.object(wasm, "run"), \
+                 mock.patch.object(wasm, "run_browser", side_effect=fail_browser):
+                with self.assertRaisesRegex(toolchain.WasmError, "timed out"):
+                    wasm.probe(config, check=True, name="platform")
+            latest = toolchain.read_json(directory / "reports/platform.json")
+            report = toolchain.read_json(Path(latest["run_report"]))
+            self.assertEqual(latest["status"], "failed")
+            self.assertFalse(report["browser_probe_validated"])
+            self.assertEqual(report["browser"]["events"], [{"ready": True}])
 
     def test_failed_browser_details_are_visible_to_the_caller(self):
         with tempfile.TemporaryDirectory() as temporary:
