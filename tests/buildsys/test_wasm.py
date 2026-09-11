@@ -131,6 +131,18 @@ class WasmTests(unittest.TestCase):
             target.write_text(source.replace("#define PG_CATCH", "/* changed target */\n#define PG_CATCH"))
             self.assertNotEqual(initial, wasm.probe_sources(root, "recovery"))
 
+    def test_opfs_observer_changes_invalidate_compiled_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(ROOT / "tests/wasm/probes", root / "tests/wasm/probes")
+            original = wasm.probe_sources(root, "opfs")
+            observer = root / "tests/wasm/probes/opfs-observe.js"
+            observer.write_text(observer.read_text() + "\n/* changed browser instrumentation */\n")
+            self.assertNotEqual(original, wasm.probe_sources(root, "opfs"))
+            observer.unlink()
+            with self.assertRaises(FileNotFoundError):
+                wasm.probe_sources(root, "opfs")
+
     @unittest.skipUnless((ROOT / "postgres/src/include/utils/elog.h").is_file(), "PostgreSQL source not initialized")
     def test_recovery_extraction_preserves_target_macros_and_rejects_upstream_drift(self):
         source = (ROOT / "postgres/src/include/utils/elog.h").read_text()

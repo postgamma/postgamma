@@ -1,7 +1,8 @@
 # PostGamma WebAssembly probes
 
 The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
-stacks, basic libc interfaces, waits, deadlines, cancellation, and error recovery in Chromium.
+stacks, basic libc interfaces, waits, deadlines, cancellation, error recovery,
+and OPFS file behavior in Chromium.
 They do not build a PostgreSQL kernel or provide a browser SQL API.
 The package is private and contains development dependencies only.
 
@@ -13,6 +14,7 @@ make wasm-probe-check
 make wasm-platform-check
 make wasm-wait-check
 make wasm-recovery-check
+make wasm-opfs-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -38,6 +40,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-platform-check` | Run the ABI, pthread, TLS, stack, semaphore, memory stream, entropy, and locale probes. |
 | `make wasm-wait-check` | Run wait/notify, deadline conversion and rescheduling, cancellation, close, and stale-event probes. |
 | `make wasm-recovery-check` | Run nested error recovery, cleanup, signal-mask, stack, and thread-isolation probes. Requires the PostgreSQL source initialized by `make source-init`. |
+| `make wasm-opfs-check` | Exercise the SDK WasmFS OPFS backend, descriptor and namespace semantics, errors, inflight close, and proxy costs. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -125,12 +128,39 @@ link. The default is `emscripten`; `WASM_LONGJMP=wasm` compares native Wasm
 exception handling with `WASM_LEGACY_EXCEPTIONS=0`. These are C recovery probes;
 they do not validate C++ exception interoperability or other browser engines.
 
+The OPFS probe uses the SDK's own WasmFS backend with one I/O owner and up to
+three C callers. It checks independent and duplicated descriptor offsets,
+shared file identity, partial and random reads/writes, truncate, rename/unlink,
+explicit flush, directory enumeration, and reopening files in a fresh module.
+Probe-only browser wrappers observe real access-handle calls and inject short
+transfers, read/quota/flush failures, and two inflight-write/close races. An
+owner-side asynchronous directory operation completes while its C caller holds
+a probe mutex; the control Worker keeps responding.
+
+The pinned SDK needs an explicit `stringToUTF8OnStack` JS library dependency
+for nonempty directory enumeration. The OPFS profile includes it without
+editing the SDK. Remaining gaps are reported as `adapter-required`: directory
+rename, rename/unlink with an access handle open, truncate with a readonly blob
+open, readonly/directory flush, and preservation of quota-specific errors.
+A passing probe means those observed behaviors match the checked contract;
+`posixStorageComplete` remains false.
+
+Reports contain raw samples and p50/p95 for an empty proxy, 8 KiB reads/writes,
+dirty-file flush, and a separate 8 KiB copy calibration with one and three
+callers. The empty proxy targets the same owner using a separate queue. Timing
+separates the interval before the owner API, the API duration, and the return
+interval; it cannot isolate browser-internal copying from storage/cache work.
+Cross-Worker clock coarsening can produce small negative boundary deltas,
+which are retained. These small cached-file measurements do not establish
+database throughput or justify I/O sharding. Orderly reopen after flush does
+not test crash recovery, WAL durability, or SQL transactions.
+
 Each build uses
 `build/wasm/wasm32-emscripten-pthreads/<mode>/<config-id>/`. Configuration changes
 select a separate directory; unchanged probe inputs and verified outputs are
 reused. Each attempt retains `runs/<run-id>/report.json` and logs.
-`reports/smoke.json`, `reports/platform.json`, `reports/wait.json`, or
-`reports/recovery.json` points to the latest attempt,
+`reports/smoke.json`, `reports/platform.json`, `reports/wait.json`,
+`reports/recovery.json`, or `reports/opfs.json` points to the latest attempt,
 including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
@@ -150,6 +180,7 @@ make wasm-wait-check WASM_MODE=release
 make wasm-wait-check WASM_SEED=17
 make wasm-recovery-check WASM_MODE=release
 make wasm-recovery-check WASM_LONGJMP=wasm
+make wasm-opfs-check WASM_MODE=release
 make wasm-probe-build WASM_PROBE=platform
 make wasm-setup WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_DEPS_DIR=/opt/postgamma-wasm-tools

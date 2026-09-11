@@ -56,7 +56,10 @@ if (values.describe) {
       report.probe = await page.evaluate(() => window.probeResult);
       if (report.probe.status !== 'passed' || !report.probe.isolated ||
           !report.probe.worker || !report.probe.sharedMemory)
-        throw new Error(`Wasm probe failed: ${JSON.stringify(report.probe)}`);
+        throw new Error(`Wasm probe failed: ${report.probe.error || JSON.stringify({
+          status: report.probe.status, isolated: report.probe.isolated,
+          worker: report.probe.worker, sharedMemory: report.probe.sharedMemory,
+        })}`);
       const classified = classifyPageErrors(report.pageErrorDetails, report.probe, values.url);
       report.expectedPageErrors = classified.expected;
       report.unexpectedPageErrors = classified.unexpected;

@@ -46,6 +46,16 @@
     }
   },
   "probes": {
+    "opfs": {
+      "link_flags": [
+        "-sWASMFS=1",
+        "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[\"$stringToUTF8OnStack\"]",
+        "-sFILESYSTEM=1",
+        "-sPTHREAD_POOL_SIZE=4",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
     "recovery": {
       "link_flags": [
         "-sPTHREAD_POOL_SIZE=3",

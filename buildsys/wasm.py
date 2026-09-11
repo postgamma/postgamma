@@ -39,6 +39,10 @@ PROBES = {
                  "modules": {"recovery": ["recovery.c", "recovery-jump.c"]},
                  "headers": ["recovery.h"],
                  "harness": ["recovery.html", "recovery-page.mjs", "recovery-worker.mjs"]},
+    "opfs": {"scope": "opfs-semantics-and-proxy-cost",
+             "modules": {"opfs": ["opfs.c", "opfs-bench.c"]},
+             "headers": ["opfs.h"], "pre_js": ["opfs-observe.js"],
+             "harness": ["opfs.html", "opfs-page.mjs", "opfs-worker.mjs"]},
 }
 
 
@@ -175,7 +179,8 @@ def outputs_match(receipt: dict, expected: dict, directory: Path) -> bool:
 
 def probe_sources(root: Path, name: str) -> dict:
     spec = PROBES[name]
-    names = spec["headers"] + [source for sources in spec["modules"].values() for source in sources]
+    names = (spec["headers"] + spec.get("pre_js", []) +
+             [source for sources in spec["modules"].values() for source in sources])
     result = {name: digest(root / "tests/wasm/probes" / name) for name in names}
     if name == "recovery":
         source = root / "postgres/src/include/utils/elog.h"
@@ -243,6 +248,8 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
             if longjmp == "wasm":
                 recovery_flags += ["-sWASM_LEGACY_EXCEPTIONS=0"]
             required = set()
+            pre_js = [arg for filename in spec.get("pre_js", [])
+                      for arg in ("--pre-js", str(config.root / "tests/wasm/probes" / filename))]
             for module, sources in spec["modules"].items():
                 objects = []
                 for filename in sources:
@@ -257,7 +264,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
                 run([*compiler, *mode_flags["link_flags"], *config.profile["link_flags"],
                      *settings.get("link_flags", []),
                      *settings.get("module_link_flags", {}).get(module, []),
-                     *recovery_flags,
+                     *recovery_flags, *pre_js,
                      *objects, "-o", str(site / (module + ".mjs"))],
                     current_run / "build.log", env, config.root)
                 required.update({module + ".mjs", module + ".wasm"})
