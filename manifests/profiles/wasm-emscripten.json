@@ -33,7 +33,6 @@
     "-sALLOW_MEMORY_GROWTH=1",
     "-sSTACK_SIZE=1048576",
     "-sDEFAULT_PTHREAD_STACK_SIZE=1048576",
-    "-sSUPPORT_LONGJMP=emscripten",
     "-sFILESYSTEM=0"
   ],
   "modes": {
@@ -47,6 +46,13 @@
     }
   },
   "probes": {
+    "recovery": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
     "wait": {
       "link_flags": [
         "-sPTHREAD_POOL_SIZE=3",

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,10 @@ PROBES = {
                              "stack-overflow-worker.mjs"]},
     "wait": {"scope": "wait-deadline-cancellation", "modules": {"wait": ["wait.c", "wait-clock.c"]},
              "headers": ["wait-clock.h"], "harness": ["wait.html", "wait-page.mjs", "wait-worker.mjs"]},
+    "recovery": {"scope": "longjmp-error-recovery",
+                 "modules": {"recovery": ["recovery.c", "recovery-jump.c"]},
+                 "headers": ["recovery.h"],
+                 "harness": ["recovery.html", "recovery-page.mjs", "recovery-worker.mjs"]},
 }
 
 
@@ -124,10 +129,11 @@ def doctor(config: Configuration) -> tuple[dict, dict, Path]:
         print(f"wasm doctor report: {directory / 'report.json'}", flush=True)
 
 
-def build_configuration(config: Configuration, tools: dict) -> dict:
+def build_configuration(config: Configuration, tools: dict, longjmp: str = "emscripten") -> dict:
     return {
         "profile": config.profile,
         "mode": config.mode,
+        "longjmp": longjmp,
         "builder_sha256": digest(Path(__file__)),
         "probe_layout": PROBES,
         "compiler": {key: tools[key] for key in (
@@ -142,7 +148,7 @@ def source_identity(config: Configuration) -> dict:
     paths = [root / "Makefile", config.profile_path,
              root / "buildsys/wasm.py", root / "buildsys/wasm_toolchain.py",
              root / "buildsys/wasm.mk", root / "wasm/package.json",
-             root / "wasm/package-lock.json"]
+             root / "wasm/package-lock.json", root / "postgres/src/include/utils/elog.h"]
     paths += sorted((root / "tests/wasm").rglob("*"))
     revisions = {}
     for name in ("postgres", "third_party/pgvector"):
@@ -170,15 +176,37 @@ def outputs_match(receipt: dict, expected: dict, directory: Path) -> bool:
 def probe_sources(root: Path, name: str) -> dict:
     spec = PROBES[name]
     names = spec["headers"] + [source for sources in spec["modules"].values() for source in sources]
-    return {name: digest(root / "tests/wasm/probes" / name) for name in names}
+    result = {name: digest(root / "tests/wasm/probes" / name) for name in names}
+    if name == "recovery":
+        source = root / "postgres/src/include/utils/elog.h"
+        if not source.is_file():
+            raise WasmError("recovery probes require PostgreSQL source; run make source-init")
+        result["postgres/src/include/utils/elog.h"] = digest(source)
+    return result
 
 
-def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1) -> None:
+def recovery_macros(source: str) -> str:
+    """Use the target's actual recovery macros without linking its SQL kernel."""
+    match = re.search(r"^#define PG_TRY\(\.\.\.\).*?^extern PGDLLIMPORT sigjmp_buf \*PG_exception_stack;",
+                      source, re.MULTILINE | re.DOTALL)
+    if not match:
+        raise WasmError("PostgreSQL recovery macro boundaries changed; review the probe extraction")
+    block = match.group().split("\nextern PGDLLIMPORT", 1)[0]
+    if not all(f"#define {name}(" in block for name in ("PG_CATCH", "PG_FINALLY", "PG_END_TRY", "PG_RE_THROW")):
+        raise WasmError("PostgreSQL recovery macros are incomplete")
+    return ("/* Extracted from postgres/src/include/utils/elog.h; PostgreSQL License.\n"
+            " * See postgres/COPYRIGHT. Generated only for the recovery probe. */\n" + block + "\n")
+
+
+def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1,
+          longjmp: str = "emscripten") -> None:
     if not 1 <= seed <= 0xffffffff:
         raise WasmError("probe seed must be a nonzero uint32")
+    if longjmp not in ("emscripten", "wasm"):
+        raise WasmError("unsupported longjmp mode")
     spec = PROBES[name]
     tools, env, doctor_report = doctor(config)
-    selected = build_configuration(config, tools)
+    selected = build_configuration(config, tools, longjmp)
     config_id = fingerprint(selected)
     directory = config.build / "wasm" / config.target / config.mode / config_id
     inputs = {"schema_version": 1, "kind": "postgamma.wasm-probe-inputs",
@@ -198,6 +226,12 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
         site.mkdir(parents=True, exist_ok=True)
         stamp = site / "build.json"
         expected = {"configuration": selected, "sources": probe_sources(config.root, name)}
+        generated = {}
+        if name == "recovery":
+            header = site / "recovery-pg-try.h"
+            header.write_text(recovery_macros((config.root / "postgres/src/include/utils/elog.h").read_text()))
+            generated[header.name] = digest(header)
+        report["generated_headers"] = generated
         previous = read_json(stamp) if stamp.is_file() else {}
         reuse = outputs_match(previous, expected, site)
         if not reuse:
@@ -205,6 +239,9 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
             compiler = [sys.executable, tools["emcc"]]
             mode_flags = config.profile["modes"][config.mode]
             settings = config.profile.get("probes", {}).get(name, {})
+            recovery_flags = [f"-sSUPPORT_LONGJMP={longjmp}"]
+            if longjmp == "wasm":
+                recovery_flags += ["-sWASM_LEGACY_EXCEPTIONS=0"]
             required = set()
             for module, sources in spec["modules"].items():
                 objects = []
@@ -212,6 +249,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
                     source = config.root / "tests/wasm/probes" / filename
                     obj = site / (source.stem + ".o")
                     run([*compiler, *config.profile["compile_flags"], *mode_flags["compile_flags"],
+                         *recovery_flags, "-I", str(site),
                          "-c", str(source), "-o", str(obj)],
                         current_run / "build.log", env, config.root)
                     objects.append(str(obj))
@@ -219,6 +257,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
                 run([*compiler, *mode_flags["link_flags"], *config.profile["link_flags"],
                      *settings.get("link_flags", []),
                      *settings.get("module_link_flags", {}).get(module, []),
+                     *recovery_flags,
                      *objects, "-o", str(site / (module + ".mjs"))],
                     current_run / "build.log", env, config.root)
                 required.update({module + ".mjs", module + ".wasm"})
@@ -240,7 +279,8 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
             run([tools["node"], "--test", str(config.root / "tests/wasm/browser/evidence.test.mjs")],
                 current_run / "harness-tests.log", env, config.root, timeout=30)
             report["harness_tests_passed"] = True
-            page = name + ".html" + (f"?seed={seed}" if name == "wait" else "")
+            page = name + ".html" + (f"?seed={seed}" if name == "wait" else
+                                      f"?longjmp={longjmp}" if name == "recovery" else "")
             with serve(site, page) as url:
                 report["browser"] = run_browser(config, tools, env, current_run, url)
             report["browser_probe_validated"] = True
@@ -280,6 +320,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("debug", "release"), default="debug")
     parser.add_argument("--probe", choices=tuple(PROBES), default="smoke")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--longjmp", choices=("emscripten", "wasm"), default="emscripten")
     parser.add_argument("--node", default="")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--browser-executable", default="")
@@ -296,7 +337,7 @@ def main() -> int:
         elif args.command == "clean":
             clean(config)
         else:
-            probe(config, args.command == "probe-check", args.probe, args.seed)
+            probe(config, args.command == "probe-check", args.probe, args.seed, args.longjmp)
     except (WasmError, OSError, ValueError, subprocess.TimeoutExpired) as error:
         parser.exit(2, f"wasm: error: {error}\n")
     return 0

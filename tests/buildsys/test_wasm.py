@@ -116,6 +116,33 @@ class WasmTests(unittest.TestCase):
                 self.assertFalse(wasm.outputs_match(receipt, wasm.probe_sources(root, "platform"), root))
                 path.write_text(original)
 
+    @unittest.skipUnless((ROOT / "postgres/src/include/utils/elog.h").is_file(), "PostgreSQL source not initialized")
+    def test_target_recovery_header_is_required_and_invalidates_probe_reuse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(ROOT / "tests/wasm/probes", root / "tests/wasm/probes")
+            with self.assertRaisesRegex(toolchain.WasmError, "make source-init"):
+                wasm.probe_sources(root, "recovery")
+            target = root / "postgres/src/include/utils/elog.h"
+            target.parent.mkdir(parents=True)
+            source = (ROOT / "postgres/src/include/utils/elog.h").read_text()
+            target.write_text(source)
+            initial = wasm.probe_sources(root, "recovery")
+            target.write_text(source.replace("#define PG_CATCH", "/* changed target */\n#define PG_CATCH"))
+            self.assertNotEqual(initial, wasm.probe_sources(root, "recovery"))
+
+    @unittest.skipUnless((ROOT / "postgres/src/include/utils/elog.h").is_file(), "PostgreSQL source not initialized")
+    def test_recovery_extraction_preserves_target_macros_and_rejects_upstream_drift(self):
+        source = (ROOT / "postgres/src/include/utils/elog.h").read_text()
+        extracted = wasm.recovery_macros(source)
+        original = source[source.index("#define PG_TRY("):source.index("extern PGDLLIMPORT sigjmp_buf *PG_exception_stack;")]
+        self.assertIn(original, extracted)
+        self.assertNotIn("PGDLLIMPORT", extracted)
+        for changed in (source.replace("#define PG_TRY(", "#define PG_TRY_CHANGED("),
+                        source.replace("#define PG_FINALLY(", "#define PG_FINALLY_CHANGED(")):
+            with self.assertRaises(toolchain.WasmError):
+                wasm.recovery_macros(changed)
+
     def test_failed_platform_probe_retains_partial_browser_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(ROOT)

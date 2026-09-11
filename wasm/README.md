@@ -1,7 +1,7 @@
 # PostGamma WebAssembly probes
 
 The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
-stacks, basic libc interfaces, waits, deadlines, and cancellation in Chromium.
+stacks, basic libc interfaces, waits, deadlines, cancellation, and error recovery in Chromium.
 They do not build a PostgreSQL kernel or provide a browser SQL API.
 The package is private and contains development dependencies only.
 
@@ -12,6 +12,7 @@ make wasm-setup
 make wasm-probe-check
 make wasm-platform-check
 make wasm-wait-check
+make wasm-recovery-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -36,6 +37,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-probe-check` | Build as needed, serve with COOP/COEP headers, and run the probe in Chromium. |
 | `make wasm-platform-check` | Run the ABI, pthread, TLS, stack, semaphore, memory stream, entropy, and locale probes. |
 | `make wasm-wait-check` | Run wait/notify, deadline conversion and rescheduling, cancellation, close, and stale-event probes. |
+| `make wasm-recovery-check` | Run nested error recovery, cleanup, signal-mask, stack, and thread-isolation probes. Requires the PostgreSQL source initialized by `make source-init`. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -98,11 +100,37 @@ waiter. This is a candidate platform mechanism, not a PostgreSQL wait adapter
 or proof of SQL cancellation, deadlock detection, logical signal dispatch, or
 ERROR cleanup. The current PostgreSQL adapter still requires descriptor wakeups.
 
+The recovery probe extracts the actual `PG_TRY`/`PG_CATCH`/`PG_FINALLY` macros
+from the target PostgreSQL header into its build directory. The header is an
+input to incremental rebuilds; changed extraction boundaries fail explicitly.
+The probe supplies its own TLS roots, error throwing, and resource fixtures;
+it does not link PostgreSQL's error implementation or execute SQL.
+
+Recovery checks cover nested rethrow, errors during cleanup, typed calls across
+translation units, nonzero/zero jump values, linear-memory stack restoration,
+and repeated heap allocation/release. Three pthreads keep separate live recovery
+boundaries and signal masks across controlled waits and two rounds of thread
+reuse. Foreign-thread jump attempts are rejected before accessing a jump buffer.
+A separate instance checks that a Wasm trap escapes `PG_TRY` and prevents further
+calls into that failed instance while a healthy instance continues.
+
+The pinned SDK aliases `sigsetjmp` to `setjmp`, so even `savemask=1` does not
+restore its libc signal mask. The probe records that behavior and tests explicit
+restoration of a separate logical mask. Actual PostgreSQL logical interrupt,
+transaction rollback, memory-context, and ERROR cleanup integration remains
+part of the kernel work.
+
+`WASM_LONGJMP` selects the same explicit setting for every C compilation and
+link. The default is `emscripten`; `WASM_LONGJMP=wasm` compares native Wasm
+exception handling with `WASM_LEGACY_EXCEPTIONS=0`. These are C recovery probes;
+they do not validate C++ exception interoperability or other browser engines.
+
 Each build uses
 `build/wasm/wasm32-emscripten-pthreads/<mode>/<config-id>/`. Configuration changes
 select a separate directory; unchanged probe inputs and verified outputs are
 reused. Each attempt retains `runs/<run-id>/report.json` and logs.
-`reports/smoke.json`, `reports/platform.json`, or `reports/wait.json` points to the latest attempt,
+`reports/smoke.json`, `reports/platform.json`, `reports/wait.json`, or
+`reports/recovery.json` points to the latest attempt,
 including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
@@ -120,6 +148,8 @@ make wasm-probe-check WASM_MODE=release
 make wasm-platform-check WASM_MODE=release
 make wasm-wait-check WASM_MODE=release
 make wasm-wait-check WASM_SEED=17
+make wasm-recovery-check WASM_MODE=release
+make wasm-recovery-check WASM_LONGJMP=wasm
 make wasm-probe-build WASM_PROBE=platform
 make wasm-setup WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_DEPS_DIR=/opt/postgamma-wasm-tools
