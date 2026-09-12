@@ -556,6 +556,12 @@
         "target": "src/backend/utils/init/postgres_backend_state.c"
       },
       {
+        "id": "runtime.thread-platform-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/thread_platform.h",
+        "target": "src/include/postgamma/thread_platform.h"
+      },
+      {
         "id": "runtime.thread-runtime",
         "source_root": "project",
         "source": "runtime/src/thread_runtime.c",

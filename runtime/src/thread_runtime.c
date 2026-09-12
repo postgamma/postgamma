@@ -16,6 +16,9 @@
 #endif
 
 #include "postgamma/thread_runtime.h"
+#ifdef __EMSCRIPTEN__
+#include "postgamma/thread_platform.h"
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -69,7 +72,11 @@
 	(8 * POSTGAMMA_MEBIBYTE * POSTGAMMA_STACK_SCALE)
 #define POSTGAMMA_FRONTEND_STACK_SIZE \
 	(4 * POSTGAMMA_MEBIBYTE * POSTGAMMA_STACK_SCALE)
+#ifdef __EMSCRIPTEN__
+#define POSTGAMMA_STACK_GUARD_SIZE 0
+#else
 #define POSTGAMMA_STACK_GUARD_SIZE (64 * POSTGAMMA_KIBIBYTE)
+#endif
 
 
 struct PostgammaThread
@@ -207,6 +214,10 @@ create_thread(PostgammaThread **thread,
 	if (thread == NULL || main_function == NULL)
 		return EINVAL;
 	*thread = NULL;
+#ifdef __EMSCRIPTEN__
+	if (!postgamma_platform_thread_can_block())
+		return EWOULDBLOCK;
+#endif
 
 	created = calloc(1, sizeof(*created));
 	if (created == NULL)
@@ -328,6 +339,10 @@ postgamma_thread_join(PostgammaThread *thread, void **result)
 
 	if (thread == NULL || thread->joined)
 		return EINVAL;
+#ifdef __EMSCRIPTEN__
+	if (!postgamma_platform_thread_can_block())
+		return EWOULDBLOCK;
+#endif
 	status = pthread_join(thread->thread, result);
 	if (status == 0)
 		thread->joined = true;
@@ -831,6 +846,11 @@ resolve_stack_policy(
 		if (attributes->guard_size != 0)
 			guard_size = attributes->guard_size;
 	}
+#ifdef __EMSCRIPTEN__
+	/* An SDK guard attribute does not create protected linear-memory pages. */
+	if (guard_size != 0)
+		return ENOTSUP;
+#endif
 	if (stack_size < (size_t) PTHREAD_STACK_MIN || stack_size <= guard_size ||
 		stack_size - guard_size < POSTGAMMA_THREAD_STACK_MINIMUM_USABLE)
 		return EINVAL;
@@ -845,7 +865,9 @@ resolve_stack_policy(
 static int
 query_current_stack(PostgammaThreadStackInfo *stack_info)
 {
-#if defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+	return postgamma_platform_thread_stack_info(stack_info);
+#elif defined(__linux__)
 	pthread_attr_t attributes;
 	void	   *stack_address;
 	uintptr_t	low_address;
