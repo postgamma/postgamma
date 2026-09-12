@@ -63,7 +63,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                 vector_baseline = baseline(builder)
             if scenario in ("results", "all"):
                 from wasm_sql_oracle import oracle
-                report["oracle"] = oracle(config.root, builder.current, site)
+                report["oracle"] = oracle(config.root, builder.current, site, config.build)
                 report["harness"].update({name: digest(site / name) for name in ("fixtures.json", "oracle.json")})
             run([builder.tools["node"], str(config.root / "tests/wasm/sql/protocol.mjs"),
                  str(site / "src/protocol/wire.js")], builder.current / "protocol.log",

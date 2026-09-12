@@ -539,3 +539,7 @@ The [browser preview guide](docs/getting-started/browser.md) covers installing
 the generated npm package, serving its assets and choosing ephemeral or OPFS
 storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
 validated package in Chromium, Firefox and Linux WebKit.
+
+`make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
+Relevant pull requests and main-branch changes also run them in the Browser
+kernel workflow; shared kernel changes select native regression separately.

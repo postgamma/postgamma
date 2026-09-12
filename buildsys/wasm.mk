@@ -126,3 +126,7 @@ wasm-package-check:
 .PHONY: wasm-matrix-check
 wasm-matrix-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_matrix.py" $(POSTGAMMA_WASM_ARGS)
+
+.PHONY: wasm-ci
+wasm-ci:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic

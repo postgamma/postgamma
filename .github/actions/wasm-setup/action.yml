@@ -1,0 +1,29 @@
+name: Wasm toolchain
+description: Install matching AST tools, pinned browser tools and source inputs
+inputs:
+  matrix:
+    description: Install all three pinned browser engines
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install host build prerequisites
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bison build-essential ca-certificates curl flex \
+          gnupg libicu-dev libipc-run-perl libreadline-dev libssl-dev lsb-release software-properties-common zlib1g-dev
+        curl -fsSLo /tmp/postgamma-llvm.sh https://apt.llvm.org/llvm.sh
+        sudo bash /tmp/postgamma-llvm.sh 22
+        sudo apt-get install -y libclang-22-dev llvm-22-dev
+    - uses: actions/cache@v4
+      with:
+        path: .deps/wasm/emsdk
+        key: wasm-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('manifests/profiles/wasm-emscripten.json') }}
+    - name: Initialize pinned sources and browser tools
+      shell: bash
+      run: |
+        make source-init wasm-setup JOBS=2
+        if [ '${{ inputs.matrix }}' = true ]; then
+          make wasm-browser-setup
+        fi

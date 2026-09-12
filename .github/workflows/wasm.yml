@@ -1,0 +1,110 @@
+name: Browser kernel
+
+on:
+  pull_request:
+    paths: &wasm_paths
+      - 'Makefile'
+      - 'VERSION'
+      - 'postgres'
+      - 'third_party/pgvector'
+      - 'buildsys/**'
+      - 'compiler/**'
+      - 'runtime/**'
+      - 'embedded-c/**'
+      - 'manifests/**'
+      - 'extensions/pgvector/**'
+      - 'wasm/**'
+      - 'tests/wasm/**'
+      - 'tests/embedded/**'
+      - 'tests/buildsys/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'licenses/**'
+      - 'examples/wasm/**'
+      - '.github/workflows/wasm.yml'
+      - '.github/actions/wasm-setup/**'
+  push:
+    branches: [main]
+    paths: *wasm_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PG_REPOSITORY: ${{ vars.PG_REPOSITORY }}
+  PGVECTOR_REPOSITORY: ${{ vars.PGVECTOR_REPOSITORY }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      native: ${{ steps.changes.outputs.native }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 buildsys/plan_wasm_ci.py --root . --base "$BASE_SHA"
+
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: ./.github/actions/wasm-setup
+      - name: Build and validate the Chromium package
+        run: make wasm-ci JOBS=2
+      - name: Collect diagnostics
+        if: always()
+        run: python3 buildsys/collect_wasm_evidence.py --build-dir build --output build/wasm-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wasm-basic-${{ github.run_id }}
+          path: build/wasm-evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: wasm-package-${{ github.run_id }}
+          path: build/wasm/**/dist/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    needs: plan
+    if: needs.plan.outputs.native == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Install native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison build-essential clang flex libclang-dev \
+            libicu-dev libipc-run-perl libreadline-dev libssl-dev llvm-dev zlib1g-dev
+      - name: Shared runtime regression
+        run: |
+          make source-init
+          make embedded-runtime-fast-check JOBS=2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wasm-shared-native-${{ github.run_id }}
+          path: |
+            build/embedded-kernel/reports/
+            build/embedded-bootstrap/reports/
+            build/reports/
+          if-no-files-found: warn
+          retention-days: 14

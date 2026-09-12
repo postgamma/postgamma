@@ -76,6 +76,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
+| `make wasm-ci` | Run tool/unit/generation/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
 | `make wasm-matrix-check` | Measure the last validated package on Chromium, Firefox and Linux WebKit, retaining exploratory failures. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
@@ -522,3 +523,18 @@ absence of checkout paths. TypeScript is a pinned development dependency only.
 Follow the [consumer guide](PACKAGE_README.md) to copy the complete asset tree,
 set HTTP headers and use `assetBase` with a bundler. Runtime browser support and
 performance must be reported for the actual tested profile.
+
+## Continuous validation
+
+After `make source-init wasm-setup`, `make wasm-ci JOBS=2` runs the same
+Chromium gates and build-system tests used by `.github/workflows/wasm.yml`. The workflow runs for
+relevant pull requests, main-branch changes and manual dispatch. It has no
+scheduled trigger. Changes to shared runtime, compiler, C API and common
+build inputs also select a separate native fast-regression job.
+
+The Wasm job uses Ubuntu 24.04, matching LLVM/Clang 22 host AST tools and the
+pinned SDK/browser package. It retains stage logs, source/tool identities and
+failure reports separately from native evidence; successful runs also retain
+the tested npm archive. Browser profiles and object/generated trees are not
+uploaded. Each basic job has a 180-minute bound and artifacts expire after 14
+days. A local pass or workflow syntax check does not establish a hosted CI pass.

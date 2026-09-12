@@ -2,17 +2,30 @@
 from __future__ import annotations
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
 from wasm_toolchain import WasmError, digest, write_json
 
 
-def oracle(root: Path, directory: Path, site: Path) -> dict:
-    prefix = root / 'build/reference/tmp_install/usr/local/pgsql'
+def oracle(root: Path, directory: Path, site: Path, build: Path | None = None) -> dict:
+    build = build or root/'build'
+    reference = build/'wasm/oracle/reference'
+    if not (reference/'.postgamma-configure.json').is_file():
+        reference = build/'reference'
+    prefix = reference/'tmp_install/usr/local/pgsql'
+    source_version = re.search(r'AC_INIT\(\[PostgreSQL\], \[([^]]+)\]', (root/'postgres/configure.ac').read_text())[1]
+    configuration = json.loads((reference/'.postgamma-configure.json').read_text())
+    if configuration['configure_sha256'] != digest(root/'postgres/configure') or Path(configuration['source']).resolve() != (root/'postgres').resolve():
+        raise WasmError('native oracle configuration does not match the target source')
     binaries = {name: prefix / 'bin' / name for name in ('postgres', 'initdb', 'pg_ctl', 'psql')}
     if not all(p.is_file() for p in binaries.values()):
         raise WasmError('native SQL oracle is unavailable; build the reference PostgreSQL test installation first')
+    for name, binary in binaries.items():
+        source = reference/'src'/('backend/postgres' if name == 'postgres' else 'bin/'+name+'/'+name)
+        if not source.is_file() or digest(binary) != digest(source):
+            raise WasmError('native oracle installation differs from its current build: '+name)
     fixture_path = root / 'tests/wasm/sql/fixtures.json'
     fixture = json.loads(fixture_path.read_text())
     env = dict(os.environ, LD_LIBRARY_PATH=str(prefix / 'lib'), LC_ALL='C')
@@ -38,7 +51,7 @@ def oracle(root: Path, directory: Path, site: Path) -> dict:
                 return call('psql', '-XAt', '-v', 'ON_ERROR_STOP=1', '-h', str(path),
                             '-U', 'postgamma', '-d', 'postgres', '-c', query, input=input)
             version = sql('SELECT version()')
-            if not version.startswith('PostgreSQL 19beta3 '):
+            if not version.startswith('PostgreSQL ' + source_version + ' '):
                 raise WasmError('native oracle version differs from the pinned kernel')
             values = {}
             for name in ('basic', 'binary'):
@@ -52,6 +65,8 @@ def oracle(root: Path, directory: Path, site: Path) -> dict:
                 raise WasmError('native COPY roundtrip changed the fixture bytes')
             values['copy'] = copy_output
             report = {'kind': 'postgamma.wasm-sql-oracle', 'status': 'passed', 'version': version,
+                      'source_commit': subprocess.check_output(['git','-C',str(root/'postgres'),'rev-parse','HEAD'],text=True).strip(),
+                      'source_version':source_version,
                       'binaries': {name: digest(p) for name, p in binaries.items()},
                       'inputs': {str(fixture_path.relative_to(root)): digest(fixture_path),
                                  'tests/embedded/api/chunked_results_driver.c': digest(root / 'tests/embedded/api/chunked_results_driver.c'),
