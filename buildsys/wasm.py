@@ -81,7 +81,7 @@ def serve(directory: Path, page: str = "smoke.html"):
 
 
 def run_browser(config: Configuration, tools: dict, env: dict, directory: Path,
-                url: str | None = None, harness: Path | None = None) -> dict:
+                url: str | None = None, harness: Path | None = None, timeout_ms: int = 30000) -> dict:
     output = directory / "browser.json"
     directory.mkdir(parents=True, exist_ok=True)
     command = [tools["node"], str(harness or config.harness), "--root", str(config.root),
@@ -90,6 +90,8 @@ def run_browser(config: Configuration, tools: dict, env: dict, directory: Path,
         command += ["--executable", str(Path(config.browser_override).resolve())]
     if url:
         command += ["--url", url]
+    if timeout_ms != 30000:
+        command += ["--timeout-ms", str(timeout_ms)]
     launcher = config.deps / "browser-libs/launch-webkit.sh"
     if harness and launcher.is_file():
         command += ["--webkit-executable", str(launcher)]
@@ -99,7 +101,7 @@ def run_browser(config: Configuration, tools: dict, env: dict, directory: Path,
         with tempfile.TemporaryDirectory(prefix="pgm-wasm-", dir="/tmp") as temporary:
             run(command, directory / "browser.log",
                 dict(browser_environment(config, env), TMPDIR=temporary),
-                config.root, timeout=180 if harness else 60)
+                config.root, timeout=180 if harness else max(60, timeout_ms / 1000 + 30))
     except WasmError as error:
         if output.is_file():
             detail = read_json(output).get("error", str(error))

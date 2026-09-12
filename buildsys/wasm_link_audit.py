@@ -11,6 +11,7 @@ from wasm_toolchain import WasmError, digest, write_json
 
 
 PROVIDERS = {
+    "opfs-owner": "postgamma_storage_dispatch emscripten_unwind_to_js_event_loop",
     "shared-memory": "memory emscripten_get_heap_max emscripten_resize_heap",
     "recovery-and-fatal-diagnostics": "exit proc_exit __assert_fail __cxa_throw _abort_js "
         "_emscripten_throw_longjmp __handle_stack_overflow emscripten_err emscripten_out",

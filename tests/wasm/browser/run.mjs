@@ -12,6 +12,7 @@ const {values} = parseArgs({options: {
   describe: {type: 'boolean'},
   executable: {type: 'string'},
   profile: {type: 'string'},
+  'timeout-ms': {type: 'string'},
 }});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
 const {chromium} = require('playwright');
@@ -24,7 +25,10 @@ const report = {
   pageErrors: [],
   pageErrorDetails: [],
   failedRequests: [],
+  timeoutMs: Number(values['timeout-ms'] || 30000),
 };
+if (!Number.isSafeInteger(report.timeoutMs) || report.timeoutMs < 1 || report.timeoutMs > 120000)
+  throw new Error('Invalid browser case timeout');
 if (values.describe) {
   console.log(JSON.stringify(report));
 } else {
@@ -52,7 +56,9 @@ if (values.describe) {
     });
     if (values.url) {
       await page.goto(values.url, {timeout: 15000});
-      await page.waitForFunction(() => window.probeResult !== null, undefined, {timeout: 30000});
+      const started = performance.now();
+      await page.waitForFunction(() => window.probeResult !== null, undefined, {timeout: report.timeoutMs});
+      report.elapsedMs = performance.now() - started;
       report.probe = await page.evaluate(() => window.probeResult);
       if (report.probe.status !== 'passed' || !report.probe.isolated ||
           !report.probe.worker || !report.probe.sharedMemory)

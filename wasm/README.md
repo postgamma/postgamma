@@ -7,8 +7,9 @@ The target build commands also configure PostgreSQL and capture its Wasm
 compilation database, generate target state layouts, and link the kernel with
 matching initialization resources. The private C/TypeScript startup bridge runs
 initdb and SQL in Chromium. The source TypeScript API supports independent
-sessions, request cancellation, bounded results and COPY. A versioned consumer
-package and persistent browser storage are later milestones.
+sessions, request cancellation, bounded results and COPY. OPFS ownership and
+orderly SQL reopen are implemented; WAL crash recovery and a versioned consumer
+package are later milestones.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -63,6 +64,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run all eight SQL, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-storage-check` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen in Chromium. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -394,3 +396,28 @@ Opening another connection can return `DatabaseError` with BUSY status when
 pinned sessions and in-flight requests reserve the available carriers. Retry
 after existing work releases capacity; existing connections can still commit
 or roll back their transactions.
+
+The OPFS source API identifies a database by its origin and name:
+
+```typescript
+const db = await Database.open({storage: {type: 'opfs', name: 'example'}});
+const connection = await db.connect();
+await connection.query('CREATE TABLE IF NOT EXISTS items (id integer PRIMARY KEY)');
+await db.close();
+const reopened = await Database.open({storage: {type: 'opfs', name: 'example'}, create: false});
+await reopened.close();
+```
+
+Names contain 1-64 ASCII letters, digits, underscores or hyphens. A second owner
+of the same database is rejected before initialization/recovery. Ownership lasts
+through native shutdown and I/O drain. The provider uses a dedicated 2 MiB-stack
+I/O thread, at most 64 cached physical access handles, and stable file identities
+behind a checksummed namespace journal. The initial journal is bounded to 16 MiB
+and the namespace to 16,384 live entries. The profile does not provide symlinks
+or external tablespaces. It requires OPFS and Web Locks and never falls back to
+an ephemeral database when persistent storage cannot be opened.
+
+The storage check includes cold target initdb and reopen with a separate 90-second
+case deadline and records the observed duration. Passing this check establishes
+file/ownership and orderly-reopen behavior; durable COMMIT failure and crash
+recovery acceptance are separate checks still under development.

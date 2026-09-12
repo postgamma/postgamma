@@ -99,3 +99,8 @@ wasm-check-full:
 WASM_SQL_SCENARIO ?= all
 wasm-sql-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_SQL_SCENARIO)"
+
+.PHONY: wasm-storage-check
+WASM_STORAGE_SCENARIO ?= storage
+wasm-storage-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)"

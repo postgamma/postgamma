@@ -5,6 +5,7 @@
 #include "postgamma/shmem_platform.h"
 #include "postgamma/dsm_platform.h"
 #include "postgamma/io_platform.h"
+#include "postgamma/wasm_storage.h"
 #include <emscripten.h>
 #include <errno.h>
 #include <pthread.h>
@@ -23,7 +24,7 @@ enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
-#define WIRE_VERSION 1
+#define WIRE_VERSION 2
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle { uint32_t kind, generation, parent; void *pointer; } Handle;
@@ -137,6 +138,9 @@ static pgm_status marshal_result(Writer *w, pgm_result *result, pgm_error **erro
     }
     return PGM_STATUS_OK;
 }
+#ifdef POSTGAMMA_WASM_TESTING
+#include "../../tests/wasm/storage/filesystem.c"
+#endif
 static bool command(void)
 {
     Reader r = {input, input_size, 0, false};
@@ -149,6 +153,16 @@ static bool command(void)
     Handle *h = NULL, *slot = NULL;
     if (version != WIRE_VERSION) r.failed = true;
 #ifdef POSTGAMMA_WASM_TESTING
+    if (!r.failed && op == 65534) {
+        uint32_t phase = get(&r);
+        if (r.failed || r.offset != r.size) r.failed = true;
+        else {
+            int checks = storage_filesystem_probe(phase);
+            if (checks < 0) {status = PGM_STATUS_INTERNAL_ERROR; bridge_message = "Storage filesystem check failed";}
+            else put(&payload, checks);
+        }
+        goto done;
+    }
     /* Test-only actual Wasm traps/abort on the owning host pthread. */
     if (!r.failed && op == 65535) {
         uint32_t fault = get(&r);
@@ -170,6 +184,8 @@ static bool command(void)
     case OPEN: {
         uint32_t create = get(&r), workers = get(&r);
         char *path = string(&r);
+        uint32_t storage = get(&r);
+        char *name = string(&r), *test_channel = string(&r);
         pgm_instance_options o = PGM_INSTANCE_OPTIONS_INIT;
         const pgm_setting settings[] = {
             {"shared_buffers", "24MB"}, {"max_connections", "16"},
@@ -178,8 +194,20 @@ static bool command(void)
             {"max_logical_replication_workers", "0"}, {"wal_level", "minimal"}
         };
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == INSTANCE) status = PGM_STATUS_BUSY;
-        if (!r.failed && !status && create <= 1 && workers >= 2 && workers <= 4 && r.offset == r.size) {
+        if (!r.failed && !status && create <= 1 && storage <= 1 && workers >= 2 && workers <= 4 && r.offset == r.size) {
             pgm_instance *instance = NULL;
+            if (storage) {
+#ifndef POSTGAMMA_WASM_TESTING
+                test_channel[0] = 0;
+#endif
+                int code = postgamma_wasm_storage_mount(name, test_channel);
+                if (code) {
+                    status = code == EBUSY ? PGM_STATUS_BUSY : PGM_STATUS_IO_ERROR;
+                    bridge_message = "OPFS storage could not be opened";
+                    free(path); free(name); free(test_channel); break;
+                }
+                free(path); path = strdup("/persistent/database");
+            }
             o.create = create; o.path = path; o.executor_worker_count = workers;
             o.executable_path = "/postgamma/bin/postgres"; o.resource_root = "/postgamma";
             o.settings = settings; o.setting_count = sizeof(settings) / sizeof(settings[0]);
@@ -188,7 +216,7 @@ static bool command(void)
             status = pgm_instance_open(&o, &instance, &error);
             if (!status) publish(&payload, slot, INSTANCE, NULL, instance);
         } else if (!status) r.failed = true;
-        free(path); break;
+        free(path); free(name); free(test_channel); break;
     }
     case CONNECT: {
         unsigned connections = 0;
@@ -337,6 +365,9 @@ static bool command(void)
     case STOP:
         if (r.offset != r.size) { r.failed = true; break; }
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind) status = PGM_STATUS_BUSY;
+        if (!status && postgamma_wasm_storage_close()) {
+            status = PGM_STATUS_IO_ERROR; bridge_message = "OPFS storage close failed";
+        }
         stop = !status; break;
     default: r.failed = true;
     }

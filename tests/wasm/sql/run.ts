@@ -7,6 +7,7 @@ import {errors} from './errors.js';
 import {results} from './results.js';
 import {lifecycle, fatal} from './lifecycle.js';
 import {budget} from './budget.js';
+import {storage} from '../storage-tests/run.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -45,6 +46,9 @@ async function abi(db: Database) {
   checks.push('parameters-exact-null-unicode', 'binary-copy', 'column-metadata', 'sqlstate-diagnostics', 'stale-generation');
 }
 try {
+  const metrics: unknown[] = [];
+  if (scenario === 'storage') await storage(checks, metrics);
+  else {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
   else if (scenario === 'concurrency') await concurrency(db, checks);
@@ -54,10 +58,11 @@ try {
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
   else if (scenario === 'fatal-trap' || scenario === 'fatal-abort') await fatal(db, checks, scenario === 'fatal-trap' ? 1 : 2);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);
-  const metrics = [scenario.startsWith('fatal-') ? db.diagnostics() : await db.close()];
+  metrics.push(scenario.startsWith('fatal-') ? db.diagnostics() : await db.close());
   if (scenario === 'concurrency') {
     const small = await Database.open({workers: 2});
     await saturated(small, checks); metrics.push(await small.close());
+  }
   }
   page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks,
     isolated: crossOriginIsolated, worker: true, sharedMemory: true};

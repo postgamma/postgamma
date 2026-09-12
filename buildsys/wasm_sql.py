@@ -32,6 +32,8 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
                    for p in sorted((config.root / "wasm/src").rglob("*.ts")) if not p.name.endswith(".d.ts")]
         sources += [(str(p.relative_to(config.root)), "tests/" + p.with_suffix(".js").name)
                     for p in sorted((config.root / "tests/wasm/sql").glob("*.ts"))]
+        sources += [(str(p.relative_to(config.root)), "storage-tests/" + p.with_suffix(".js").name)
+                    for p in sorted((config.root / "tests/wasm/storage").glob("*.ts"))]
         report["harness_sources"] = {source: digest(config.root / source) for source, _ in sources}
         for source, target in sources:
             run([builder.tools["node"], str(config.root / "buildsys/wasm_typescript.mjs"),
@@ -49,13 +51,15 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
             run([builder.tools["node"], str(config.root / "tests/wasm/sql/protocol.mjs"),
                  str(site / "src/protocol/wire.js")], builder.current / "protocol.log",
                 builder.env, config.root)
+            run([builder.tools["node"], str(config.root / "tests/wasm/storage/namespace.mjs"),
+                 str(site / "src/storage/namespace.js")], builder.current / "namespace.log", builder.env, config.root)
             scenarios = SCENARIOS if scenario == "all" else (scenario,)
             report["browsers"] = {}
             with serve(site, "sql.html") as url:
                 for name in scenarios:
                     print("wasm SQL: checking " + name, flush=True)
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
-                                          url + "?scenario=" + name)
+                                          url + "?scenario=" + name, timeout_ms=90000 if name == "storage" else 30000)
                     report["browsers"][name] = browser
                     probe = browser["probe"]
                     if probe.get("scenario") != name or not probe.get("checks") or probe.get("pageTicks", 0) < 2:

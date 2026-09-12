@@ -67,11 +67,14 @@ export class Database {
   private closing = false;
   private closeWork: Promise<unknown> | undefined;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
-  static async open(options: {create?: boolean; path?: string; workers?: number} = {}): Promise<Database> {
+  static async open(options: {create?: boolean; path?: string; workers?: number;
+    storage?: {type: 'opfs'; name: string}} = {}): Promise<Database> {
     const transport = new Transport(new Worker(new URL('../worker/sql.js', import.meta.url), {type: 'module'}));
     try {
       const r = await transport.call(Op.open, undefined, w => w.u32(options.create === false ? 0 : 1)
-        .u32(options.workers ?? 4).text(options.path ?? '/database'));
+        .u32(options.workers ?? 4).text(options.path ?? '/database')
+        .u32(options.storage ? 1 : 0).text(options.storage?.name ?? '')
+        .text((options as {storageTestChannel?: string}).storageTestChannel ?? ''));
       const handle = r.handle(); r.end(); return new Database(transport, handle);
     } catch (error) {transport.terminate(); throw error;}
   }

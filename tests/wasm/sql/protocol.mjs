@@ -1,8 +1,8 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-const {Reader, Writer, response} = await import(pathToFileURL(process.argv[2]));
-const packet = new Writer().u32(1).u32(7).u32(4).u32(0);
+const {Reader, Writer, response, VERSION} = await import(pathToFileURL(process.argv[2]));
+const packet = new Writer().u32(VERSION).u32(7).u32(4).u32(0);
 for (let i = 0; i < 17; i++) packet.u32(0xffffffff);
 const wire = packet.finish();
 response(wire, 7, 4).end();

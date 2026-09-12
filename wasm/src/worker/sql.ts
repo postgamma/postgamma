@@ -2,8 +2,9 @@
 import {loadKernel} from '../loader/kernel.js';
 import {exchange, tick} from '../bindings/sql.js';
 import type {SqlModule} from '../bindings/sql.js';
-import {LIMIT, Op, Reader, VERSION} from '../protocol/wire.js';
+import {LIMIT, Op, Reader, VERSION, Writer} from '../protocol/wire.js';
 import {limits} from '../protocol/limits.js';
+import {acquire} from '../storage/ownership.js';
 const output: string[] = [];
 let droppedLogs = 0;
 function record(text: string) {
@@ -11,6 +12,7 @@ function record(text: string) {
   output.push(text.slice(0, limits.logLineCharacters));
 }
 let loaded: SqlModule | undefined;
+let ownership: (() => Promise<void>) | undefined;
 const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
@@ -28,6 +30,7 @@ function fail(error: unknown) {
   failed = true; stopped.abort();
   const interruptedWorkers = loaded ? Object.keys(loaded.PThread.pthreads).length : null;
   loaded?.PThread.terminateAllThreads();
+  void ownership?.(); ownership = undefined;
   postMessage({fatal: String(error), output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
@@ -35,7 +38,8 @@ function fail(error: unknown) {
 }
 self.addEventListener('error', event => {event.preventDefault(); fail(event.message);});
 self.addEventListener('unhandledrejection', event => {event.preventDefault(); fail(event.reason);});
-const kernel = loadKernel({print: record, printErr: text => {
+let kernel: Promise<SqlModule> | undefined;
+function startKernel() {return loadKernel({print: record, printErr: text => {
   record(text); console.error(text.slice(0, limits.logLineCharacters));
 }, onAbort: fail}).then(value => {
   const module = value as SqlModule;
@@ -43,9 +47,23 @@ const kernel = loadKernel({print: record, printErr: text => {
   const status = module._postgamma_wasm_start();
   if (status) throw new Error(`Host driver failed: ${status}`);
   return module;
-});
+});}
+async function dispose(module: SqlModule) {
+  for (;;) {
+    const joined = module._postgamma_wasm_join();
+    if (joined === 0) break;
+    if (joined !== 10) throw new Error(`Host join failed: ${joined}`);
+    await tick();
+  }
+  while (Object.keys(module.PThread.pthreads).length) await tick();
+  const returnedWorkers = module.PThread.unusedWorkers.length;
+  sample(); clearInterval(sampler);
+  module.PThread.terminateAllThreads();
+  await ownership?.(); ownership = undefined;
+  return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, droppedLogs, returnedWorkers,
+    runningWorkers: Object.keys(module.PThread.pthreads).length, output};
+}
 let queue = Promise.resolve();
-kernel.catch(fail);
 self.onmessage = ({data}) => {
   if (failed) return;
   if (!(data instanceof ArrayBuffer) || data.byteLength > LIMIT || ++pending > limits.maxPendingCommands || queuedBytes + data.byteLength > limits.workerQueueBytes) {
@@ -54,28 +72,29 @@ self.onmessage = ({data}) => {
   queuedBytes += data.byteLength; peakQueuedBytes = Math.max(peakQueuedBytes, queuedBytes);
   peakPending = Math.max(peakPending, pending);
   queue = queue.then(async () => {
-    const module = await kernel;
     if (failed) return;
     const request = new Reader(data);
     if (request.u32() !== VERSION) throw new Error('Unsupported protocol');
     const sequence = request.u32(), op = request.u32();
+    if (!kernel) {
+      if (op !== Op.open) throw new Error('Instance must be opened first');
+      request.u32(); request.u32(); request.text();
+      const storage = request.u32(), name = request.text(); request.text(); request.end();
+      if (storage === 1) ownership = await acquire(name!);
+      kernel = startKernel();
+    }
+    const module = await kernel;
     const reply = await exchange(module, data, stopped.signal);
     sample();
+    if (op === Op.open && new DataView(reply).getUint32(12, true) !== 0) {
+      const stoppedReply = await exchange(module, new Writer().u32(VERSION).u32(sequence).u32(Op.stop).finish());
+      if (new DataView(stoppedReply).getUint32(12, true) !== 0) throw new Error('Failed startup could not release storage');
+      postMessage({sequence, reply, metrics: await dispose(module)}, [reply]); return;
+    }
     if (op === Op.stop) {
       const status = new Reader(reply); status.u32(); status.u32(); status.u32();
       if (status.u32() === 0) {
-        for (;;) {
-          const joined = module._postgamma_wasm_join();
-          if (joined === 0) break;
-          if (joined !== 10) throw new Error(`Host join failed: ${joined}`);
-          await tick();
-        }
-        while (Object.keys(module.PThread.pthreads).length) await tick();
-        const returnedWorkers = module.PThread.unusedWorkers.length;
-        sample(); clearInterval(sampler);
-        module.PThread.terminateAllThreads();
-        postMessage({sequence, reply, metrics: {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, droppedLogs, returnedWorkers,
-          runningWorkers: Object.keys(module.PThread.pthreads).length, output}}, [reply]);
+        postMessage({sequence, reply, metrics: await dispose(module)}, [reply]);
         return;
       }
     }
