@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* Storage lives until removal is requested and the last logical role detaches. */
 typedef struct Attachment {
@@ -53,15 +54,18 @@ reap(void)
 
 int
 postgamma_platform_shmem_create(const void *owner, uint64_t generation,
-    const void *attacher, size_t size, uint32_t *id, void **address)
+    const void *attacher, size_t size, size_t alignment, uint32_t *id, void **address)
 {
-    if (!owner || !generation || !attacher || !size || !id || !address) return EINVAL;
+    if (!owner || !generation || !attacher || !size || !id || !address ||
+        alignment < sizeof(void *) || (alignment & (alignment - 1))) return EINVAL;
     *id = 0;
     *address = NULL;
     Segment *s = calloc(1, sizeof(*s));
     Attachment *a = malloc(sizeof(*a));
-    void *data = calloc(1, size);
-    if (!s || !a || !data) { free(s); free(a); free(data); return ENOMEM; }
+    void *data = NULL;
+    int status = posix_memalign(&data, alignment, size);
+    if (!s || !a || status) { free(s); free(a); free(data); return status ? status : ENOMEM; }
+    memset(data, 0, size);
     a->execution = attacher;
     a->next = NULL;
     s->owner = owner;

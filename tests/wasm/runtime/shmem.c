@@ -41,17 +41,17 @@ postgamma_runtime_shmem_test(void)
     uint32_t failed_id = 99;
     void *failed_address = (void *) (uintptr_t) 1;
     assert(postgamma_platform_shmem_create(&previous, 7, &failed_id,
-        SIZE_MAX, &failed_id, &failed_address) == ENOMEM);
+        SIZE_MAX, 4096, &failed_id, &failed_address) == ENOMEM);
     assert(failed_id == 0 && failed_address == NULL);
     assert(postgamma_platform_shmem_count() == baseline);
     for (unsigned round = 0; round < 32; round++) {
         struct SharedTest test = {0};
         PostgammaThread *thread;
         assert(postgamma_platform_shmem_create(&test.owner, 7, &previous,
-            1024 * 1024, &test.id, &test.address) == 0);
+            1024 * 1024, 4096, &test.id, &test.address) == 0);
         assert(test.id > previous);
         previous = test.id;
-        assert((uintptr_t) test.address % 8 == 0);
+        assert((uintptr_t) test.address % 4096 == 0);
         assert(((unsigned char *) test.address)[1024 * 1024 - 1] == 0);
         assert(postgamma_platform_shmem_attach(&test.owner, 8, &test,
             test.id, test.address) == ESTALE);

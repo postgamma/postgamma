@@ -11,7 +11,7 @@
 
 /* Owner is an instance runtime; attacher is a logical execution, never a pthread. */
 int postgamma_platform_shmem_create(const void *owner, uint64_t generation,
-    const void *attacher, size_t size, uint32_t *id, void **address);
+    const void *attacher, size_t size, size_t alignment, uint32_t *id, void **address);
 int postgamma_platform_shmem_attach(const void *owner, uint64_t generation,
     const void *attacher, uint32_t id, void *expected_address);
 int postgamma_platform_shmem_detach(const void *owner, uint64_t generation,

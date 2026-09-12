@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include "postgamma/locale_platform_redirect.h"
 
 static int postgamma_locale_category_index(int category);
 static int postgamma_locale_category_mask(int category);
@@ -162,6 +163,10 @@ postgamma_locale_category_mask(int category)
 static const char *
 postgamma_effective_locale_name(int category, const char *locale)
 {
+#ifdef __EMSCRIPTEN__
+	(void) category;
+	return locale != NULL && locale[0] != '\0' ? locale : "C";
+#else
 	const char *category_environment = NULL;
 	const char *result;
 
@@ -203,6 +208,7 @@ postgamma_effective_locale_name(int category, const char *locale)
 	if (result != NULL && result[0] != '\0')
 		return result;
 	return "C";
+#endif
 }
 
 

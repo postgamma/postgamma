@@ -39,7 +39,7 @@ def check(config, longjmp: str) -> Path:
     tools, env = sdk_tools(config)
     layouts, layout_files = target_layouts(config, longjmp)
     sdk_headers = config.sdk / "upstream/emscripten/system/lib/wasmfs"
-    sources = ["runtime/platform/emscripten/filesystem.cpp", "embedded-c/src/data_directory_lock.c",
+    sources = ["runtime/platform/emscripten/locale.c", "tests/wasm/runtime/libc.c", "runtime/platform/emscripten/filesystem.cpp", "embedded-c/src/data_directory_lock.c",
                "runtime/src/path_runtime.c", "runtime/src/execution_context.c", "runtime/src/backend_state_runtime.c",
                "tests/wasm/runtime/filesystem.c", "runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
                "runtime/platform/emscripten/dsm.c", "runtime/platform/emscripten/semaphore.c",

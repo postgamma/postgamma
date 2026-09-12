@@ -56,7 +56,7 @@ PGSharedMemoryCreate(Size size, PGShmemHeader **shim)
             errmsg("WebAssembly requires shared_memory_type=mmap and huge_pages=off or try")));
     status = postgamma_platform_shmem_create(owner,
         postgamma_instance_runtime_generation(owner), postgamma_execution_context_current(),
-        size, &id, &address);
+        size, Max(PG_IO_ALIGN_SIZE, PG_CACHE_LINE_SIZE), &id, &address);
     if (status != 0)
         elog(FATAL, "shared memory allocation failed: %s", strerror(status));
     PGM_SHMEM_STATE(UsedShmemSegID) = id;

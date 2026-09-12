@@ -1550,6 +1550,16 @@ postgamma_backend_setlocale(int category, const char *locale)
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 
+#ifdef __EMSCRIPTEN__
+	if (!postgamma_platform_locale_supported(locale))
+	{
+		errno = ENOENT;
+		return NULL;
+	}
+	if (locale != NULL && locale[0] == '\0')
+		locale = "C";
+#endif
+
 	if (state == NULL)
 	{
 		if (postgamma_postmaster_control_runtime_is_bound())
@@ -1584,7 +1594,12 @@ postgamma_backend_setitimer(int which, const struct itimerval *new_value,
 			errno = ENOTSUP;
 			return -1;
 		}
+#ifdef __EMSCRIPTEN__
+		errno = ENOTSUP;
+		return -1;
+#else
 		return setitimer(which, new_value, old_value);
+#endif
 	}
 #ifdef POSTGAMMA_EVENT_TIMERS
 	previous = *timer;
@@ -2026,7 +2041,12 @@ postgamma_kill(pid_t pid, int signal_number)
 			errno = status;
 			return -1;
 		}
+#ifdef __EMSCRIPTEN__
+		errno = ENOTSUP;
+		return -1;
+#else
 		return kill(pid, signal_number);
+#endif
 	}
 	if (registry == NULL)
 	{
@@ -2104,13 +2124,23 @@ postgamma_waitpid(pid_t pid, int *exit_status, int options)
 		errno = ECHILD;
 		return -1;
 	}
+#ifdef __EMSCRIPTEN__
+	errno = ECHILD;
+	return -1;
+#else
 	return waitpid(pid, exit_status, options);
+#endif
 }
 
 
 int
 postgamma_system(const char *command)
 {
+#ifdef __EMSCRIPTEN__
+	(void) command;
+	errno = ENOTSUP;
+	return -1;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2123,12 +2153,19 @@ postgamma_system(const char *command)
 	if (state != NULL)
 		return postgamma_external_system(&state->external_processes, command);
 	return system(command);
+#endif
 }
 
 
 FILE *
 postgamma_popen(const char *command, const char *mode)
 {
+#ifdef __EMSCRIPTEN__
+	(void) command;
+	(void) mode;
+	errno = ENOTSUP;
+	return NULL;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2141,12 +2178,18 @@ postgamma_popen(const char *command, const char *mode)
 	if (state != NULL)
 		return postgamma_external_popen(&state->external_processes, command, mode);
 	return popen(command, mode);
+#endif
 }
 
 
 int
 postgamma_pclose(FILE *stream)
 {
+#ifdef __EMSCRIPTEN__
+	(void) stream;
+	errno = ENOTSUP;
+	return -1;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2159,6 +2202,7 @@ postgamma_pclose(FILE *stream)
 		return -1;
 	}
 	return pclose(stream);
+#endif
 }
 
 

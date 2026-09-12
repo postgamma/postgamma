@@ -715,7 +715,19 @@
         "id": "runtime.postgres-file-runtime-impl",
         "source_root": "project",
         "source": "runtime/include/postgamma/postgres_file_runtime_impl.h",
-          "target": "src/include/postgamma/postgres_file_runtime_impl.h"
+        "target": "src/include/postgamma/postgres_file_runtime_impl.h"
+      },
+      {
+        "id": "runtime.locale-platform",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/locale_platform.h",
+        "target": "src/include/postgamma/locale_platform.h"
+      },
+      {
+        "id": "runtime.locale-platform-redirect",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/locale_platform_redirect.h",
+        "target": "src/include/postgamma/locale_platform_redirect.h"
       }
     ],
     "edits": [
@@ -1204,6 +1216,15 @@
         "content": "\tereport(LOG,\n\t\t\t(errmsg(\"lock file \\\"%s\\\" contains wrong PID: %ld instead of %ld\",\n\t\t\t\t\tDIRECTORY_LOCK_FILE, file_pid, (long) getpid())));\n\treturn false;\n#endif\n}",
         "expected_matches": 1,
         "reject_if_present": "/* wasm.directory-RecheckDataDirLockFile-end */"
+      },
+      {
+        "id": "wasm.locale-provider",
+        "path": "src/include/c.h",
+        "mode": "insert_after",
+        "match": "#include <locale.h>",
+        "content": "\n#include \"postgamma/locale_platform_redirect.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/locale_platform_redirect.h\""
       }
     ]
   },
