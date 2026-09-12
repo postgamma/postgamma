@@ -114,6 +114,18 @@ def tree_hashes(directory: Path) -> dict:
             for path in sorted(directory.rglob("*")) if path.is_file()}
 
 
+def generation_sources(root: Path) -> dict:
+    return {"sources": {name: tree_hashes(root / name) for name in
+                        ("runtime", "manifests", "embedded-c/include")},
+            "generators": {str(p.relative_to(root)): digest(p)
+                           for p in sorted((root / "buildsys").glob("*.py"))}}
+
+
+def verify_generation_sources(root: Path, inputs: dict) -> None:
+    if generation_sources(root) != {key: inputs[key] for key in ("sources", "generators")}:
+        raise WasmError("generation inputs changed while running; rerun with stable inputs")
+
+
 def ast_cached(command: list[str], outputs: list[Path], inputs: dict,
                log: Path, env: dict, root: Path) -> None:
     stamp = outputs[0].with_suffix(".ast-receipt.json")
@@ -173,11 +185,7 @@ def generate(config, longjmp: str) -> Path:
                       "target_headers": tree_hashes(build / "src/include"),
                       "sysroot_headers": fingerprint(tree_hashes(Path(tools["settings"]["CACHE"]) / "sysroot/include")),
                       "builtin_headers": fingerprint(tree_hashes(Path(resource) / "include"))}
-        report["inputs"] = {"ast": ast_inputs,
-                            "sources": {name: tree_hashes(root / name) for name in
-                                        ("runtime", "manifests", "embedded-c/include")},
-                            "generators": {str(p.relative_to(root)): digest(p)
-                                           for p in sorted((root / "buildsys").glob("*.py"))},
+        report["inputs"] = {"ast": ast_inputs, **generation_sources(root),
                             "fixture": report["abi"]["fixture_sha256"]}
         databases = {}
         catalogs = {}
@@ -315,6 +323,7 @@ def generate(config, longjmp: str) -> Path:
         report["outputs"] = {str(path.relative_to(directory)): digest(path)
                              for subdir in (runtime, plans, tree)
                              for path in sorted(subdir.rglob("*")) if path.is_file()}
+        verify_generation_sources(root, report["inputs"])
         report["status"] = "passed"
     except Exception as error:
         report["error"] = str(error)

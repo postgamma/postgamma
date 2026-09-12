@@ -15,7 +15,7 @@ from typing import Any
 ADAPTER_KIND = "postgamma.postgresql-adapter"
 ADAPTER_SCHEMA_VERSION = 2
 EDIT_MODES = frozenset(
-    {"insert_after", "insert_before", "replace", "replace_between"}
+    {"insert_after", "insert_before", "replace", "replace_between", "append"}
 )
 SOURCE_ROOTS = frozenset({"project", "runtime"})
 HOOK_POSITIONS = frozenset(
@@ -117,9 +117,9 @@ def _validate_edit(edit: dict[str, Any], label: str) -> None:
     expected = edit.get("expected_matches")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected <= 0:
         raise AdapterError(f"{label}.expected_matches must be a positive integer")
-    if mode == "replace_between" and expected != 1:
+    if mode in {"replace_between", "append"} and expected != 1:
         raise AdapterError(
-            f"{label}.expected_matches must be 1 for replace_between"
+            f"{label}.expected_matches must be 1 for {mode}"
         )
     marker = edit.get("reject_if_present")
     if marker is not None and (not isinstance(marker, str) or not marker):
@@ -449,7 +449,9 @@ def inspect_edit_anchor(edit: dict[str, Any], text: str) -> dict[str, Any]:
             offsets.append(offset)
             offset = text.find(match, offset + len(match))
         actual = len(offsets)
-        if edit["mode"] == "insert_before":
+        if edit["mode"] == "append":
+            spans = [{"start": len(text), "end": len(text)}] if actual == 1 else []
+        elif edit["mode"] == "insert_before":
             spans = [{"start": offset, "end": offset} for offset in offsets]
         elif edit["mode"] == "insert_after":
             spans = [
@@ -542,6 +544,8 @@ def mark_overlapping_edits(records: list[dict[str, Any]]) -> None:
 
 def apply_edit(edit: dict[str, Any], text: str) -> str:
     """Apply one already-inspected edit to source text."""
+    if edit["mode"] == "append":
+        return text + edit["content"]
     if edit["mode"] == "replace_between":
         start_offset = text.index(edit["start"])
         end_offset = text.index(edit["end"], start_offset + len(edit["start"]))

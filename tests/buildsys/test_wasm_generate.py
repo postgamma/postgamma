@@ -8,7 +8,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "buildsys"))
-from wasm_generate import ast_cached, project_policy
+from wasm_generate import ast_cached, project_policy, generation_sources, verify_generation_sources
 from wasm_toolchain import WasmError
 
 
@@ -43,6 +43,18 @@ class TargetStatePolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(WasmError, "external:session"):
             project_policy(self.policy, {"candidates": []},
                            {"definition_prefixes": {"contrib/": "excluded", "session": "invalid"}})
+
+    def test_generation_rejects_inputs_changed_during_the_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "runtime").mkdir()
+            source = root / "runtime/provider.c"
+            source.write_text("original")
+            inputs = generation_sources(root)
+            verify_generation_sources(root, inputs)
+            source.write_text("changed while generating")
+            with self.assertRaisesRegex(WasmError, "inputs changed while running"):
+                verify_generation_sources(root, inputs)
 
     def test_ast_reuse_rejects_changed_inputs_missing_outputs_and_failed_attempts(self):
         with tempfile.TemporaryDirectory() as temporary:

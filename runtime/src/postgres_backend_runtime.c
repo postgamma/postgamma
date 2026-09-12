@@ -170,6 +170,9 @@ typedef struct PostgammaClientSession
 	bool		transport_notify_bound;
 	bool		memory_contexts_initialized;
 	bool		dsm_control_handle_set;
+#ifdef __EMSCRIPTEN__
+	bool		main_shmem_attached;
+#endif
 	bool		wait_support_initialized;
 	bool		backend_initialized;
 	bool		syslogger_pipe_pending;
@@ -2528,6 +2531,13 @@ postgamma_postgres_backend_cleanup(
 		dsm_detach_all();
 		state->dsm_control_handle_set = false;
 	}
+#ifdef __EMSCRIPTEN__
+	if (state->main_shmem_attached)
+	{
+		PGSharedMemoryDetach();
+		state->main_shmem_attached = false;
+	}
+#endif
 	if (state->memory_contexts_initialized)
 		postgamma_destroy_postgres_memory_contexts(!crash_exit);
 	if (state->execution.postgres_guc_control != NULL)
@@ -2782,6 +2792,11 @@ postgamma_initialize_backend_thread(
 
 		if (header == NULL)
 			postgamma_runtime_contract_violation();
+#ifdef __EMSCRIPTEN__
+		/* Pin the segment to this logical role, independent of its carrier. */
+		PGSharedMemoryReAttach();
+		state->main_shmem_attached = true;
+#endif
 		dsm_set_control_handle(header->dsm_control);
 		state->dsm_control_handle_set = true;
 		InitShmemAllocator(header);

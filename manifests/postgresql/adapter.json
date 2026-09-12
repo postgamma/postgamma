@@ -568,6 +568,18 @@
         "target": "src/include/postgamma/io_platform_redirect.h"
       },
       {
+        "id": "runtime.shmem-platform",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/shmem_platform.h",
+        "target": "src/include/postgamma/shmem_platform.h"
+      },
+      {
+        "id": "runtime.postgres-shmem-runtime-impl",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_shmem_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_shmem_runtime_impl.h"
+      },
+      {
         "id": "runtime.thread-platform-header",
         "source_root": "project",
         "source": "runtime/include/postgamma/thread_platform.h",
@@ -757,6 +769,33 @@
         "content": "\n#include \"postgamma/io_platform_redirect.h\"",
         "expected_matches": 1,
         "reject_if_present": "#include \"postgamma/io_platform_redirect.h\""
+      },
+      {
+        "id": "shmem.target-linear-provider",
+        "path": "src/backend/port/sysv_shmem.c",
+        "mode": "insert_before",
+        "match": "static void *InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size);",
+        "content": "#ifdef __EMSCRIPTEN__\n#include \"postgamma/postgres_shmem_runtime_impl.h\"\n#else\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_shmem_runtime_impl.h\""
+      },
+      {
+        "id": "shmem.end-native-provider",
+        "path": "src/backend/port/sysv_shmem.c",
+        "mode": "append",
+        "content": "\n#endif /* !__EMSCRIPTEN__ */\n",
+        "reject_if_present": "#endif /* !__EMSCRIPTEN__ */",
+        "match": "void\nPGSharedMemoryDetach(void)",
+        "expected_matches": 1
+      },
+      {
+        "id": "shmem.target-default",
+        "path": "src/include/storage/pg_shmem.h",
+        "mode": "replace",
+        "match": "#if !defined(WIN32) && !defined(EXEC_BACKEND)",
+        "content": "#if defined(__EMSCRIPTEN__) || (!defined(WIN32) && !defined(EXEC_BACKEND))",
+        "expected_matches": 1,
+        "reject_if_present": "#if defined(__EMSCRIPTEN__) ||"
       },
       {
         "id": "wait.limit-block-to-role-timeout",

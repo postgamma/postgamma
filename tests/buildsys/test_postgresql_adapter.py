@@ -271,6 +271,22 @@ class PostgreSQLAdapterTests(unittest.TestCase):
             )
             self.assertNotIn("test-edit", [record["id"] for record in product_records])
 
+    def test_append_requires_a_unique_anchor_and_rejects_reapplication(self) -> None:
+        edit = {"id": "end", "path": "source.c", "mode": "append", "match": "void final(void)",
+                "content": "\n#endif /* target */\n", "expected_matches": 1,
+                "reject_if_present": "#endif /* target */"}
+        text = "void final(void) { transformed_state = 0; }\n"
+        generated = postgresql_adapter.apply_non_overlapping_edits([edit], text)
+        self.assertEqual(generated, text + edit["content"])
+        self.assertEqual(postgresql_adapter.apply_edit(edit, text), generated)
+        for bad, status in (("changed signature", "anchor_mismatch"),
+                            (text + text, "anchor_mismatch"), (generated, "marker_present")):
+            self.assertEqual(postgresql_adapter.inspect_edit_anchor(edit, bad)["status"], status)
+        document = adapter_document()
+        document["generated_support"]["edits"] = [dict(edit, expected_matches=2)]
+        with self.assertRaisesRegex(postgresql_adapter.AdapterError, "must be 1 for append"):
+            postgresql_adapter.validate_adapter(document)
+
     def test_replace_between_uses_short_ordered_boundaries(self) -> None:
         edit = {
             "id": "range",
