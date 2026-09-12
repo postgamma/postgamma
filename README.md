@@ -385,8 +385,10 @@ make wasm-target-check
 These commands install reusable SDK/browser tools and run the toolchain smoke
 probe and ABI, pthread, TLS, stack, libc, wait, deadline, cancellation, error recovery,
 and OPFS storage probes in Chromium. The browser matrix also exercises startup
-and deployment failures in Firefox and WebKit. They do not build the PostgreSQL
-kernel for browsers yet. `wasm-resource-check` refreshes the platform probes
+and deployment failures in Firefox and WebKit. `make wasm-kernel-capture`
+additionally configures PostgreSQL and captures actual target object compilation;
+kernel linking and browser SQL startup are not available yet.
+`wasm-resource-check` refreshes the platform probes
 and measures the provisional thread and memory envelope.
 `make wasm-clean` retains the installed tools. See the
 [Wasm probe commands](wasm/README.md) for configuration, reports, and reuse.

@@ -1,9 +1,10 @@
-# PostGamma WebAssembly probes
+# PostGamma WebAssembly development
 
 The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
 stacks, basic libc interfaces, waits, deadlines, cancellation, error recovery,
 and OPFS file behavior in Chromium, plus deployment in Chromium, Firefox, and WebKit.
-They do not build a PostgreSQL kernel or provide a browser SQL API.
+The target build commands also configure PostgreSQL and capture its Wasm
+compilation database. Kernel linking and a browser SQL API are not available yet.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -49,6 +50,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-browser-check` | Run shared-memory pthread startup and ten deployment failure scenarios in Chromium, Firefox, and WebKit. |
 | `make wasm-resource-check` | Refresh platform, wait, recovery, OPFS, deployment, and capacity evidence; write the provisional resource budget. |
 | `make wasm-target-check` | Verify the initial kernel target against the latest complete resource evidence, including source and artifact hashes. |
+| `make wasm-kernel-configure` | Configure the target and generate its required headers, with an independently built host timezone generator. |
+| `make wasm-kernel-capture` | Compile the selected PostgreSQL objects and static support libraries and capture actual target Clang invocations. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -239,6 +242,17 @@ make wasm-probe-check WASM_EMSDK_DIR=/opt/emsdk
 ```
 
 `JOBS` bounds SDK compilation parallelism, as it does for native builds.
+
+After `make source-init` and `make wasm-setup`, run `make wasm-kernel-capture`
+to prepare the target compiler database. The build uses the same pinned
+PostgreSQL source and keeps its configure tree, object files, logs, and
+compilation records below `build/wasm/<target>/<mode>/<configuration>/`.
+The `zic` generator uses a separate host build below `build/wasm/host-tools/`;
+configure does not run target executables. Target reports retain configure
+cache answers, explicit platform choices, generated-header hashes, ABI checks,
+and object hashes. Repeating the command resumes object compilation and
+revalidates the compilation database. A completed capture is not SQL startup
+evidence.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
 Emscripten version; setup does not install or activate that SDK. `WASM_NODE` can select a

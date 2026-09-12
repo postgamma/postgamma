@@ -9,6 +9,25 @@
   "longjmp": "emscripten",
   "filesystem": "wasmfs",
   "storage_profile": "ephemeral-wasmfs",
+  "configure": ["--without-icu", "--without-readline", "--without-zlib", "--disable-nls"],
+  "target_configure": ["--disable-rpath"],
+  "cppflags": ["-DEXEC_BACKEND", "-DWAIT_USE_POLL"],
+  "configure_decisions": {
+    "WAIT_USE_POLL": "WasmFS epoll syscalls return ENOSYS in the pinned SDK; W12 supplies blocking waits around the selected readiness interface.",
+    "disable-rpath": "The Linux configure template supplies portable C declarations; ELF runtime-linker flags do not apply to Wasm.",
+    "cross-run-fallbacks": "No target programs are executed by configure. Preserve upstream cross answers in the report; runtime assumptions require kernel validation."
+  },
+  "compile_flags": ["-pthread", "-sSUPPORT_LONGJMP=emscripten"],
+  "modes": {"debug": ["-O0", "-g1"], "release": ["-O2"]},
+  "capture_targets": {
+    "src/backend": ["objfiles.txt"],
+    "src/common": ["libpgcommon.a", "libpgcommon_srv.a"],
+    "src/port": ["libpgport.a", "libpgport_srv.a"],
+    "src/interfaces/libpq": ["libpq.a"],
+    "src/fe_utils": ["libpgfeutils.a"],
+    "src/bin/initdb": ["initdb.o", "findtimezone.o", "localtime.o"],
+    "src/pl/plpgsql/src": ["pl_comp.o", "pl_exec.o", "pl_funcs.o", "pl_gram.o", "pl_handler.o", "pl_scanner.o"]
+  },
   "memory64": {
     "status": "not-applicable",
     "probes_executed": false,
