@@ -12,6 +12,7 @@
 void postgamma_runtime_wait_test(void);
 void postgamma_runtime_clock_test(void);
 void postgamma_runtime_shmem_test(void);
+void postgamma_runtime_dsm_test(void);
 int postgamma_runtime_execution_test(void);
 
 #define ROUNDS 8
@@ -83,6 +84,7 @@ run(void *unused)
     }
     assert(atomic_load(&destructors) == ROUNDS * POSTGAMMA_THREAD_ROLE_COUNT);
     assert(pthread_key_delete(key) == 0);
+    postgamma_runtime_dsm_test();
     postgamma_runtime_shmem_test();
     postgamma_runtime_clock_test();
     postgamma_runtime_wait_test();

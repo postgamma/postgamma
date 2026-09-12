@@ -19,6 +19,8 @@ int postgamma_platform_close(int fd);
 int postgamma_platform_poll(struct pollfd *fds, nfds_t count, int timeout);
 /* Resume and logical state changes wake waiters; callers recheck predicates. */
 void postgamma_platform_notify(void);
+uint32_t postgamma_platform_notification_sequence(void);
+int postgamma_platform_notification_wait(uint32_t expected, double timeout_ms);
 size_t postgamma_platform_pipe_count(void);
 
 #endif

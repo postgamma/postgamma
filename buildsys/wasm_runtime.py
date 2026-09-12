@@ -14,13 +14,15 @@ from wasm_toolchain import (WasmError, configuration, digest, fingerprint, run,
 def check(config, longjmp: str) -> Path:
     tools, env = sdk_tools(config)
     sources = ["runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
-               "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c"]
+               "runtime/platform/emscripten/dsm.c", "runtime/platform/emscripten/semaphore.c",
+               "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c", "tests/wasm/runtime/dsm.c"]
     inputs = {"tools": tools, "mode": config.mode, "longjmp": longjmp,
               "files": {name: digest(config.root / name) for name in [*sources,
                   "runtime/include/postgamma/thread_runtime.h",
                   "runtime/include/postgamma/thread_platform.h", "runtime/include/postgamma/io_platform.h",
                   "runtime/include/postgamma/io_platform_redirect.h", "buildsys/wasm_runtime.py",
                   "runtime/include/postgamma/backend_execution_runtime.h", "runtime/include/postgamma/shmem_platform.h",
+                  "runtime/include/postgamma/dsm_platform.h", "runtime/include/postgamma/semaphore_platform.h",
                   "tests/runtime/test_backend_execution_runtime.c", "runtime/src/postgres_backend_runtime.c",
                   "tests/wasm/runtime/worker.mjs", "tests/wasm/runtime/runtime.html"]}}
     directory = config.build / "wasm" / config.target / config.mode / "runtime" / fingerprint(inputs)

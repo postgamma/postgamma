@@ -53,7 +53,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-kernel-configure` | Configure the target and generate its required headers, with an independently built host timezone generator. |
 | `make wasm-kernel-capture` | Compile the selected PostgreSQL objects and static support libraries and capture actual target Clang invocations. |
 | `make wasm-kernel-generate` | Generate target state layouts, replacement plans, and PostgreSQL sources with the shared AST tools and ownership rules. |
-| `make wasm-runtime-check` | Exercise shared threads, backend execution, notification I/O, timer resampling, and shared-memory lifetime in Chromium, including TLS destruction and Worker reuse. |
+| `make wasm-runtime-check` | Exercise shared threads, backend execution, notification I/O, timer resampling, main/DSM memory lifetime, and semaphores in Chromium, including TLS destruction and Worker reuse. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks

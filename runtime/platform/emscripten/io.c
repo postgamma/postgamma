@@ -87,8 +87,14 @@ postgamma_platform_pipe(int descriptors[2])
     return 0;
 }
 
-static int
-wait_epoch(uint32_t expected, double milliseconds)
+uint32_t
+postgamma_platform_notification_sequence(void)
+{
+    return atomic_load_explicit(&epoch, memory_order_acquire);
+}
+
+int
+postgamma_platform_notification_wait(uint32_t expected, double milliseconds)
 {
     int status;
     if (!postgamma_platform_thread_can_block()) { errno = EWOULDBLOCK; return -1; }
@@ -122,7 +128,7 @@ postgamma_platform_read(int fd, void *buffer, size_t size)
         pthread_mutex_unlock(&pipes_lock);
         if (flags < 0) return -1;
         if (flags & O_NONBLOCK) { errno = EAGAIN; return -1; }
-        if (wait_epoch(expected, __builtin_inf()) < 0) return -1;
+        if (postgamma_platform_notification_wait(expected, __builtin_inf()) < 0) return -1;
     }
 }
 
@@ -152,7 +158,7 @@ postgamma_platform_write(int fd, const void *buffer, size_t size)
         pthread_mutex_unlock(&pipes_lock);
         if (flags < 0) return -1;
         if (flags & O_NONBLOCK) { errno = EAGAIN; return -1; }
-        if (wait_epoch(expected, __builtin_inf()) < 0) return -1;
+        if (postgamma_platform_notification_wait(expected, __builtin_inf()) < 0) return -1;
     }
 }
 
@@ -207,7 +213,7 @@ postgamma_platform_poll(struct pollfd *fds, nfds_t count, int timeout)
         uint64_t elapsed = postgamma_monotonic_now_ns() - start;
         if (timeout >= 0 && elapsed >= duration) return 0;
         double milliseconds = timeout < 0 ? __builtin_inf() : (double) (duration - elapsed) / NS_PER_MS;
-        if (wait_epoch(expected, milliseconds) < 0) return -1;
+        if (postgamma_platform_notification_wait(expected, milliseconds) < 0) return -1;
         /* Recheck all predicates after mismatch, wake, suspension or timeout. */
     }
 }

@@ -580,6 +580,24 @@
         "target": "src/include/postgamma/postgres_shmem_runtime_impl.h"
       },
       {
+        "id": "runtime.dsm-platform",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/dsm_platform.h",
+        "target": "src/include/postgamma/dsm_platform.h"
+      },
+      {
+        "id": "runtime.postgres-dsm-runtime-impl",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_dsm_runtime_impl.h",
+        "target": "src/include/postgamma/postgres_dsm_runtime_impl.h"
+      },
+      {
+        "id": "runtime.semaphore-platform",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/semaphore_platform.h",
+        "target": "src/include/postgamma/semaphore_platform.h"
+      },
+      {
         "id": "runtime.thread-platform-header",
         "source_root": "project",
         "source": "runtime/include/postgamma/thread_platform.h",
@@ -757,7 +775,7 @@
         "path": "src/backend/port/posix_sema.c",
         "mode": "replace",
         "match": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\tdo\n\t{\n\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t} while (errStatus < 0 && errno == EINTR);\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"sem_wait failed: %m\");\n}",
-        "content": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/*\n\t * Native signals cannot interrupt a threaded backend's semaphore wait:\n\t * PostgreSQL signals are delivered through the role registry.  Bound the\n\t * wait so crash-shutdown signals can be dispatched without relying on an\n\t * unsafe process-wide signal handler.\n\t */\n\tif (postgamma_in_backend_thread())\n\t{\n\t\tfor (;;)\n\t\t{\n\t\t\tstruct timespec deadline;\n\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\tif (clock_gettime(CLOCK_REALTIME, &deadline) != 0)\n\t\t\t\telog(FATAL, \"clock_gettime failed: %m\");\n\t\t\tdeadline.tv_nsec += 100000000L;\n\t\t\tif (deadline.tv_nsec >= 1000000000L)\n\t\t\t{\n\t\t\t\tdeadline.tv_sec++;\n\t\t\t\tdeadline.tv_nsec -= 1000000000L;\n\t\t\t}\n\t\t\terrStatus = sem_timedwait(PG_SEM_REF(sema), &deadline);\n\t\t\tif (errStatus == 0)\n\t\t\t\treturn;\n\t\t\tif (errno != EINTR && errno != ETIMEDOUT)\n\t\t\t\tbreak;\n\t\t}\n\t}\n\telse\n\t{\n\t\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\t\tdo\n\t\t{\n\t\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t\t} while (errStatus < 0 && errno == EINTR);\n\t}\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"semaphore wait failed: %m\");\n}",
+        "content": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/*\n\t * Native signals cannot interrupt a threaded backend's semaphore wait:\n\t * PostgreSQL signals are delivered through the role registry.  Bound the\n\t * wait so crash-shutdown signals can be dispatched without relying on an\n\t * unsafe process-wide signal handler.\n\t */\n\tif (postgamma_in_backend_thread())\n\t{\n\t\tfor (;;)\n\t\t{\n#ifndef __EMSCRIPTEN__\n\t\t\tstruct timespec deadline;\n#endif\n\n\t\t\tpostgamma_dispatch_pending_signals();\n#ifdef __EMSCRIPTEN__\n\t\t\terrStatus = postgamma_platform_semaphore_wait(PG_SEM_REF(sema),\n\t\t\t\tpostgamma_backend_adjust_wait_timeout(100));\n#else\n\t\t\tif (clock_gettime(CLOCK_REALTIME, &deadline) != 0)\n\t\t\t\telog(FATAL, \"clock_gettime failed: %m\");\n\t\t\tdeadline.tv_nsec += 100000000L;\n\t\t\tif (deadline.tv_nsec >= 1000000000L)\n\t\t\t{\n\t\t\t\tdeadline.tv_sec++;\n\t\t\t\tdeadline.tv_nsec -= 1000000000L;\n\t\t\t}\n\t\t\terrStatus = sem_timedwait(PG_SEM_REF(sema), &deadline);\n#endif\n\t\t\tif (errStatus == 0)\n\t\t\t\treturn;\n\t\t\tif (errno != EINTR && errno != ETIMEDOUT)\n\t\t\t\tbreak;\n\t\t}\n\t}\n\telse\n\t{\n\t\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\t\tdo\n\t\t{\n\t\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t\t} while (errStatus < 0 && errno == EINTR);\n\t}\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"semaphore wait failed: %m\");\n}",
         "expected_matches": 1,
         "reject_if_present": "sem_timedwait(PG_SEM_REF(sema), &deadline)"
       },
@@ -796,6 +814,78 @@
         "content": "#if defined(__EMSCRIPTEN__) || (!defined(WIN32) && !defined(EXEC_BACKEND))",
         "expected_matches": 1,
         "reject_if_present": "#if defined(__EMSCRIPTEN__) ||"
+      },
+      {
+        "id": "dsm.native-prototype-begin",
+        "path": "src/backend/storage/ipc/dsm_impl.c",
+        "mode": "insert_before",
+        "match": "#ifdef USE_DSM_POSIX\nstatic bool dsm_impl_posix",
+        "content": "#ifndef __EMSCRIPTEN__\n",
+        "expected_matches": 1,
+        "reject_if_present": "#ifndef __EMSCRIPTEN__\n#ifdef USE_DSM_POSIX"
+      },
+      {
+        "id": "dsm.native-prototype-end",
+        "path": "src/backend/storage/ipc/dsm_impl.c",
+        "mode": "insert_after",
+        "match": "static int\terrcode_for_dynamic_shared_memory(void);",
+        "content": "\n#endif /* native DSM declarations */",
+        "expected_matches": 1,
+        "reject_if_present": "#endif /* native DSM declarations */"
+      },
+      {
+        "id": "dsm.target-linear-provider",
+        "path": "src/backend/storage/ipc/dsm_impl.c",
+        "mode": "insert_before",
+        "match": "/*------\n * Perform a low-level shared memory operation",
+        "content": "#ifdef __EMSCRIPTEN__\n#include \"postgamma/postgres_dsm_runtime_impl.h\"\n#else\n",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_dsm_runtime_impl.h\""
+      },
+      {
+        "id": "dsm.end-native-provider",
+        "path": "src/backend/storage/ipc/dsm_impl.c",
+        "mode": "append",
+        "match": "dsm_impl_unpin_segment(dsm_handle handle, void **impl_private)",
+        "content": "\n#endif /* !__EMSCRIPTEN__ */\n",
+        "expected_matches": 1,
+        "reject_if_present": "#endif /* !__EMSCRIPTEN__ */"
+      },
+      {
+        "id": "dsm.target-default",
+        "path": "src/include/storage/dsm_impl.h",
+        "mode": "replace",
+        "match": "#ifdef WIN32\n#define USE_DSM_WINDOWS",
+        "content": "#if defined(__EMSCRIPTEN__)\n#define USE_DSM_MMAP\n#define DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE DSM_IMPL_MMAP\n#elif defined(WIN32)\n#define USE_DSM_WINDOWS",
+        "expected_matches": 1,
+        "reject_if_present": "#if defined(__EMSCRIPTEN__)"
+      },
+      {
+        "id": "dsm.target-initdb-selection",
+        "path": "src/bin/initdb/initdb.c",
+        "mode": "replace",
+        "match": "#if defined(HAVE_SHM_OPEN) && !defined(__sun__)",
+        "content": "#if defined(__EMSCRIPTEN__)\n\treturn \"mmap\";\n#elif defined(HAVE_SHM_OPEN) && !defined(__sun__)",
+        "expected_matches": 1,
+        "reject_if_present": "#elif defined(HAVE_SHM_OPEN) && !defined(__sun__)"
+      },
+      {
+        "id": "semaphore.target-include",
+        "path": "src/backend/port/posix_sema.c",
+        "mode": "insert_after",
+        "match": "#include \"storage/pg_sema.h\"",
+        "content": "\n#ifdef __EMSCRIPTEN__\n#include \"postgamma/semaphore_platform.h\"\n#define sem_post postgamma_platform_semaphore_post\n#define sem_wait(sem) postgamma_platform_semaphore_wait((sem), -1)\n#endif",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/semaphore_platform.h\""
+      },
+      {
+        "id": "semaphore.target-private-init",
+        "path": "src/backend/port/posix_sema.c",
+        "mode": "replace",
+        "match": "\tif (sem_init(sem, 1, 1) < 0)\n\t\telog(FATAL, \"sem_init failed: %m\");",
+        "content": "\tint status;\n#ifdef __EMSCRIPTEN__\n\tstatus = postgamma_platform_semaphore_init(sem, 1);\n#else\n\tstatus = sem_init(sem, 1, 1);\n#endif\n\tif (status != 0)\n\t{\n\t\tif (status > 0) errno = status;\n\t\telog(FATAL, \"sem_init failed: %m\");\n\t}",
+        "expected_matches": 1,
+        "reject_if_present": "status = postgamma_platform_semaphore_init"
       },
       {
         "id": "wait.limit-block-to-role-timeout",
