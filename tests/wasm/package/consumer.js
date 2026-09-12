@@ -2,6 +2,7 @@
 import {Database, DatabaseError, version} from '@postgamma/wasm';
 window.probeResult = null;
 const metrics = [], timings = {}, checks = [];
+const persistent = new URL(location.href).searchParams.get('storage') !== 'ephemeral';
 window.probeProgress = {checks, timings, stage: 'manifest'};
 const stage = name => {window.probeProgress.stage = name;};
 let ticks = 0; const timer = setInterval(() => ticks++, 1);
@@ -16,7 +17,8 @@ try {
     assert(version === manifest.version && !manifest.bridge.testing, 'Production package version and bridge');
     const name = 'package-' + crypto.randomUUID(), start = performance.now();
     stage('open');
-    const db = await Database.open({storage: {type: 'opfs', name}});
+    const storage = persistent ? {type: 'opfs', name} : undefined;
+    const db = await Database.open({storage});
     timings.createMs = performance.now() - start;
     stage('connect');
     const connections = await Promise.all(Array.from({length: 4}, () => db.connect()));
@@ -67,19 +69,25 @@ try {
     await Promise.all(connections.map(c => c.close())); metrics.push(await db.close());
     const reopen = performance.now();
     stage('reopen');
-    const again = await Database.open({create: false, storage: {type: 'opfs', name},
+    const again = await Database.open({create: !persistent, storage,
       assetBase: new URL('./node_modules/@postgamma/wasm/', location.href)});
     timings.reopenMs = performance.now() - reopen;
     const c = await again.connect();
+    if (persistent) {
     assert(scalar(await c.query('SELECT id FROM package_rows')) === '9223372036854775807', 'Persistent committed row');
     if (manifest.extensions.pgvector) {
       await c.query('SET enable_seqscan = off');
       assert(scalar(await c.query("SELECT id FROM postgamma_release_vector_hnsw ORDER BY embedding <-> '[1,1,1]' LIMIT 1")) === '1', 'Persistent vector index');
     }
-    await c.close(); metrics.push(await again.close()); checks.push('opfs-reopen-relocated-assets');
+    } else {
+      assert(scalar(await c.query("SELECT to_regclass('package_rows')::text")) === null, 'Fresh ephemeral database');
+    }
+    await c.close(); metrics.push(await again.close());
+    checks.push(persistent ? 'opfs-reopen-relocated-assets' : 'ephemeral-reopen-relocated-assets');
     assert(metrics.every(m => m.peakThreads <= 13 && m.peakMemory <= 536870912 &&
       m.returnedWorkers === 13 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');
     window.probeResult = {status: 'passed', checks, version, buildId: manifest.buildId, metrics, timings, ticks};
   }
-} catch (error) {window.probeResult = {status: 'failed', checks, error: String(error.stack || error), metrics, timings, ticks};}
+} catch (error) {window.probeResult = {status: 'failed', checks, error: String(error), stack: error.stack,
+  sqlstate: error.sqlstate, statusCode: error.status, diagnostics: error.diagnostics, metrics, timings, ticks};}
 finally {clearInterval(timer);}

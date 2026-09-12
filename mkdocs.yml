@@ -100,6 +100,7 @@ nav:
       - Python quickstart: getting-started/index.md
       - When to use PostGamma: getting-started/why-postgamma.md
       - Static C quickstart: getting-started/c-static.md
+      - Browser preview: getting-started/browser.md
       - Installation: getting-started/installation.md
       - Database paths and creation: getting-started/database-paths.md
   - Python guides:

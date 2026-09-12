@@ -39,7 +39,7 @@ def verify_tree(package: Path, forbidden: str = '') -> dict:
             'version': metadata['version']}
 
 
-def consumer(config, tools, env, archive: Path, current: Path, engine='chromium', faults=True) -> dict:
+def consumer(config, tools, env, archive: Path, current: Path, engine='chromium', faults=True, storage='opfs') -> dict:
     # A fresh install owns its files. No symlink to the staging tree or source is served.
     directory = current / ('consumer-' + engine)
     directory.mkdir(parents=True)
@@ -57,14 +57,14 @@ def consumer(config, tools, env, archive: Path, current: Path, engine='chromium'
          '--lib', 'ES2022,DOM', 'consumer.ts'], current / ('consumer-types-' + engine + '.log'), env, directory)
     with serve(directory, 'consumer.html') as url:
         command = [tools['node'], str(config.root / 'tests/wasm/package/run.mjs'), '--root', str(config.root),
-                   '--url', url, '--output', str(current / ('browser-' + engine + '.json')), '--engine', engine]
+                   '--url', url, '--output', str(current / ('browser-' + engine + '.json')), '--engine', engine, '--storage', storage]
         if not faults: command += ['--no-faults']
         launcher = config.deps / 'browser-libs/launch-webkit.sh'
         if engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
         elif engine == 'chromium' and config.browser_override: command += ['--executable', config.browser_override]
         with tempfile.TemporaryDirectory(prefix='pgm-consumer-', dir='/tmp') as temporary:
             run(command, current / ('browser-' + engine + '.log'),
-                dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=240)
+                dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=360 if storage == 'all' else 240)
     browser = read_json(current / ('browser-' + engine + '.json'))
     if verify_tree(package, str(config.root)) != evidence:
         raise WasmError('installed consumer assets changed during validation')

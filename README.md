@@ -534,3 +534,8 @@ Copyright 2026 Shujie Zhang. PostGamma-owned source and documentation are
 licensed under [Apache License 2.0](LICENSE). PostgreSQL and pgvector retain
 their PostgreSQL License terms. See [NOTICE](NOTICE) and
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for attribution and artifact details.
+
+The [browser preview guide](docs/getting-started/browser.md) covers installing
+the generated npm package, serving its assets and choosing ephemeral or OPFS
+storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
+validated package in Chromium, Firefox and Linux WebKit.

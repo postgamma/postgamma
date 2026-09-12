@@ -76,6 +76,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
+| `make wasm-matrix-check` | Measure the last validated package on Chromium, Firefox and Linux WebKit, retaining exploratory failures. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
