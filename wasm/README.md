@@ -332,10 +332,13 @@ are rejected, including symlinked paths. Both `make wasm-clean` and the root
 `make clean` retain `.deps/wasm/` and `wasm/node_modules/`. Cleaning build output
 therefore does not require downloading the toolchain again.
 
-The kernel/package commands `make wasm`, `make wasm-check`,
-`make wasm-check-full`, and `make wasm-serve` fail explicitly because they
-are not implemented yet. The initial kernel profile supplies build inputs;
-resource settings remain provisional until target kernel validation.
+`make wasm-sql-check` builds the asynchronous SQL bridge and runs its browser
+ABI checks (parameters, exact text values, NULL, binary data, diagnostics and
+stale handles). Results are recorded in `reports/sql.json`. The source API is
+under `src/api/`; a versioned consumer package is a later milestone. Result
+buffers crossing the Worker boundary own their bytes and do not borrow Wasm
+memory. This check currently validates the ABI; independent sessions and
+bounded streaming have their own acceptance tasks.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).

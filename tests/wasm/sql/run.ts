@@ -1,0 +1,62 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import {Database, DatabaseError} from '../src/api/database.js';
+import type {Connection, Result} from '../src/api/database.js';
+const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
+page.probeResult = null; page.probeEvents = [];
+const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
+let pageTicks = 0;
+const timer = setInterval(() => pageTicks++, 1);
+const checks: string[] = [];
+export function assert(value: unknown, message: string): asserts value {
+  if (!value) throw new Error(message);
+}
+export function scalar(results: Result[]) {return results.find(r => r.rows.length)?.rows[0][0];}
+export async function errorState(action: () => Promise<unknown>, sqlstate: string) {
+  try {await action();} catch (error) {
+    assert(error instanceof DatabaseError && error.sqlstate === sqlstate,
+      `Expected ${sqlstate}, got ${String(error)} (${(error as DatabaseError).sqlstate})`); return error;
+  }
+  throw new Error(`Expected SQLSTATE ${sqlstate}`);
+}
+async function abi(db: Database) {
+  const c = await db.connect();
+  const values = await c.query('SELECT $1::int8 AS exact, $2::numeric AS numeric, $3::text AS missing, $4::text AS unicode', {
+    parameters: [{typeOid: 20, value: '9223372036854775807'},
+      {typeOid: 1700, value: '12345678901234567890.123456789'}, {typeOid: 25, value: null},
+      {typeOid: 25, value: 'caf\u00e9 \ud83d\udc18'}],
+  });
+  assert(JSON.stringify(values[0].rows[0]) === JSON.stringify([
+    '9223372036854775807', '12345678901234567890.123456789', null, 'caf\u00e9 \ud83d\udc18']), 'Exact/null/Unicode values');
+  assert(values[0].columns[0].typeOid === 20 && values[0].columns[0].name === 'exact', 'Column metadata');
+  const bytes = new Uint8Array([0, 1, 127, 128, 255]);
+  const binary = await c.query('SELECT $1::bytea', {binary: true, parameters: [{typeOid: 17, value: bytes}]});
+  assert(String(binary[0].rows[0][0]) === String(bytes), 'Binary roundtrip');
+  const empty = await c.query('SELECT $1::text, $2::bytea, $3::bytea', {binary: true, parameters: [
+    {typeOid: 25, value: ''}, {typeOid: 17, value: new Uint8Array()}, {typeOid: 17, value: null}]});
+  assert((empty[0].rows[0][0] as Uint8Array).length === 0 &&
+    (empty[0].rows[0][1] as Uint8Array).length === 0 && empty[0].rows[0][2] === null, 'Empty differs from NULL');
+  const e = await errorState(() => c.query('SELECT 1/0'), '22012');
+  assert(e.diagnostics[1] === 'ERROR' && e.diagnostics[2] === 'division by zero', 'SQL diagnostics');
+  const detail = await errorState(() => c.query("DO $$ BEGIN RAISE EXCEPTION 'message' USING DETAIL = 'detail', HINT = 'hint'; END $$"), 'P0001');
+  assert(detail.diagnostics[3] === 'detail' && detail.diagnostics[4] === 'hint' && detail.diagnostics[8], 'Diagnostic detail/hint/context');
+  assert(scalar(await c.query('SELECT 7')) === '7', 'Connection recovers after SQL ERROR');
+  const old = await c.execute('SELECT 8'); await old.next(); await old.next(); await old.close();
+  const fresh = await c.execute('SELECT 9');
+  let staleRejected = false;
+  try {await old.cancel();} catch (error) {staleRejected = error instanceof DatabaseError;}
+  assert(staleRejected && scalar([await fresh.next() as Result]) === '9', 'Stale generation rejected without touching fresh request');
+  await fresh.next(); await fresh.close();
+  await c.close();
+  checks.push('parameters-exact-null-unicode', 'binary-copy', 'column-metadata', 'sqlstate-diagnostics', 'stale-generation');
+}
+try {
+  const db = await Database.open();
+  if (scenario === 'abi') await abi(db);
+  else throw new Error(`Unknown SQL scenario: ${scenario}`);
+  const metrics = await db.close();
+  page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks,
+    isolated: crossOriginIsolated, worker: true, sharedMemory: true};
+} catch (error) {
+  page.probeResult = {status: 'failed', scenario, checks, pageTicks,
+    error: error instanceof Error ? error.stack : String(error), isolated: crossOriginIsolated};
+} finally {clearInterval(timer);}
