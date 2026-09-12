@@ -704,6 +704,18 @@
         "source_root": "project",
         "source": "runtime/include/postgamma/postgres_memory_block_impl.h",
         "target": "src/include/postgamma/postgres_memory_block_impl.h"
+      },
+      {
+        "id": "runtime.file-platform",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/file_platform.h",
+        "target": "src/include/postgamma/file_platform.h"
+      },
+      {
+        "id": "runtime.postgres-file-runtime-impl",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_file_runtime_impl.h",
+          "target": "src/include/postgamma/postgres_file_runtime_impl.h"
       }
     ],
     "edits": [
@@ -1129,6 +1141,69 @@
         "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
         "expected_matches": 1,
         "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
+      },
+      {
+        "id": "wasm.directory-identity-header",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "#include \"postgres.h\"",
+        "content": "#include \"postgres.h\"\n/* wasm.directory-identity-header */\n#include \"postgamma/postgres_file_runtime_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-identity-header */"
+      },
+      {
+        "id": "wasm.directory-CreateDataDirLockFile",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "void\nCreateDataDirLockFile(bool amPostmaster)\n{",
+        "content": "void\nCreateDataDirLockFile(bool amPostmaster)\n{\n/* wasm.directory-CreateDataDirLockFile */\n#ifdef __EMSCRIPTEN__\n\t(void) amPostmaster;\n\tpostgamma_postgres_directory_require_owner();\n#else",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-CreateDataDirLockFile */"
+      },
+      {
+        "id": "wasm.directory-CreateDataDirLockFile-end",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "\n}\n\n/*\n * Create a lockfile for the specified Unix socket file.\n */\nvoid",
+        "content": "\n#endif\n}\n\n/*\n * Create a lockfile for the specified Unix socket file.\n */\nvoid",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-CreateDataDirLockFile-end */"
+      },
+      {
+        "id": "wasm.directory-AddToDataDirLockFile",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "void\nAddToDataDirLockFile(int target_line, const char *str)\n{",
+        "content": "void\nAddToDataDirLockFile(int target_line, const char *str)\n{\n/* wasm.directory-AddToDataDirLockFile */\n#ifdef __EMSCRIPTEN__\n\t(void) target_line;\n\t(void) str;\n\tpostgamma_postgres_directory_require_owner();\n#else",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-AddToDataDirLockFile */"
+      },
+      {
+        "id": "wasm.directory-AddToDataDirLockFile-end",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "\tif (close(fd) != 0)\n\t{\n\t\tereport(LOG,\n\t\t\t\t(errcode_for_file_access(),\n\t\t\t\t errmsg(\"could not write to file \\\"%s\\\": %m\",\n\t\t\t\t\t\tDIRECTORY_LOCK_FILE)));\n\t}\n}",
+        "content": "\tif (close(fd) != 0)\n\t{\n\t\tereport(LOG,\n\t\t\t\t(errcode_for_file_access(),\n\t\t\t\t errmsg(\"could not write to file \\\"%s\\\": %m\",\n\t\t\t\t\t\tDIRECTORY_LOCK_FILE)));\n\t}\n#endif\n}",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-AddToDataDirLockFile-end */"
+      },
+      {
+        "id": "wasm.directory-RecheckDataDirLockFile",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "bool\nRecheckDataDirLockFile(void)\n{",
+        "content": "bool\nRecheckDataDirLockFile(void)\n{\n/* wasm.directory-RecheckDataDirLockFile */\n#ifdef __EMSCRIPTEN__\n\treturn postgamma_postgres_directory_owned();\n#else",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-RecheckDataDirLockFile */"
+      },
+      {
+        "id": "wasm.directory-RecheckDataDirLockFile-end",
+        "path": "src/backend/utils/init/miscinit.c",
+        "mode": "replace",
+        "match": "\tereport(LOG,\n\t\t\t(errmsg(\"lock file \\\"%s\\\" contains wrong PID: %ld instead of %ld\",\n\t\t\t\t\tDIRECTORY_LOCK_FILE, file_pid, (long) getpid())));\n\treturn false;\n}",
+        "content": "\tereport(LOG,\n\t\t\t(errmsg(\"lock file \\\"%s\\\" contains wrong PID: %ld instead of %ld\",\n\t\t\t\t\tDIRECTORY_LOCK_FILE, file_pid, (long) getpid())));\n\treturn false;\n#endif\n}",
+        "expected_matches": 1,
+        "reject_if_present": "/* wasm.directory-RecheckDataDirLockFile-end */"
       }
     ]
   },

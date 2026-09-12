@@ -3,21 +3,54 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import shutil
 
 from wasm import run_browser, serve
 from wasm_toolchain import (WasmError, configuration, digest, fingerprint, run,
-                            run_id, sdk_tools, write_json)
+                            run_id, sdk_tools, write_json, read_json)
+
+
+def target_layouts(config, longjmp):
+    # The ABI is common to both optimization modes. Use the verified debug target
+    # layouts; never substitute host layouts or objects into the browser harness.
+    from wasm_kernel import prepare
+    directory, _, _, _ = prepare(replace(config, mode="debug"), longjmp)
+    receipt = directory / "reports/generate.json"
+    if not receipt.is_file():
+        raise WasmError("run make wasm-kernel-generate before the filesystem runtime check")
+    latest = read_json(receipt)
+    report = read_json(Path(latest["run_report"]))
+    if latest["status"] != "passed" or report["status"] != "passed":
+        raise WasmError("target layout generation has not passed")
+    names = ("backend_state_layout.h", "backend_state_descriptors.inc", "guc_state_layout.h")
+    files = {}
+    for name in names:
+        path = directory / "generated/runtime/include/postgamma" / name
+        relative = str(path.relative_to(directory))
+        if digest(path) != report["outputs"][relative]:
+            raise WasmError("target layout differs from generation receipt: " + name)
+        files[str(path)] = digest(path)
+    return directory / "generated/runtime/include", files
 
 
 def check(config, longjmp: str) -> Path:
     tools, env = sdk_tools(config)
-    sources = ["runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
+    layouts, layout_files = target_layouts(config, longjmp)
+    sdk_headers = config.sdk / "upstream/emscripten/system/lib/wasmfs"
+    sources = ["runtime/platform/emscripten/filesystem.cpp", "embedded-c/src/data_directory_lock.c",
+               "runtime/src/path_runtime.c", "runtime/src/execution_context.c", "runtime/src/backend_state_runtime.c",
+               "tests/wasm/runtime/filesystem.c", "runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
                "runtime/platform/emscripten/dsm.c", "runtime/platform/emscripten/semaphore.c",
                "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c", "tests/wasm/runtime/dsm.c"]
     inputs = {"tools": tools, "mode": config.mode, "longjmp": longjmp,
+              "layouts": layout_files,
+              "sdk_headers": {str(p.relative_to(sdk_headers)): digest(p) for p in sorted(sdk_headers.rglob("*.h"))},
               "files": {name: digest(config.root / name) for name in [*sources,
+                  "tests/runtime/test_path_runtime.c", "runtime/include/postgamma/file_platform.h",
+                  "embedded-c/include/postgamma/private/data_directory_lock.h",
+                  *(str(p.relative_to(config.root)) for p in sorted((config.root / "runtime/include").rglob("*.h"))),
                   "runtime/include/postgamma/thread_runtime.h",
                   "runtime/include/postgamma/thread_platform.h", "runtime/include/postgamma/io_platform.h",
                   "runtime/include/postgamma/io_platform_redirect.h", "buildsys/wasm_runtime.py",
@@ -40,11 +73,22 @@ def check(config, longjmp: str) -> Path:
         begin = backend.index("long\npostgamma_backend_adjust_wait_timeout")
         end = backend.index("\n\nbool\npostgamma_postgres_quantum_begin", begin)
         (site / "timer-wait.inc").write_text(backend[begin:end] + "\n")
-        run([str(config.sdk / "upstream/emscripten/emcc"),
-             "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror", "-Wno-error=pthreads-mem-growth", "-pthread",
-             *config.profile["modes"][config.mode]["compile_flags"],
-             "-I" + str(config.root / "runtime/include"), "-I" + str(site),
-             *(str(config.root / name) for name in sources),
+        flags = ["-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror", "-Wno-error=pthreads-mem-growth", "-pthread",
+                 *config.profile["modes"][config.mode]["compile_flags"],
+                 "-I" + str(config.root / "runtime/include"), "-I" + str(site),
+                 "-I" + str(config.root / "embedded-c/include"), "-I" + str(layouts),
+                 f"-sSUPPORT_LONGJMP={longjmp}"]
+        objects = []
+        for index, name in enumerate(sources):
+            cpp = name.endswith(".cpp")
+            obj = current / f"object-{index}.o"
+            run([str(config.sdk / "upstream/emscripten" / ("em++" if cpp else "emcc")),
+                 "-std=c++17" if cpp else "-std=c11", *flags,
+                 *(["-isystem", str(sdk_headers)] if cpp else []),
+                 "-c", str(config.root / name), "-o", str(obj)], current / "build.log", env, config.root)
+            objects.append(str(obj))
+        report["objects"] = {name: digest(Path(obj)) for name, obj in zip(sources, objects)}
+        run([str(config.sdk / "upstream/emscripten/em++"), *flags, *objects,
              "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
              "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\"]", "-sPTHREAD_POOL_SIZE=4",
              "-sPTHREAD_POOL_SIZE_STRICT=2", "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",

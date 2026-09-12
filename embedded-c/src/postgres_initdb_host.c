@@ -9,6 +9,10 @@
 #include "postgamma/private/postgres_bootstrap_bridge.h"
 #include "postgamma/tool_state_runtime.h"
 
+#ifdef __EMSCRIPTEN__
+#include "postgamma/file_platform.h"
+#endif
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -164,7 +168,7 @@ static int acquire_execution_lock(uint64_t deadline);
 static int create_lock_name(const char *target, char **name);
 static int acquire_creation_lock(
 	int parent_descriptor, const char *target, uint64_t deadline,
-	int *lock_descriptor);
+	uint64_t generation, const void *owner, int *lock_descriptor);
 static int inspect_target(
 	const char *target, bool *exists, bool *empty, bool *valid_cluster);
 static int staging_owner_path(const char *temporary, char **owner_path);
@@ -1082,13 +1086,17 @@ create_lock_name(const char *target, char **name)
 static int
 acquire_creation_lock(
 	int parent_descriptor, const char *target, uint64_t deadline,
-	int *lock_descriptor)
+	uint64_t generation, const void *owner, int *lock_descriptor)
 {
 	char	   *name = NULL;
 	struct stat lock_status;
 	int			descriptor = -1;
 	int			status;
 
+#ifndef __EMSCRIPTEN__
+	(void) generation;
+	(void) owner;
+#endif
 	if (parent_descriptor < 0 || lock_descriptor == NULL)
 		return EINVAL;
 	*lock_descriptor = -1;
@@ -1120,7 +1128,13 @@ acquire_creation_lock(
 		uint64_t	now;
 		uint64_t	remaining;
 
+#ifdef __EMSCRIPTEN__
+		status = postgamma_platform_file_claim(descriptor, generation, owner);
+		if (status != 0) errno = status == EBUSY ? EWOULDBLOCK : status;
+		if (status == 0)
+#else
 		if (flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+#endif
 		{
 			*lock_descriptor = descriptor;
 			descriptor = -1;
@@ -1725,6 +1739,9 @@ postgamma_initdb_create_internal(
 	bool		temporary_created = false;
 	bool		owner_created = false;
 	bool		committed = false;
+#ifdef __EMSCRIPTEN__
+	bool staging_claimed = false;
+#endif
 
 	if (result == NULL || result->struct_size != sizeof(*result))
 		return EINVAL;
@@ -1757,7 +1774,8 @@ postgamma_initdb_create_internal(
 		goto finish;
 	}
 	status = acquire_creation_lock(
-		parent_descriptor, target, deadline, &creation_lock_descriptor);
+		parent_descriptor, target, deadline, options->generation,
+		&creation_lock_descriptor, &creation_lock_descriptor);
 	if (status != 0)
 	{
 		set_result(result, status, 0, false, "lock",
@@ -1835,7 +1853,35 @@ postgamma_initdb_create_internal(
 	temporary_options = *options;
 	temporary_options.data_directory = temporary;
 	temporary_options.deadline_ns = deadline;
+#ifdef __EMSCRIPTEN__
+	{
+		int staging_fd = open(temporary, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (staging_fd < 0)
+			status = errno;
+		else
+		{
+			status = postgamma_platform_directory_claim(
+				staging_fd, options->generation, &temporary_options);
+			staging_claimed = status == 0;
+			if (close(staging_fd) != 0 && status == 0) status = errno;
+		}
+		if (status != 0)
+		{
+			set_result(result, status, 0, false, "temporary-owner",
+				"could not claim the temporary cluster directory");
+			goto finish;
+		}
+	}
+#endif
 	status = run_initdb(&temporary_options, &run_result);
+#ifdef __EMSCRIPTEN__
+	{
+		int release_status = postgamma_platform_file_release(
+			options->generation, &temporary_options);
+		staging_claimed = false;
+		if (status == 0 && release_status != 0) status = release_status;
+	}
+#endif
 	if (status != 0)
 	{
 		*result = run_result;
@@ -1931,6 +1977,14 @@ acquire_data_lock:
 	}
 
 finish:
+#ifdef __EMSCRIPTEN__
+	if (staging_claimed)
+	{
+		int release_status = postgamma_platform_file_release(
+			options->generation, &temporary_options);
+		if (status == 0) status = release_status;
+	}
+#endif
 	if (temporary_created && !committed && temporary != NULL)
 	{
 		if (!rmtree(temporary, true))
@@ -1950,9 +2004,18 @@ finish:
 		else if (status == 0)
 			status = errno != 0 ? errno : EIO;
 	}
+#ifdef __EMSCRIPTEN__
+	if (creation_lock_descriptor >= 0)
+	{
+		int release_status = postgamma_platform_file_release(
+			options->generation, &creation_lock_descriptor);
+		if (status == 0) status = release_status;
+	}
+#else
 	if (creation_lock_descriptor >= 0 &&
 		flock(creation_lock_descriptor, LOCK_UN) != 0 && status == 0)
 		status = errno != 0 ? errno : EIO;
+#endif
 	if (creation_lock_descriptor >= 0 &&
 		close(creation_lock_descriptor) != 0 && status == 0)
 		status = errno != 0 ? errno : EIO;

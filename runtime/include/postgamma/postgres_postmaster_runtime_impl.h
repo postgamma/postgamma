@@ -18,6 +18,7 @@
 #define POSTGAMMA_POSTGRES_POSTMASTER_RUNTIME_IMPL_H
 
 #include "postgamma/io_platform_redirect.h"
+#include "postgamma/postgres_file_runtime_impl.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -432,8 +433,13 @@ postgamma_postmaster_change_to_data_dir(void)
 static void
 postgamma_postmaster_create_data_dir_lock_file(bool am_postmaster)
 {
+#ifdef __EMSCRIPTEN__
+	(void) am_postmaster;
+	postgamma_postgres_directory_require_owner();
+#else
 	if (!postgamma_postmaster_control_runtime_is_bound())
 		(CreateDataDirLockFile)(am_postmaster);
+#endif
 }
 
 
@@ -449,8 +455,12 @@ postgamma_postmaster_add_to_data_dir_lock_file(int target_line,
 static bool
 postgamma_postmaster_recheck_data_dir_lock_file(void)
 {
+#ifdef __EMSCRIPTEN__
+	return postgamma_postgres_directory_owned();
+#else
 	return postgamma_postmaster_control_runtime_is_bound() ? true :
 		(RecheckDataDirLockFile)();
+#endif
 }
 
 
