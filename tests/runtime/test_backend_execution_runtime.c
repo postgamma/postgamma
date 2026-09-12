@@ -530,7 +530,7 @@ main(void)
 	request.backend_type = 199;
 	request.execution_class = POSTGAMMA_BACKEND_CLASS_CLIENT;
 	request.thread_name = "pg-too-small";
-	request.stack_size = POSTGAMMA_THREAD_STACK_MINIMUM_USABLE;
+	request.stack_size = POSTGAMMA_THREAD_STACK_MINIMUM_USABLE - 1;
 	request.main_function = return_immediately;
 	assert(postgamma_backend_launch(registry, &request, &handles[0]) == EINVAL);
 	assert(postgamma_backend_registry_active_count(registry) == 0);

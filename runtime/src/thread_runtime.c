@@ -34,6 +34,7 @@
 #endif
 #include <time.h>
 #include <unistd.h>
+#include "postgamma/io_platform_redirect.h"
 
 
 #define POSTGAMMA_THREAD_NAME_MAX 15

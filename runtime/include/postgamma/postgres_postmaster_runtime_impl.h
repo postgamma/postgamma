@@ -17,6 +17,8 @@
 #ifndef POSTGAMMA_POSTGRES_POSTMASTER_RUNTIME_IMPL_H
 #define POSTGAMMA_POSTGRES_POSTMASTER_RUNTIME_IMPL_H
 
+#include "postgamma/io_platform_redirect.h"
+
 #include <errno.h>
 #include <limits.h>
 #include <string.h>

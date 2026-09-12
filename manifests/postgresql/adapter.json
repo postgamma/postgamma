@@ -556,6 +556,18 @@
         "target": "src/backend/utils/init/postgres_backend_state.c"
       },
       {
+        "id": "runtime.io-platform-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/io_platform.h",
+        "target": "src/include/postgamma/io_platform.h"
+      },
+      {
+        "id": "runtime.io-platform-redirect-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/io_platform_redirect.h",
+        "target": "src/include/postgamma/io_platform_redirect.h"
+      },
+      {
         "id": "runtime.thread-platform-header",
         "source_root": "project",
         "source": "runtime/include/postgamma/thread_platform.h",
@@ -736,6 +748,15 @@
         "content": "void\nPGSemaphoreLock(PGSemaphore sema)\n{\n\tint\t\t\terrStatus;\n\n\t/*\n\t * Native signals cannot interrupt a threaded backend's semaphore wait:\n\t * PostgreSQL signals are delivered through the role registry.  Bound the\n\t * wait so crash-shutdown signals can be dispatched without relying on an\n\t * unsafe process-wide signal handler.\n\t */\n\tif (postgamma_in_backend_thread())\n\t{\n\t\tfor (;;)\n\t\t{\n\t\t\tstruct timespec deadline;\n\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\tif (clock_gettime(CLOCK_REALTIME, &deadline) != 0)\n\t\t\t\telog(FATAL, \"clock_gettime failed: %m\");\n\t\t\tdeadline.tv_nsec += 100000000L;\n\t\t\tif (deadline.tv_nsec >= 1000000000L)\n\t\t\t{\n\t\t\t\tdeadline.tv_sec++;\n\t\t\t\tdeadline.tv_nsec -= 1000000000L;\n\t\t\t}\n\t\t\terrStatus = sem_timedwait(PG_SEM_REF(sema), &deadline);\n\t\t\tif (errStatus == 0)\n\t\t\t\treturn;\n\t\t\tif (errno != EINTR && errno != ETIMEDOUT)\n\t\t\t\tbreak;\n\t\t}\n\t}\n\telse\n\t{\n\t\t/* See notes in sysv_sema.c's implementation of PGSemaphoreLock. */\n\t\tdo\n\t\t{\n\t\t\terrStatus = sem_wait(PG_SEM_REF(sema));\n\t\t} while (errStatus < 0 && errno == EINTR);\n\t}\n\n\tif (errStatus < 0)\n\t\telog(FATAL, \"semaphore wait failed: %m\");\n}",
         "expected_matches": 1,
         "reject_if_present": "sem_timedwait(PG_SEM_REF(sema), &deadline)"
+      },
+      {
+        "id": "wait.target-postmaster-liveness-io",
+        "path": "src/backend/storage/ipc/pmsignal.c",
+        "mode": "insert_after",
+        "match": "#include \"storage/pmsignal.h\"",
+        "content": "\n#include \"postgamma/io_platform_redirect.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/io_platform_redirect.h\""
       },
       {
         "id": "wait.limit-block-to-role-timeout",

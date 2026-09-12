@@ -19,6 +19,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include "postgamma/io_platform_redirect.h"
 
 
 static char PostgammaBackendWakeEventTag;

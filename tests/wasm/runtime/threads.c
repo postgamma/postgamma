@@ -1,5 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 #include "postgamma/thread_runtime.h"
+#include "postgamma/io_platform.h"
 #include <assert.h>
 #include <emscripten.h>
 #include <errno.h>
@@ -7,6 +8,10 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+
+void postgamma_runtime_wait_test(void);
+void postgamma_runtime_clock_test(void);
+int postgamma_runtime_execution_test(void);
 
 #define ROUNDS 8
 static pthread_t supervisor;
@@ -77,6 +82,10 @@ run(void *unused)
     }
     assert(atomic_load(&destructors) == ROUNDS * POSTGAMMA_THREAD_ROLE_COUNT);
     assert(pthread_key_delete(key) == 0);
+    postgamma_runtime_clock_test();
+    postgamma_runtime_wait_test();
+    assert(postgamma_runtime_execution_test() == 0);
+    assert(postgamma_platform_pipe_count() == 0);
     atomic_store_explicit(&finished, 1, memory_order_release);
     return NULL;
 }
