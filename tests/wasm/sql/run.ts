@@ -1,23 +1,14 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {Database, DatabaseError} from '../src/api/database.js';
 import type {Connection, Result} from '../src/api/database.js';
+import {assert, scalar, errorState} from './helpers.js';
+import {concurrency, saturated} from './concurrency.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
 let pageTicks = 0;
 const timer = setInterval(() => pageTicks++, 1);
 const checks: string[] = [];
-export function assert(value: unknown, message: string): asserts value {
-  if (!value) throw new Error(message);
-}
-export function scalar(results: Result[]) {return results.find(r => r.rows.length)?.rows[0][0];}
-export async function errorState(action: () => Promise<unknown>, sqlstate: string) {
-  try {await action();} catch (error) {
-    assert(error instanceof DatabaseError && error.sqlstate === sqlstate,
-      `Expected ${sqlstate}, got ${String(error)} (${(error as DatabaseError).sqlstate})`); return error;
-  }
-  throw new Error(`Expected SQLSTATE ${sqlstate}`);
-}
 async function abi(db: Database) {
   const c = await db.connect();
   const values = await c.query('SELECT $1::int8 AS exact, $2::numeric AS numeric, $3::text AS missing, $4::text AS unicode', {
@@ -52,8 +43,13 @@ async function abi(db: Database) {
 try {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
+  else if (scenario === 'concurrency') await concurrency(db, checks);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);
-  const metrics = await db.close();
+  const metrics = [await db.close()];
+  if (scenario === 'concurrency') {
+    const small = await Database.open({workers: 2});
+    await saturated(small, checks); metrics.push(await small.close());
+  }
   page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks,
     isolated: crossOriginIsolated, worker: true, sharedMemory: true};
 } catch (error) {

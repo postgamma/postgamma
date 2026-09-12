@@ -337,8 +337,9 @@ ABI checks (parameters, exact text values, NULL, binary data, diagnostics and
 stale handles). Results are recorded in `reports/sql.json`. The source API is
 under `src/api/`; a versioned consumer package is a later milestone. Result
 buffers crossing the Worker boundary own their bytes and do not borrow Wasm
-memory. This check currently validates the ABI; independent sessions and
-bounded streaming have their own acceptance tasks.
+memory. `WASM_SQL_SCENARIO=concurrency` checks real lock waits, independent session
+state and progress under pool saturation. Bounded streaming has its own
+acceptance task.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).

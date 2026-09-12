@@ -85,10 +85,18 @@ export class Connection {
     });
     const h = r.handle(); r.end(); return new Request(this.transport, h);
   }
-  async query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {
-    const request = await this.execute(sql, options), results: Result[] = [];
-    try {for (;;) {const batch = await request.next(); if (batch === null) return results; results.push(batch);}}
-    finally {await request.close();}
+  private queryTail: Promise<unknown> = Promise.resolve();
+  private queuedQueries = 0;
+  query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {
+    if (this.queuedQueries >= 64) return Promise.reject(new Error('Connection query queue is full'));
+    this.queuedQueries++;
+    const work = this.queryTail.then(async () => {
+      const request = await this.execute(sql, options), results: Result[] = [];
+      try {for (;;) {const batch = await request.next(); if (batch === null) return results; results.push(batch);}}
+      finally {await request.close();}
+    });
+    this.queryTail = work.catch(() => {}).finally(() => this.queuedQueries--);
+    return work;
   }
   async status() {
     const r = await this.transport.call(Op.status, this.handle);
