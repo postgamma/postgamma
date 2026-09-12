@@ -23,7 +23,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-browser-setup wasm-browser-check
 .PHONY: wasm-resource-check
 .PHONY: wasm-target-check
-.PHONY: wasm-kernel-configure wasm-kernel-capture
+.PHONY: wasm-kernel-configure wasm-kernel-capture wasm-kernel-generate
 .PHONY: wasm wasm-check wasm-check-full wasm-serve
 
 wasm-setup:
@@ -68,6 +68,9 @@ wasm-kernel-configure:
 
 wasm-kernel-capture:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_kernel.py" capture $(POSTGAMMA_WASM_ARGS)
+
+wasm-kernel-generate:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_generate.py" $(POSTGAMMA_WASM_ARGS)
 
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)

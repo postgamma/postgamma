@@ -29,6 +29,13 @@
       "synchronization": "pthread_once publishes the selected CRC implementation"
     },
     {
+      "availability": "conditional",
+      "condition": "!USE_SSE2 && !__i386__",
+      "id": "external:pg_cpu_x86_dummy_variable",
+      "owner": "library_immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
+    },
+    {
       "id": "external:pg_dir_create_mode",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
@@ -76,6 +83,13 @@
       "owner": "library_synchronized",
       "rationale": "one process-wide value with an explicit publication contract",
       "synchronization": "pthread_once publishes the selected popcount implementation"
+    },
+    {
+      "availability": "conditional",
+      "condition": "!HAVE_X86_64_POPCNTQ",
+      "id": "external:pg_popcount_x86_dummy_variable",
+      "owner": "library_immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
     },
     {
       "id": "external:progname",
@@ -288,6 +302,14 @@
       "owner": "forbidden",
       "rationale": "the upstream process-global behavior is unsafe in an embedded host",
       "replacement": "copy command status into result-owned storage and use numeric OID access"
+    },
+    {
+      "availability": "conditional",
+      "condition": "!WIN32 && !TRANSLATE_FROM_LANGINFO && !HAVE_LOCALECONV_L",
+      "id": "function_static:src/port/pg_localeconv_r.c:src/port/pg_localeconv_r.c:pg_localeconv_r:big_lock",
+      "owner": "library_synchronized",
+      "rationale": "the libc localeconv scratch buffer needs serialization across frontend tool invocations",
+      "synchronization": "the static pthread mutex protects copying from localeconv and is never cloned into tool state"
     },
     {
       "id": "function_static:src/port/strerror.c:src/port/strerror.c:pg_strerror:errorstr_buf",

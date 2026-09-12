@@ -2729,6 +2729,13 @@
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
     },
     {
+      "availability": "conditional",
+      "condition": "!USE_SSE2 && !__i386__",
+      "id": "external:pg_cpu_x86_dummy_variable",
+      "owner": "immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
+    },
+    {
       "id": "external:pg_dir_create_mode",
       "owner": "instance",
       "rationale": "derived once from PGDATA permissions during instance startup and shared unchanged by every backend role"
@@ -2802,6 +2809,13 @@
       "id": "external:pg_popcount_optimized",
       "owner": "role",
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
+      "availability": "conditional",
+      "condition": "!HAVE_X86_64_POPCNTQ",
+      "id": "external:pg_popcount_x86_dummy_variable",
+      "owner": "immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
     },
     {
       "id": "external:pg_stash_advice_persist",
@@ -3978,6 +3992,13 @@
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
     },
     {
+      "availability": "conditional",
+      "condition": "POSTMASTER_POLL_RATE_LIMIT",
+      "id": "function_static:src/backend/postmaster/startup.c:src/backend/postmaster/startup.c:ProcessStartupProcInterrupts:postmaster_poll_count",
+      "owner": "role",
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
       "id": "function_static:src/backend/replication/logical/applyparallelworker.c:src/backend/replication/logical/applyparallelworker.c:ProcessParallelApplyMessages:hpam_context",
       "owner": "role",
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
@@ -4460,6 +4481,13 @@
       "id": "function_static:src/pl/plpgsql/src/pl_handler.c:src/pl/plpgsql/src/pl_handler.c:_PG_init:inited",
       "owner": "role",
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
+      "availability": "conditional",
+      "condition": "!WIN32 && !TRANSLATE_FROM_LANGINFO && !HAVE_LOCALECONV_L",
+      "id": "function_static:src/port/pg_localeconv_r.c:src/port/pg_localeconv_r.c:pg_localeconv_r:big_lock",
+      "owner": "instance",
+      "rationale": "one fixed mutex serializes localeconv scratch use by all backend carriers in the live instance; an active mutex must not migrate with a session"
     },
     {
       "id": "function_static:src/port/strerror.c:src/port/strerror.c:pg_strerror:errorstr_buf",
@@ -7725,6 +7753,27 @@
     },
     {
       "id": "internal:src/backend/storage/ipc/standby.c:src/backend/storage/ipc/standby.c::standbyWait_us",
+      "owner": "role",
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE",
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_owner_pid",
+      "owner": "role",
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE",
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_readfd",
+      "owner": "role",
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+    },
+    {
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE",
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_writefd",
       "owner": "role",
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
     },

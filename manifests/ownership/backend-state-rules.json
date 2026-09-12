@@ -174,6 +174,47 @@
       "id": "internal:src/test/modules/injection_points/injection_points.c:src/test/modules/injection_points/injection_points.c::injection_point_local",
       "availability": "conditional",
       "condition": "USE_INJECTION_POINTS"
+    },
+    {
+      "id": "external:pg_cpu_x86_dummy_variable",
+      "availability": "conditional",
+      "condition": "!USE_SSE2 && !__i386__",
+      "owner": "immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
+    },
+    {
+      "id": "external:pg_popcount_x86_dummy_variable",
+      "availability": "conditional",
+      "condition": "!HAVE_X86_64_POPCNTQ",
+      "owner": "immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
+    },
+    {
+      "id": "function_static:src/backend/postmaster/startup.c:src/backend/postmaster/startup.c:ProcessStartupProcInterrupts:postmaster_poll_count",
+      "availability": "conditional",
+      "condition": "POSTMASTER_POLL_RATE_LIMIT"
+    },
+    {
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_owner_pid",
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE"
+    },
+    {
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_readfd",
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE"
+    },
+    {
+      "id": "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::selfpipe_writefd",
+      "availability": "conditional",
+      "condition": "WAIT_USE_SELF_PIPE"
+    },
+    {
+      "id": "function_static:src/port/pg_localeconv_r.c:src/port/pg_localeconv_r.c:pg_localeconv_r:big_lock",
+      "availability": "conditional",
+      "condition": "!WIN32 && !TRANSLATE_FROM_LANGINFO && !HAVE_LOCALECONV_L",
+      "owner": "instance",
+      "rationale": "one fixed mutex serializes localeconv scratch use by all backend carriers in the live instance; an active mutex must not migrate with a session"
     }
   ]
 }

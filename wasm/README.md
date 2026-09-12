@@ -52,6 +52,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-target-check` | Verify the initial kernel target against the latest complete resource evidence, including source and artifact hashes. |
 | `make wasm-kernel-configure` | Configure the target and generate its required headers, with an independently built host timezone generator. |
 | `make wasm-kernel-capture` | Compile the selected PostgreSQL objects and static support libraries and capture actual target Clang invocations. |
+| `make wasm-kernel-generate` | Generate target state layouts, replacement plans, and PostgreSQL sources with the shared AST tools and ownership rules. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -253,6 +254,15 @@ cache answers, explicit platform choices, generated-header hashes, ABI checks,
 and object hashes. Repeating the command resumes object compilation and
 revalidates the compilation database. A completed capture is not SQL startup
 evidence.
+
+`make wasm-kernel-generate` first refreshes the capture, then builds the host
+AST tools separately and parses the target compiler commands with the SDK
+headers. It checks target pointer, Datum, alignment, callback, and TLS layouts
+before generating state storage and transformed sources. Target availability
+exclusions are explicit; ownership stays in the shared manifests. AST reuse
+requires matching compiler, commands, headers, manifests, and output hashes.
+Reports and generated files remain under the selected target configuration;
+these outputs have not yet been linked or exercised by SQL.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
 Emscripten version; setup does not install or activate that SDK. `WASM_NODE` can select a

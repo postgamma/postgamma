@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-state-availability",
+  "backend": {
+    "definition_prefixes": {
+      "contrib/": "Optional native contrib modules are outside the initial kernel profile.",
+      "src/test/": "Native server test modules are outside the initial kernel profile.",
+      "src/tutorial/": "Native tutorial modules are outside the initial kernel profile.",
+      "@generated/contrib/": "Generated parsers for optional contrib modules are outside the initial kernel profile.",
+      "src/backend/replication/pgoutput/": "Logical replication output modules are outside the initial kernel profile.",
+      "src/backend/replication/libpqwalreceiver/": "The native socket WAL receiver is outside the initial kernel profile.",
+      "src/backend/utils/misc/ps_status.c": "The target selects PS_USE_NONE and has no operating-system process title buffer.",
+      "src/common/instr_time.c": "The target has no x86 timestamp counter calibration."
+    },
+    "identifiers": {
+      "external:X86Features": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_comp_crc32c": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_popcount_masked_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_popcount_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:CMPTRGM": "The optional pg_trgm module is outside the initial kernel profile.",
+      "external:similarity_threshold": "The optional pg_trgm module is outside the initial kernel profile.",
+      "external:strict_word_similarity_threshold": "The optional pg_trgm module is outside the initial kernel profile.",
+      "external:word_similarity_threshold": "The optional pg_trgm module is outside the initial kernel profile.",
+      "external:pg_plan_advice_advice": "The optional pg_plan_advice module is outside the initial kernel profile.",
+      "external:pg_plan_advice_always_store_advice_details": "The optional pg_plan_advice module is outside the initial kernel profile.",
+      "external:pg_plan_advice_feedback_warnings": "The optional pg_plan_advice module is outside the initial kernel profile.",
+      "external:pg_plan_advice_trace_mask": "The optional pg_plan_advice module is outside the initial kernel profile.",
+      "external:pgpa_planner_generate_advice": "The optional pg_plan_advice module is outside the initial kernel profile.",
+      "external:pg_stash_advice_persist": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pg_stash_advice_persist_interval": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pgsa_dsa_area": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pgsa_entry_dshash": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pgsa_stash_dshash": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pgsa_state": "The optional pg_stash_advice module is outside the initial kernel profile.",
+      "external:pgfdw_application_name": "The optional postgres_fdw module is outside the initial kernel profile.",
+      "external:postmaster_possibly_dead": "USE_POSTMASTER_DEATH_SIGNAL is absent on the Wasm target.",
+      "function_static:src/backend/storage/file/fd.c:src/backend/storage/file/fd.c:pg_flush_data:not_implemented_by_kernel": "HAVE_SYNC_FILE_RANGE is absent on the Wasm target.",
+      "internal:src/backend/storage/ipc/waiteventset.c:src/backend/storage/ipc/waiteventset.c::signal_fd": "WAIT_USE_SIGNALFD is absent; the target selects the poll path."
+    }
+  },
+  "tool": {
+    "definition_prefixes": {
+      "src/bin/pg_dump/": "Logical management tools are outside the initial kernel profile.",
+      "src/common/instr_time.c": "The target has no x86 timestamp counter calibration."
+    },
+    "identifiers": {
+      "external:X86Features": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_comp_crc32c": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_popcount_masked_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:pg_popcount_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
+      "external:progname": "The pg_dump utility global is excluded; initdb has its own file-local program name."
+    }
+  }
+}
