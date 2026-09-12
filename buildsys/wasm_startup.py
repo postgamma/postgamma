@@ -58,11 +58,14 @@ def startup(config, longjmp: str, action: str) -> Path:
         report["site"] = str(site)
         sources = [(f"wasm/src/{name}/kernel.ts", f"src/{name}/kernel.js")
                    for name in ("bindings", "loader", "worker")]
+        sources.append(("wasm/src/loader/assets.ts", "src/loader/assets.js"))
         for source, target in sources:
             run([builder.tools["node"], str(config.root / "buildsys/wasm_typescript.mjs"),
                  str(config.root / source), str(site / target)],
                 builder.current / "typescript.log", builder.env, config.root)
         (site / "kernel.html").write_bytes((config.root / "tests/wasm/kernel/kernel.html").read_bytes())
+        from wasm_assets import generate as asset_manifest
+        report["asset_manifest"] = asset_manifest(builder, "src/worker/kernel.js")
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
                              for name in (*[target for _, target in sources], "kernel.html")}

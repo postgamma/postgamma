@@ -411,8 +411,7 @@ runs the separate OPFS suite: ownership, file semantics, WAL barriers, storage
 errors, orderly reopen and Worker/browser crash recovery. Use
 `WASM_STORAGE_SCENARIO=storage`, `durability`, `storage-errors`, or `recovery`
 to select one group. All four groups, including the 18-case Worker/browser
-recovery matrix, have passed in debug Chromium. A versioned consumer package
-remains a later milestone.
+recovery matrix, have passed in debug Chromium.
 `make wasm-vector-check JOBS=2` checks static pgvector loading, exact and ANN
 queries, parallel HNSW/IVFFlat builds, transactions, independent sessions and
 persistent index recovery in an isolated extension variant. It also checks the
@@ -421,6 +420,12 @@ Run the base SQL gate above first for the extension resource comparison.
 `wasm-resource-check`
 refreshes the platform probes and measures platform capacity; the SQL gate
 records actual kernel resource usage.
+`make wasm-package-check JOBS=2` builds a versioned browser npm tarball and
+validates a fresh independent installation, including generated TypeScript
+declarations, four sessions, pgvector, persistent reopen and asset error handling.
+The package has no runtime dependencies; its version derives from `VERSION`
+(`0.1.0a1` becomes `0.1.0-alpha.1`). See the
+[consumer guide](wasm/PACKAGE_README.md) for asset deployment and API usage.
 `make wasm-clean` retains the installed tools. See the
 [Wasm development commands](wasm/README.md) for configuration, reports, and reuse.
 

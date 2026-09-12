@@ -11,8 +11,9 @@ sessions, request cancellation, bounded results and COPY. The OPFS suite covers
 ownership, orderly reopen, WAL barriers, storage errors and interrupted recovery.
 All four storage groups, including the 18-case Worker/browser recovery matrix,
 have passed in debug Chromium.
-A versioned consumer package remains a later milestone.
-The package is private and contains development dependencies only.
+`make wasm-package-check` builds and validates the versioned browser consumer
+tarball. The source package manifest remains private and contains development
+tools only; generated consumer metadata has no runtime dependencies.
 
 From the repository root:
 
@@ -73,6 +74,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=recovery` | Run the Worker/browser termination matrix, including interrupted initialization and torn namespace-log recovery. |
 | `make wasm-vector-check` | Check static pgvector, exact/ANN queries, parallel builds, transactions, independent sessions, persistent recovery and the browser example in Chromium. |
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
+| `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
+| `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -350,7 +353,7 @@ therefore does not require downloading the toolchain again.
 all eight stage-2 browser scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
 parameters, exact text values, NULL, binary data, diagnostics and stale handles.
 Results are recorded in `reports/sql.json`. The source API is
-under `src/api/`; a versioned consumer package is a later milestone. Result
+under `src/api/`, exported by `src/index.ts` in the consumer package. Result
 buffers crossing the Worker boundary own their bytes and do not borrow Wasm
 memory. `WASM_SQL_SCENARIO=concurrency` checks real lock waits, independent session
 state and progress under pool saturation. `WASM_SQL_SCENARIO=errors` checks
@@ -489,4 +492,32 @@ against the extension variant. The storage gate accepts the same variable.
 Use `make wasm-vector-serve JOBS=2` and open the printed URL to try
 `examples/wasm/vector-search.html`; close and reopen the database to reuse its
 documents. The development server supplies the required isolation headers.
-A versioned consumer package remains a later milestone.
+The versioned consumer package is built separately with `make wasm-package-check`.
+
+## Browser consumer package
+
+```sh
+make wasm-kernel-generate JOBS=2
+make wasm-package-check JOBS=2
+```
+
+The package report names the staged directory and npm tarball under the selected
+variant's `package/<build-id>/` and `dist/`. Install that tarball with
+`npm install /path/to/postgamma-wasm-0.1.0-alpha.1.tgz`. The package defaults to
+static pgvector; `WASM_PACKAGE_EXTENSIONS=none` selects the extension-free build.
+No command publishes to a registry.
+
+The independent consumer installs with lifecycle scripts disabled, resolves
+the package exports and generated declarations, and serves only its own files.
+It checks parameters, transactions, four actual concurrent sessions, cancellation,
+HNSW/IVFFlat, OPFS reopen and an explicitly relocated asset directory. Negative
+cases reject mismatched build/protocol identities, corrupt Wasm/resource bytes,
+a missing Worker and missing cross-origin isolation before reporting success.
+
+`postgamma.assets.json` and generated loader identity bind the API to its private
+bridge and exact runtime assets. The loader verifies core asset hashes before
+instantiation; the package gate checks every declared asset, notices, version and
+absence of checkout paths. TypeScript is a pinned development dependency only.
+Follow the [consumer guide](PACKAGE_README.md) to copy the complete asset tree,
+set HTTP headers and use `assetBase` with a bundler. Runtime browser support and
+performance must be reported for the actual tested profile.

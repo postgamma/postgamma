@@ -1154,6 +1154,8 @@ help:
 	@echo "  wasm-target-check              verify initial kernel target and width decision"
 	@echo "  wasm-vector-check              check pgvector queries, indexes, and recovery"
 	@echo "  wasm-vector-serve              serve the persistent vector search example"
+	@echo "  wasm-package                   build the versioned browser npm tarball"
+	@echo "  wasm-package-check             install and validate an independent consumer"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"

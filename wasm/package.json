@@ -4,6 +4,11 @@
   "type": "module",
   "license": "Apache-2.0",
   "description": "PostGamma WebAssembly development tools",
-  "engines": {"node": ">=20"},
-  "devDependencies": {"playwright": "1.63.0"}
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "typescript": "5.9.3"
+  }
 }

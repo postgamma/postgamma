@@ -1,0 +1,57 @@
+# postgamma for the browser
+
+PostgreSQL inside your browser application, with independent concurrent SQL
+sessions, OPFS persistence and static pgvector. This is a preview wasm32 pthreads
+package. Node.js and WASI execution are not supported.
+
+```ts
+import {Database} from '@postgamma/wasm';
+
+const db = await Database.open({storage: {type: 'opfs', name: 'documents'}});
+const connection = await db.connect();
+try {
+  const results = await connection.query('SELECT $1::int8 AS value', {
+    parameters: [{typeOid: 20, value: '9223372036854775807'}],
+  });
+  console.log(results[0].rows);
+} finally {
+  await connection.close();
+  await db.close();
+}
+```
+
+Serve the complete package asset directory over HTTPS or localhost. The page
+must send `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. Serve JavaScript with a JavaScript
+MIME type and `.wasm` with `application/wasm`. Keep module Workers on the same
+origin; retain all relative asset paths. A bundler must copy the complete package
+directory rather than only importing its JS entry. Point `Database.open()` at
+that copy with `assetBase: new URL('/postgamma/', location.href)` when needed.
+The API and asset copy must come from the same package build.
+
+For an unbundled page, map `@postgamma/wasm` to the deployed `src/index.js` using
+an import map. All Worker, Wasm and initialization-resource paths then resolve
+relative to that package. No compiler, Python, PostgreSQL installation or Arrow
+runtime is required by the browser application.
+
+Omit `storage` for an ephemeral database. OPFS requires Web Locks and synchronous
+file access handles; one origin/database name has one live owner. Always close
+the database to release its Workers and file handles. Clusters are target-specific;
+do not mount a native PostgreSQL data directory. Synchronous COMMIT waits for the
+browser storage barrier; hardware power-loss durability is not established.
+
+Four independent connections share the instance. A connection serializes
+`query()` calls; different connections run concurrently. Use `execute()` and the
+request's async iterator for bounded result batches, `cancel()` for cancellation,
+and the COPY stream for bulk data. Values preserve exact int64/numeric strings,
+NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
+
+The default package includes pgvector 0.8.6. Run `CREATE EXTENSION vector` once
+per database to enable it. Arbitrary native extensions and multiple live
+instances are outside the initial supported profile. Memory is bounded by the
+included asset manifest (512 MiB shared linear memory); browser VM/RSS is separate.
+
+The package version is derived from PostGamma's release version; for example,
+`0.1.0a1` becomes npm `0.1.0-alpha.1`. `postgamma.assets.json` records the actual
+target, build mode, source revisions, capabilities and asset hashes. Preserve
+LICENSE, NOTICE and licenses/ when redistributing the package.

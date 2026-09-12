@@ -18,6 +18,8 @@ def baseline(builder):
         if link.get("extensions") or link.get("status") != "passed": continue
         if any(link["source_snapshot"][name] != builder.source_snapshot[name] for name in ("runtime", "embedded-c", "manifests")):
             continue
+        if link["source_snapshot"]["buildsys"].get("buildsys/wasm_link.py") != builder.source_snapshot["buildsys"]["buildsys/wasm_link.py"]:
+            continue
         if link["inputs"] != builder.inputs or link["bridge"] != builder.report["bridge"]:
             continue
         if any(not (site / name).is_file() or digest(site / name) != link["outputs"].get(name) for name in names):

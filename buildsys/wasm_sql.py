@@ -45,11 +45,13 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         (site / "sql.html").write_bytes((config.root / "tests/wasm/sql/sql.html").read_bytes())
         (site / "recovery.html").write_bytes((config.root / "tests/wasm/storage/recovery.html").read_bytes())
         (site / "vector-search.html").write_bytes((config.root / "examples/wasm/vector-search.html").read_bytes())
+        from wasm_assets import generate as asset_manifest
+        report["asset_manifest"] = asset_manifest(builder)
         report["harness_sources"].update({name: digest(config.root / name) for name in
             ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs", "examples/wasm/vector-search.html")})
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
-                             for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js")}
+                             for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
         if action == "check":
             if scenario.startswith("vector"):
                 from wasm_pgvector_fixtures import fixtures

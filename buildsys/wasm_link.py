@@ -42,6 +42,7 @@ class Builder:
         self.nm = str(Path(self.tools["settings"]["LLVM_ROOT"]) / "llvm-nm")
         self.flags = ["-pthread", f"-sSUPPORT_LONGJMP={longjmp}",
                       *self.inputs["profile"]["modes"][config.mode],
+                      f"-ffile-prefix-map={self.root}=postgamma-source", "-fdebug-compilation-dir=.",
                       "-fno-strict-aliasing", "-fwrapv",
                       "-D_GNU_SOURCE", "-DEXEC_BACKEND", "-DWAIT_USE_POLL",
                       "-I" + str(self.artifacts / "src/include"),
@@ -79,6 +80,17 @@ class Builder:
         self.source_snapshot = self.snapshot()
         self.report["source_snapshot"] = self.source_snapshot
         self.generated_artifacts()
+        # Normalize only pg_config's descriptive strings; raw configure inputs
+        # remain in the capture and link receipts.
+        config_header = (self.artifacts / "src/include/pg_config.h").read_text()
+        arguments = re.search(r'^#define CONFIGURE_ARGS (.+)$', config_header, re.M)[1]
+        self.config_info = self.output / "public-config-info.c"
+        self.config_info.write_text('#ifndef FRONTEND\n#include "postgres.h"\n#else\n#include "postgres_fe.h"\n#endif\n'
+            '#undef CONFIGURE_ARGS\n#define CONFIGURE_ARGS ' + self.public_build_text(arguments) + '\n#include ' +
+            json.dumps(str(self.source / 'src/common/config_info.c')) + '\n')
+
+    def public_build_text(self, value):
+        return value.replace(str(self.config.sdk), 'emscripten-sdk').replace(str(self.root), 'postgamma-source')
 
     def snapshot(self):
         from wasm_generate import tree_hashes
@@ -141,6 +153,9 @@ class Builder:
 
     def compile(self, source, key, extra=()):
         source = Path(source)
+        if source.name == 'config_info.c':
+            source = self.config_info
+            extra = [self.public_build_text(arg) if arg.startswith('-DVAL_') else arg for arg in extra]
         obj = self.output / "objects" / (key + ".o")
         obj.parent.mkdir(parents=True, exist_ok=True)
         cpp = source.suffix == ".cpp"
@@ -455,16 +470,17 @@ class Builder:
                    *("-Wl,--undefined=" + name for name in roots),
                    *self.inputs["profile"]["modes"][self.config.mode],
                    "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
+                   '-sINCOMING_MODULE_JS_API=["print","printErr","onAbort","locateFile","getPreloadedPackage","wasmBinary","noExitRuntime"]',
                    '-sEXPORTED_RUNTIME_METHODS=["HEAPU8","PThread","wasmMemory"]', f"-sPTHREAD_POOL_SIZE={pool}",
                    "-sPTHREAD_POOL_SIZE_STRICT=2", "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",
                    f"-sINITIAL_MEMORY={policy['initial_memory_bytes']}", f"-sMAXIMUM_MEMORY={policy['maximum_memory_bytes']}",
                    "-sALLOW_MEMORY_GROWTH=1", "-sABORTING_MALLOC=0", f"-sSTACK_SIZE={policy['control_stack_bytes']}",
                    "-sDEFAULT_PTHREAD_STACK_SIZE=4194304", "-sSTACK_OVERFLOW_CHECK=2", "-sWASMFS=1", "-sASSERTIONS=2",
                    "--preload-file", str(resources) + "@/postgamma",
-                   *(str(p) for p in self.objects), "-o", str(output)]
+                   *(str(p) for p in self.objects), "-o", output.name]
         response = self.current / "link.rsp"
         response.write_text(shlex.join(command[1:]) + "\n")
-        run([command[0], "@" + str(response)], self.log, self.env, self.root)
+        run([command[0], "@" + str(response)], self.log, self.env, site)
         audit = self.current / "imports.json"
         run([sys.executable, str(self.root / "buildsys/wasm_link_audit.py"),
              "--sdk", str(self.config.sdk), "--wasm", str(site / "postgamma.wasm"),

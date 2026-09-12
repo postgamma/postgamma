@@ -6,6 +6,13 @@ import type {Result} from '../codecs/results.js';
 export {DatabaseError} from '../protocol/wire.js';
 export type {Result, Column} from '../codecs/results.js';
 import {limits} from '../protocol/limits.js';
+import {assets, verifiedAsset} from '../loader/assets.js';
+export interface OpenOptions {
+  create?: boolean; path?: string; workers?: number;
+  storage?: {type: 'opfs'; name: string};
+  /** URL of the complete matching asset directory, ending with a slash. */
+  assetBase?: string | URL;
+}
 export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
@@ -67,9 +74,13 @@ export class Database {
   private closing = false;
   private closeWork: Promise<unknown> | undefined;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
-  static async open(options: {create?: boolean; path?: string; workers?: number;
-    storage?: {type: 'opfs'; name: string}} = {}): Promise<Database> {
-    const transport = new Transport(new Worker(new URL('../worker/sql.js', import.meta.url), {type: 'module'}));
+  static async open(options: OpenOptions = {}): Promise<Database> {
+    const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', import.meta.url);
+    if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
+    const manifest = await assets(base);
+    if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
+    await verifiedAsset(base, manifest, manifest.entries.worker);
+    const transport = new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}));
     try {
       const r = await transport.call(Op.open, undefined, w => w.u32(options.create === false ? 0 : 1)
         .u32(options.workers ?? 4).text(options.path ?? '/database')

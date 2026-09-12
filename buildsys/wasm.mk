@@ -114,3 +114,11 @@ wasm-vector-check:
 .PHONY: wasm-vector-serve
 wasm-vector-serve:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" serve $(POSTGAMMA_WASM_ARGS) --scenario vector-example
+
+.PHONY: wasm-package wasm-package-check
+WASM_PACKAGE_EXTENSIONS ?= pgvector
+wasm-package:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_package.py" build $(POSTGAMMA_WASM_ARGS) --extensions "$(WASM_PACKAGE_EXTENSIONS)"
+
+wasm-package-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_package.py" check $(POSTGAMMA_WASM_ARGS) --extensions "$(WASM_PACKAGE_EXTENSIONS)"

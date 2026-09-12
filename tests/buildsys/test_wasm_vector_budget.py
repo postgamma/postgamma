@@ -22,6 +22,7 @@ class VectorBudgetTests(unittest.TestCase):
             for name in names:
                 (site / name).write_text(name)
             snapshot = {name: name for name in ('runtime', 'embedded-c', 'manifests')}
+            snapshot['buildsys'] = {'buildsys/wasm_link.py': 'current-link-driver'}
             inputs = {'postgres_commit': 'pinned', 'tools': {'compiler': 'pinned-sdk'}}
             bridge = {'sha256': 'bridge', 'flags': ['-DPOSTGAMMA_WASM_TESTING']}
             builder = SimpleNamespace(directory=directory, config=SimpleNamespace(mode='debug'),
@@ -46,6 +47,11 @@ class VectorBudgetTests(unittest.TestCase):
                     write_json(report, stale)
                     with self.assertRaisesRegex(WasmError, 'matching base artifacts'):
                         baseline(builder)
+            stale = copy.deepcopy(link)
+            stale['source_snapshot']['buildsys']['buildsys/wasm_link.py'] = 'old-flags'
+            write_json(report, stale)
+            with self.assertRaisesRegex(WasmError, 'matching base artifacts'):
+                baseline(builder)
 
 
 if __name__ == '__main__':
