@@ -91,9 +91,9 @@ wasm-check:
 wasm-serve:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_startup.py" serve $(POSTGAMMA_WASM_ARGS)
 
-# The full SQL/concurrency/persistence suite is a later milestone.
+# Keep the extension comparison before storage relinks the base artifacts.
 wasm-check-full:
-	$(error The full Wasm SQL/concurrency/persistence suite is not implemented yet; use make wasm-check for the startup check)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite weekly
 
 .PHONY: wasm-sql-check
 WASM_SQL_SCENARIO ?= all
@@ -130,3 +130,11 @@ wasm-matrix-check:
 .PHONY: wasm-ci
 wasm-ci:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic
+
+.PHONY: wasm-weekly wasm-upstream-canary
+wasm-weekly:
+	@$(MAKE) wasm-upstream-canary CANARY_PROFILE=weekly
+
+wasm-upstream-canary:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_upstream.py" $(POSTGAMMA_WASM_ARGS) \
+		--ref "$(PG_REF)" --branch "$(PG_BRANCH)" --canary-profile "$(CANARY_PROFILE)"

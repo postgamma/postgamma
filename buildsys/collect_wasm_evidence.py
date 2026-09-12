@@ -8,12 +8,16 @@ from wasm_toolchain import digest, write_json
 
 def selected(path):
     parts = path.parts
+    if 'upstream' in parts and 'project' in parts:
+        offset = parts.index('project') + 1
+        if parts[offset:offset + 2] != ('build', 'wasm'):
+            return False
     if any(part in ('node_modules', 'objects', 'profile', 'package', 'site', 'generated', 'postgres-build', 'capture-build') or
            part.startswith(('consumer-', 'browser-profile')) for part in parts):
         return False
     if path.suffix not in ('.json', '.log'):
         return False
-    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'doctor'}) or path.name == 'inputs.json'
+    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'doctor', 'upstream'}) or path.name == 'inputs.json'
 
 
 def collect(build, output):

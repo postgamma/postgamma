@@ -142,3 +142,58 @@ jobs:
             build/embedded-conformance/reports/
           if-no-files-found: warn
           retention-days: 30
+
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        postgresql_ref: [pinned, REL_19_STABLE, master]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+      - name: Check Wasm source changes and prior results
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PG_BRANCH: ${{ matrix.postgresql_ref }}
+        run: |
+          branch=()
+          if [ "$PG_BRANCH" != pinned ]; then
+            branch=(--branch "$PG_BRANCH")
+          fi
+          python3 buildsys/plan_upstream_ci.py --root . --suite wasm \
+            --profile "$CANARY_PROFILE" "${branch[@]}"
+      - uses: ./.github/actions/wasm-setup
+        if: steps.plan.outputs.run == 'true'
+        with:
+          matrix: ${{ env.CANARY_PROFILE == 'weekly' }}
+      - name: Test ${{ steps.plan.outputs.identity }}
+        if: steps.plan.outputs.run == 'true'
+        env:
+          PG_COMMIT: ${{ steps.plan.outputs.postgres_commit }}
+          PG_BRANCH: ${{ matrix.postgresql_ref }}
+        run: |
+          if [ "$PG_BRANCH" = pinned ]; then
+            target=wasm-ci
+            if [ "$CANARY_PROFILE" = weekly ]; then
+              target=wasm-check-full
+            fi
+            make "$target" JOBS=2
+          else
+            make wasm-upstream-canary PG_REF="$PG_COMMIT" \
+              PG_BRANCH="$PG_BRANCH" CANARY_PROFILE="$CANARY_PROFILE" JOBS=2
+          fi
+      - name: Collect Wasm diagnostics
+        if: always() && steps.plan.outputs.run == 'true'
+        run: python3 buildsys/collect_wasm_evidence.py --build-dir build --output build/wasm-evidence
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.plan.outputs.run == 'true'
+        with:
+          name: wasm-upstream-${{ matrix.postgresql_ref }}-${{ github.run_id }}
+          path: build/wasm-evidence/
+          if-no-files-found: warn
+          retention-days: 14

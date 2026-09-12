@@ -1156,6 +1156,8 @@ help:
 	@echo "  wasm-vector-serve              serve the persistent vector search example"
 	@echo "  wasm-package                   build the versioned browser npm tarball"
 	@echo "  wasm-ci               run the local Chromium CI stages with diagnostics"
+	@echo "  wasm-check-full       run pinned SQL, vector, recovery, package and browser gates"
+	@echo "  wasm-weekly           validate current PostgreSQL master in an isolated build"
 	@echo "  wasm-matrix-check     measure the installed package across pinned browsers"
 	@echo "  wasm-package-check             install and validate an independent consumer"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"

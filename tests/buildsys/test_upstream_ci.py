@@ -82,6 +82,12 @@ class UpstreamCIHistoryTests(unittest.TestCase):
         self.assertFalse(self.planned(api, daily))
         self.assertFalse(self.planned(api, stable))
 
+    def test_wasm_history_is_independent_of_native_results(self) -> None:
+        wasm = dict(INPUTS, suite="wasm")
+        self.assertTrue(self.planned(history([job(1)]), wasm))
+        self.assertFalse(self.planned(history([job(1, "failure"), job(2, inputs=wasm)]), wasm))
+        self.assertTrue(self.planned(history([job(2, inputs=wasm)])))
+
     def test_newer_failure_overrides_success_and_retry_success_recovers(self) -> None:
         for conclusion in ("failure", "cancelled", "timed_out"):
             with self.subTest(conclusion=conclusion):

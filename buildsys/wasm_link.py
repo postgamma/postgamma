@@ -42,7 +42,8 @@ class Builder:
         self.nm = str(Path(self.tools["settings"]["LLVM_ROOT"]) / "llvm-nm")
         self.flags = ["-pthread", f"-sSUPPORT_LONGJMP={longjmp}",
                       *self.inputs["profile"]["modes"][config.mode],
-                      f"-ffile-prefix-map={self.root}=postgamma-source", "-fdebug-compilation-dir=.",
+                      f"-ffile-prefix-map={self.root}=postgamma-source",
+                      f"-ffile-prefix-map={config.sdk}=emscripten-sdk", "-fdebug-compilation-dir=.",
                       "-fno-strict-aliasing", "-fwrapv",
                       "-D_GNU_SOURCE", "-DEXEC_BACKEND", "-DWAIT_USE_POLL",
                       "-I" + str(self.artifacts / "src/include"),
@@ -83,6 +84,7 @@ class Builder:
         # Normalize only pg_config's descriptive strings; raw configure inputs
         # remain in the capture and link receipts.
         config_header = (self.artifacts / "src/include/pg_config.h").read_text()
+        self.postgres_major = re.search(r'^#define PG_MAJORVERSION "(\d+)"$', config_header, re.M)[1]
         arguments = re.search(r'^#define CONFIGURE_ARGS (.+)$', config_header, re.M)[1]
         self.config_info = self.output / "public-config-info.c"
         self.config_info.write_text('#ifndef FRONTEND\n#include "postgres.h"\n#else\n#include "postgres_fe.h"\n#endif\n'
@@ -376,7 +378,7 @@ class Builder:
             if source.name == "postgres_bootstrap_bridge.c":
                 extra += ["-Dpgm_bootstrap_run=postgamma_private_bootstrap_probe"]
             if source.name == "postgamma.c":
-                extra += ['-DPOSTGAMMA_PRODUCT_VERSION="' + (self.root / 'VERSION').read_text().strip() + '"', '-DPOSTGAMMA_POSTGRESQL_MAJOR="19"']
+                extra += ['-DPOSTGAMMA_PRODUCT_VERSION="' + (self.root / 'VERSION').read_text().strip() + '"', '-DPOSTGAMMA_POSTGRESQL_MAJOR="' + self.postgres_major + '"']
             jobs.append((source, "product/" + source.stem, extra))
         jobs.append((self.root / "runtime/src/postgres_embedded_kernel.c", "product/kernel", ["-DPOSTGAMMA_BACKEND"]))
         for source in sorted((self.root / "runtime/platform/emscripten").glob("*")):

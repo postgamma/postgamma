@@ -22,6 +22,7 @@ on:
       - 'licenses/**'
       - 'examples/wasm/**'
       - '.github/workflows/wasm.yml'
+      - '.github/workflows/upstream-canary.yml'
       - '.github/actions/wasm-setup/**'
   push:
     branches: [main]

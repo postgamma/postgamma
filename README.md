@@ -543,3 +543,13 @@ validated package in Chromium, Firefox and Linux WebKit.
 `make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
 Relevant pull requests and main-branch changes also run them in the Browser
 kernel workflow; shared kernel changes select native regression separately.
+
+After `make wasm-browser-setup`, `make wasm-check-full JOBS=2` adds vector,
+OPFS recovery and the browser matrix against the pinned PostgreSQL source.
+`make wasm-weekly JOBS=2` runs that suite against current PostgreSQL master in
+an isolated checkout. Use `PG_BRANCH=REL_19_STABLE`, `PG_REF=<commit>` or
+`PG_REPOSITORY=https://github.com/postgres/postgres.git` to select the source.
+The PostgreSQL upstream canary workflow exposes the same manual weekly profile
+and runs every Sunday; its Wasm jobs separately track pinned, PG19 and master.
+See [Wasm validation commands](wasm/README.md#continuous-validation) for reports,
+skip behavior and browser acceptance scope.

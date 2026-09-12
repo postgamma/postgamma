@@ -300,13 +300,11 @@ class WasmTests(unittest.TestCase):
                                     text=True, capture_output=True, timeout=10, check=True)
             self.assertIn(f'/wasm_startup.py" {action} ', result.stdout)
 
-    def test_unimplemented_full_suite_fails_even_with_a_wasm_source_directory(self):
-        for target in ("wasm-check-full",):
-            result = subprocess.run(["make", "--no-print-directory", target], cwd=ROOT,
-                                    text=True, capture_output=True, timeout=10)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("not implemented yet", result.stderr)
-            self.assertIn("make wasm-check", result.stderr)
+    def test_full_suite_dispatches_to_the_weekly_driver(self):
+        result = subprocess.run(["make", "-n", "--no-print-directory", "wasm-check-full"], cwd=ROOT,
+                                text=True, capture_output=True, timeout=10, check=True)
+        self.assertIn('/wasm_ci.py"', result.stdout)
+        self.assertIn('--suite weekly', result.stdout)
 
 
 if __name__ == "__main__":

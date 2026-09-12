@@ -13,14 +13,17 @@ def stages(profile):
     result = [('tools', ['doctor-ast', 'doctor-wasm']), ('unit', []), ('generation', ['wasm-kernel-generate']),
               ('oracle-build', ['reference-build']), ('oracle-install', []),
               ('sql', ['wasm-sql-check'])]
+    if profile == 'weekly':
+        result += [('vector', ['wasm-vector-check']), ('storage', ['wasm-storage-check'])]
     result += [('package', ['wasm-package-check'])]
+    if profile == 'weekly': result += [('matrix', ['wasm-matrix-check'])]
     return result
 
 
-def run_suite(config, profile, longjmp):
+def run_suite(config, profile, longjmp, candidate=False):
     current = config.build/'wasm/ci'/run_id(); current.mkdir(parents=True)
     report = {'kind':'postgamma.wasm-ci','status':'failed','profile':profile,
-              'target':config.target,'mode':config.mode,'stages':[],
+              'target':config.target,'mode':config.mode,'candidate':candidate,'stages':[],
               'source_commit':capture(['git','-C',str(config.root),'rev-parse','HEAD']),
               'driver_sha256':digest(config.root/'buildsys/wasm_ci.py'),
               'scope':'Wasm evidence is independent of native product acceptance.'}
@@ -32,6 +35,7 @@ def run_suite(config, profile, longjmp):
         f'WASM_TARGET={config.target}',f'WASM_MODE={config.mode}',f'JOBS={config.jobs}',
         f'WASM_LONGJMP={longjmp}', 'WASM_SQL_SCENARIO=all', 'WASM_STORAGE_SCENARIO=storage-all',
         'WASM_VECTOR_SCENARIO=vector-all','WASM_EXTENSIONS=none','WASM_PACKAGE_EXTENSIONS=pgvector']
+    if candidate: assignments.append('POSTGRES_CANDIDATE_PROBE=1')
     if config.external_sdk: assignments.append('WASM_EMSDK_DIR='+str(config.sdk))
     if config.node_override: assignments.append('WASM_NODE='+config.node_override)
     if config.browser_override: assignments.append('WASM_BROWSER_EXECUTABLE='+config.browser_override)
@@ -57,6 +61,10 @@ def run_suite(config, profile, longjmp):
                 row['elapsedSeconds']=time.monotonic()-begin
                 row['freeBytesAfter']=shutil.disk_usage(config.build).free
                 write_json(current/'report.json',report)
+        if profile == 'weekly':
+            pointer = read_json(config.build/'wasm/reports/matrix.json')
+            report['matrix_report'] = pointer['run_report']
+            report['exploratory_browser_failures'] = read_json(Path(pointer['run_report']))['observedFailures']
         report['status']='passed'
     except Exception as error:
         report['error']=str(error)
@@ -77,7 +85,7 @@ def main():
     parser.add_argument('--mode',default='debug',choices=('debug','release'))
     parser.add_argument('--node',default='');parser.add_argument('--browser-executable',default='')
     parser.add_argument('--longjmp',default='emscripten');parser.add_argument('--jobs',type=int,default=2)
-    parser.add_argument('--suite',choices=('basic',),default='basic')
+    parser.add_argument('--suite',choices=('basic','weekly'),default='basic')
     args=parser.parse_args()
     try: run_suite(configuration(args),args.suite,args.longjmp)
     except Exception as error: parser.exit(2,'wasm CI: '+str(error).splitlines()[0]+'\n')

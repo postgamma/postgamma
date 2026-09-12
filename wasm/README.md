@@ -77,6 +77,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
 | `make wasm-ci` | Run tool/unit/generation/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
+| `make wasm-check-full` | Run the pinned source through SQL, vector, OPFS recovery, installed package and browser matrix gates. |
+| `make wasm-weekly` | Run the full suite against current PostgreSQL master in an isolated candidate checkout; `PG_BRANCH` and `PG_REPOSITORY` are configurable. |
 | `make wasm-matrix-check` | Measure the last validated package on Chromium, Firefox and Linux WebKit, retaining exploratory failures. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
@@ -336,8 +338,8 @@ fresh module. If runtime/manifests/headers changed, refresh generation first.
 
 This is an initial debug-mode Chromium check, not the public JavaScript SDK.
 It does not establish concurrent SQL coverage, durable OPFS storage, release
-kernel validation, or a full browser matrix. `wasm-check-full` remains unavailable
-until those later checks are implemented. The SQL gate below validates its
+kernel validation, or a full browser matrix. `make wasm-check-full` combines the
+SQL, vector, storage, package and matrix gates described below. The SQL gate validates its
 resource budget separately; linear memory's high-water size need not shrink when an instance closes.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
@@ -538,3 +540,51 @@ failure reports separately from native evidence; successful runs also retain
 the tested npm archive. Browser profiles and object/generated trees are not
 uploaded. Each basic job has a 180-minute bound and artifacts expire after 14
 days. A local pass or workflow syntax check does not establish a hosted CI pass.
+
+For the heavier suite, install all browser engines once and use:
+
+```sh
+make wasm-browser-setup
+make wasm-check-full JOBS=2
+make wasm-weekly JOBS=2
+```
+
+`wasm-check-full` validates the pinned PostgreSQL source. `wasm-weekly` resolves
+the current PostgreSQL master revision and runs that same suite in an isolated
+project/source/build tree under `build/wasm/upstream/`. It leaves the pinned
+checkout and manifest in place. Reports retain the exact revision, current
+tracked project inputs, each stage's elapsed time/free space and failure logs.
+The native SQL oracle has its own build directory for each candidate. A failed
+candidate reports the failing gate; it does not update ownership decisions or
+declare compatibility from native tests alone.
+
+Select a branch, mirror or exact previously reported revision with:
+
+```sh
+make wasm-weekly PG_BRANCH=REL_19_STABLE PG_REPOSITORY=https://github.com/postgres/postgres.git JOBS=2
+make wasm-upstream-canary PG_REF=<commit> CANARY_PROFILE=weekly JOBS=2
+```
+
+These commands reuse installed SDK/browser tools. Candidate source and build
+trees remain for diagnosis, so repeated candidates need additional disk space.
+The full suite includes all eight SQL groups, vector queries and index plans,
+OPFS ownership/failure/recovery checks, an independently installed package, and
+Chromium/Firefox/Linux WebKit measurements. Chromium remains the required
+browser profile; exploratory failures remain visible in the matrix and suite
+reports. Release-mode SQL and Safari acceptance are separate work.
+
+The existing **PostgreSQL upstream canary** workflow runs every Sunday at 02:17
+UTC and supports **Run workflow** with `weekly` or shorter `daily` profiles.
+Wasm has separate pinned/REL_19_STABLE/master jobs, each limited to 360 minutes
+and two compilation jobs, with diagnostics retained for 14 days. Scheduled jobs
+skip only when the same project/PostgreSQL/pgvector/profile inputs already
+passed that Wasm suite; changed upstream commits and failed prior runs are
+tested again. Manual dispatch always runs. Native and Wasm pass histories are
+separate. There is no additional daily schedule or email integration.
+
+A local pinned full-suite run on 2026-09-12 took 1,749.5 seconds (29.2 minutes)
+with `JOBS=2`, cached capture/native-oracle inputs and rebuilt Wasm core/pgvector
+objects. Installed tools occupied about 3.2 GiB; the target tree with retained
+run history occupied 1.5 GiB, plus a 167 MiB native oracle. Candidate source and
+build trees need additional space. These observations are not a cold hosted
+runner budget; the first hosted run must retain its own timing/space evidence.

@@ -28,11 +28,15 @@ class WasmCITests(unittest.TestCase):
 
     def test_collect_failure_logs_without_user_profiles_or_objects(self):
         for path in ('wasm/ci/run/generation.log', 'wasm/target/runs/link-1/cases/abi/browser.json',
-                     'wasm/target/runs/link-1/report.json'):
+                     'wasm/target/runs/link-1/report.json',
+                     'wasm/upstream/run/report.json',
+                     'wasm/upstream/run/project/build/wasm/ci/run/generation.log'):
             self.assertTrue(selected(Path(path)), path)
         for path in ('wasm/target/runs/link-1/consumer-chromium/node_modules/private.json',
                      'wasm/target/runs/link-1/cases/abi/profile/Preferences.json',
-                     'wasm/target/link/objects/backend/a.json', 'wasm/target/generated/ownership.json'):
+                     'wasm/target/link/objects/backend/a.json', 'wasm/target/generated/ownership.json',
+                     'wasm/upstream/run/project/wasm/package.json',
+                     'wasm/upstream/run/project/postgres/src/test/fixtures/data.json'):
             self.assertFalse(selected(Path(path)), path)
 
     def test_basic_suite_runs_oracle_sql_and_installed_package(self):

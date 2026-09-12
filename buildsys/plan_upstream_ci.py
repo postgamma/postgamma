@@ -22,7 +22,7 @@ def git(root: Path, *arguments: str) -> str:
     ).strip()
 
 
-def source_inputs(root: Path, profile: str, branch: str) -> dict[str, str]:
+def source_inputs(root: Path, profile: str, branch: str, suite: str = "native") -> dict[str, str]:
     postgres_url = os.environ.get("PG_REPOSITORY") or git(
         root, "config", "-f", ".gitmodules", "submodule.postgres.url"
     )
@@ -40,6 +40,7 @@ def source_inputs(root: Path, profile: str, branch: str) -> dict[str, str]:
         if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
             raise ValueError("PostgreSQL branch did not resolve to a commit ID")
     return {
+        **({"suite": suite} if suite != "native" else {}),
         "postgamma_commit": git(root, "rev-parse", "HEAD"),
         "postgres_commit": commit,
         "postgres_url": postgres_url,
@@ -51,7 +52,8 @@ def source_inputs(root: Path, profile: str, branch: str) -> dict[str, str]:
 
 def test_identity(inputs: dict[str, str]) -> str:
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"{inputs['branch'] or 'embedded-product'} {inputs['profile']} {digest}"
+    label = (inputs["suite"] + " ") if "suite" in inputs else ""
+    return label + f"{inputs['branch'] or 'embedded-product'} {inputs['profile']} {digest}"
 
 
 class GitHub:
@@ -126,9 +128,10 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--profile", choices=("daily", "weekly"), required=True)
     parser.add_argument("--branch", default="", help="omit for the pinned embedded product")
+    parser.add_argument("--suite", choices=("native", "wasm"), default="native")
     args = parser.parse_args()
     try:
-        inputs = source_inputs(args.root, args.profile, args.branch)
+        inputs = source_inputs(args.root, args.profile, args.branch, args.suite)
         run, reason = should_run(
             GitHub(os.environ.get("GITHUB_REPOSITORY", "")), inputs,
             os.environ.get("GITHUB_EVENT_NAME", "workflow_dispatch"),
