@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-kernel-target",
+  "status": "selected-for-initial-port",
+  "target": "wasm32-emscripten-pthreads",
+  "probe_profile": "manifests/profiles/wasm-emscripten.json",
+  "resource_policy": "manifests/profiles/wasm-resource-budget.json",
+  "pointer_bits": 32,
+  "longjmp": "emscripten",
+  "filesystem": "wasmfs",
+  "storage_profile": "ephemeral-wasmfs",
+  "memory64": {
+    "status": "not-applicable",
+    "probes_executed": false,
+    "reason": "Scoped wasm32 capacity and ABI probes fit the provisional envelope; no concrete target-width blocker or Memory64 adaptation-cost hypothesis is recorded.",
+    "reopen_if": [
+      "target-generated static or TLS layout exceeds reserves",
+      "kernel memory demand exceeds the bounded envelope",
+      "a concrete target-width adaptation cost is identified"
+    ]
+  }
+}

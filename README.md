@@ -379,6 +379,7 @@ make wasm-opfs-check
 make wasm-browser-setup
 make wasm-browser-check
 make wasm-resource-check
+make wasm-target-check
 ```
 
 These commands install reusable SDK/browser tools and run the toolchain smoke

@@ -18,6 +18,7 @@ make wasm-opfs-check
 make wasm-browser-setup
 make wasm-browser-check
 make wasm-resource-check
+make wasm-target-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -47,6 +48,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-browser-setup` | Install or reuse all three pinned browsers and their headless host libraries. |
 | `make wasm-browser-check` | Run shared-memory pthread startup and ten deployment failure scenarios in Chromium, Firefox, and WebKit. |
 | `make wasm-resource-check` | Refresh platform, wait, recovery, OPFS, deployment, and capacity evidence; write the provisional resource budget. |
+| `make wasm-target-check` | Verify the initial kernel target against the latest complete resource evidence, including source and artifact hashes. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -205,6 +207,15 @@ actual kernel static/TLS sizes, SQL stack depth and JS/VM overhead are unmeasure
 The budget records an initial wasm32/ephemeral decision and conditions that
 would require reconsidering target width; it does not validate a Memory64 port.
 
+[`wasm-kernel.json`](../manifests/profiles/wasm-kernel.json) selects wasm32,
+Emscripten longjmp and ephemeral WasmFS for the initial kernel port. Memory64
+comparison is `not-applicable`: no specific width blocker was observed in the
+scoped probes. No wasm64 probe or kernel has run. `make wasm-target-check`
+checks the latest budget for the selected mode without rerunning browsers. It
+rejects missing, failing, changed or superseded evidence; refresh with
+`make wasm-resource-check` if needed. Its report records the selected SDK and
+resource policy as future kernel-build inputs. It does not build that kernel.
+
 Single-browser probe profiles stay under each run. Chromium's disposable socket directory
 uses a short `/tmp/pgm-wasm-*` path to avoid Unix socket path limits and is
 removed after the browser run. Probe files and dependencies remain separate
@@ -242,8 +253,8 @@ therefore does not require downloading the toolchain again.
 
 The kernel/package commands `make wasm`, `make wasm-check`,
 `make wasm-check-full`, and `make wasm-serve` fail explicitly because they
-are not implemented yet. The candidate SDK and probe
-settings do not select the final kernel memory, longjmp, or filesystem policy.
+are not implemented yet. The initial kernel profile supplies build inputs;
+resource settings remain provisional until target kernel validation.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).

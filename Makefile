@@ -1151,6 +1151,7 @@ help:
 	@echo "  wasm-browser-setup             install the pinned three-engine browser matrix"
 	@echo "  wasm-browser-check             check browser startup and deployment failures"
 	@echo "  wasm-resource-check            measure capacity and refresh the platform budget"
+	@echo "  wasm-target-check              verify initial kernel target and width decision"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"

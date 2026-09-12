@@ -22,6 +22,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-platform-check wasm-wait-check wasm-recovery-check wasm-opfs-check
 .PHONY: wasm-browser-setup wasm-browser-check
 .PHONY: wasm-resource-check
+.PHONY: wasm-target-check
 .PHONY: wasm wasm-check wasm-check-full wasm-serve
 
 wasm-setup:
@@ -56,6 +57,10 @@ wasm-browser-check:
 
 wasm-resource-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" resource-check $(POSTGAMMA_WASM_ARGS)
+
+wasm-target-check:
+	@$(PYTHON) "$(ROOT)/buildsys/check_wasm_target.py" --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
+		--mode "$(WASM_MODE)" --target "$(WASM_TARGET)" --longjmp "$(WASM_LONGJMP)"
 
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)
