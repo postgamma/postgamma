@@ -388,7 +388,10 @@ and OPFS storage probes in Chromium. The browser matrix also exercises startup
 and deployment failures in Firefox and WebKit. `make wasm-kernel-capture`
 additionally configures PostgreSQL and captures actual target object compilation.
 `make wasm-kernel-generate` uses those commands to generate target state layouts
-and transformed PostgreSQL sources with the shared ownership rules; kernel linking and browser SQL startup are not available yet.
+and transformed PostgreSQL sources with the shared ownership rules.
+`make wasm-kernel-link` then compiles the transformed kernel and private support
+libraries, packages matching initialization resources, and audits the linked
+module's imports and static/TLS sizes. A browser SQL API is not available yet.
 `wasm-resource-check` refreshes the platform probes
 and measures the provisional thread and memory envelope.
 `make wasm-clean` retains the installed tools. See the

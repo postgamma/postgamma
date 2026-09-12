@@ -24,6 +24,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-resource-check
 .PHONY: wasm-target-check
 .PHONY: wasm-kernel-configure wasm-kernel-capture wasm-kernel-generate wasm-runtime-check
+.PHONY: wasm-kernel-link
 .PHONY: wasm wasm-check wasm-check-full wasm-serve
 
 wasm-setup:
@@ -74,6 +75,9 @@ wasm-kernel-generate:
 
 wasm-runtime-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_runtime.py" $(POSTGAMMA_WASM_ARGS)
+
+wasm-kernel-link:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_link.py" $(POSTGAMMA_WASM_ARGS)
 
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)

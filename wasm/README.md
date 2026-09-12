@@ -4,7 +4,8 @@ The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
 stacks, basic libc interfaces, waits, deadlines, cancellation, error recovery,
 and OPFS file behavior in Chromium, plus deployment in Chromium, Firefox, and WebKit.
 The target build commands also configure PostgreSQL and capture its Wasm
-compilation database. Kernel linking and a browser SQL API are not available yet.
+compilation database, generate target state layouts, and link the kernel with
+matching initialization resources. A browser SQL API is not available yet.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -54,6 +55,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-kernel-capture` | Compile the selected PostgreSQL objects and static support libraries and capture actual target Clang invocations. |
 | `make wasm-kernel-generate` | Generate target state layouts, replacement plans, and PostgreSQL sources with the shared AST tools and ownership rules. |
 | `make wasm-runtime-check` | Exercise shared threads, backend execution, notification I/O, timer resampling, main/DSM memory lifetime, and semaphores in Chromium, including TLS destruction and Worker reuse. |
+| `make wasm-kernel-link` | Compile the generated kernel, private initdb/libpq and static modules; package target resources and audit final imports and static/TLS sizes. Requires `make wasm-kernel-generate`. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -263,7 +265,25 @@ before generating state storage and transformed sources. Target availability
 exclusions are explicit; ownership stays in the shared manifests. AST reuse
 requires matching compiler, commands, headers, manifests, and output hashes.
 Reports and generated files remain under the selected target configuration;
-these outputs have not yet been linked or exercised by SQL.
+generation alone does not validate final linking or SQL.
+
+`make wasm-kernel-link` compiles the transformed kernel and its private support
+libraries with the target SDK. It also applies the generated-file replacement
+plan to parser/scanner C files and builds the registered Snowball and PL/pgSQL
+modules with their actual Wasm function signatures. Private frontend symbols
+use Clang linkage-name pragmas; native objects and symbol-rewritten native
+archives are not inputs. Incremental object reuse checks commands, compiler
+identity, dependency contents, and object hashes.
+
+The target resource pack contains matching catalogs, SQL, configuration,
+timezone data, and static-module metadata under `/postgamma`. Its `bin/postgres`
+file is a resource-location anchor used by the shared C entry point. Resources
+contain no native executable or preinitialized database. Link receipts, object
+references, final imports, exported static/TLS measurements, and the linker
+map are saved in `runs/link-*/`; `reports/link.json` points to the latest result.
+Unknown final imports and stale generated inputs fail the command. Retained
+address compatibility branches are identified separately from the supported
+memory transport. Linking does not establish browser startup or persistence.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
 Emscripten version; setup does not install or activate that SDK. `WASM_NODE` can select a
