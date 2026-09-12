@@ -7,9 +7,11 @@ The target build commands also configure PostgreSQL and capture its Wasm
 compilation database, generate target state layouts, and link the kernel with
 matching initialization resources. The private C/TypeScript startup bridge runs
 initdb and SQL in Chromium. The source TypeScript API supports independent
-sessions, request cancellation, bounded results and COPY. OPFS ownership and
-orderly SQL reopen are implemented; WAL crash recovery and a versioned consumer
-package are later milestones.
+sessions, request cancellation, bounded results and COPY. The OPFS suite covers
+ownership, orderly reopen, WAL barriers, storage errors and interrupted recovery.
+All four storage groups, including the 18-case Worker/browser recovery matrix,
+have passed in debug Chromium.
+A versioned consumer package remains a later milestone.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -64,9 +66,11 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run all eight SQL, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
-| `make wasm-storage-check` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen in Chromium. |
+| `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
+| `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage-errors` | Inject WAL and namespace failures, discard the failed module and verify PostgreSQL recovery. |
+| `make wasm-storage-check WASM_STORAGE_SCENARIO=recovery` | Run the Worker/browser termination matrix, including interrupted initialization and torn namespace-log recovery. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -432,5 +436,17 @@ retain acknowledged commits and transaction atomicity; a transaction whose reply
 was lost may already be committed. The OPFS resource checks include the measured
 2 MiB I/O stack, existing 13-Worker pool, 512 MiB linear memory maximum, bounded
 queues, 64 data access handles plus one journal handle, and healthy shutdown drain.
-Browser VM/RSS and hardware power-loss durability are not measured. A separate
-Worker/browser crash-boundary matrix remains to be completed.
+Browser VM/RSS and hardware power-loss durability are not measured.
+
+The recovery group uses one origin and persistent browser profile. Each of
+Worker termination and SIGKILL of the harness-owned browser process group is
+injected before/after WAL flush, during checkpoint data writes, file creation,
+relation extension, before/after namespace rename flush, and after flushing a
+partial namespace record. Both also interrupt target initdb. The runner verifies
+PostgreSQL automatic recovery, acknowledged transaction pairs, DDL/extension
+rollback, file identity and actual journal-tail replay. Its complete 18-case
+matrix has a 600-second watchdog and a 90-second limit per recovery operation;
+each receipt retains gates, interruption method, browser process identity,
+recovered SQL, logs and resource measurements. Progress is saved periodically
+so failed runs retain the last reached boundary and startup phase.
+The process-group termination harness currently requires Linux `/proc`.

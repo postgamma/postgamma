@@ -19,6 +19,8 @@ export async function storage(checks: string[], metrics: unknown[]) {
   assert(denied, 'Second owner is rejected before initdb/recovery');
   const probe = await (db as any).transport.call(65534, undefined, (w: any) => w.u32(1));
   assert(probe.u32() >= 20, 'OPFS file identity, descriptor and namespace semantics'); probe.end();
+  const relay = await (db as any).transport.call(65534, undefined, (w: any) => w.u32(15));
+  assert(relay.u32() === 4, 'I/O progresses while SDK control relay is synchronously occupied'); relay.end();
   const storageMetrics = await control.metrics();
   assert(storageMetrics.flushes > 0 && storageMetrics.directoryFlushes > 0 && storageMetrics.peakHandles <= 64,
     'Data and namespace flushes reach OPFS within the handle bound');
@@ -44,5 +46,5 @@ export async function storage(checks: string[], metrics: unknown[]) {
   metrics.push(await reopened.close());
   checks.push('owned-before-startup', 'second-owner-rejected', 'independent-opfs-sessions',
     'open-file-rename-unlink', 'dup-and-positioned-io', 'directory-rename', 'readonly-truncate-sync',
-    'close-drains-inflight-io', 'ownership-held-during-close', 'healthy-storage-close', 'sql-and-namespace-reopen');
+    'io-progress-with-blocked-relay', 'close-drains-inflight-io', 'ownership-held-during-close', 'healthy-storage-close', 'sql-and-namespace-reopen');
 }

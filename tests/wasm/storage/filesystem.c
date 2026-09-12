@@ -2,6 +2,21 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+static _Atomic int storage_relay_probe;
+static _Atomic int storage_relay_result;
+
+/* Model a short synchronous SDK call on the control Worker. The I/O owner
+ * must drain its own queue even while that Worker cannot relay JS messages. */
+static void storage_relay_parent_wait(void)
+{
+    if (atomic_load(&storage_relay_probe) == 1) {
+        double deadline = emscripten_get_now() + 1000;
+        atomic_store(&storage_relay_probe, 2);
+        while (atomic_load(&storage_relay_probe) != 3 && emscripten_get_now() < deadline) usleep(1000);
+        atomic_store(&storage_relay_result, atomic_load(&storage_relay_probe) == 3 ? 1 : -1);
+    }
+}
+
 static void *storage_pending_write(void *argument)
 {
     int *fd = argument;
@@ -18,6 +33,38 @@ static int storage_filesystem_probe(unsigned phase)
 #define STORAGE_CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "storage filesystem: line %d: %s; errno=%d\n", __LINE__, #expr, errno); \
     return -1; } checks++; } while (0)
+    if (phase == 15) {
+        a = open("/persistent/storage-test-b/kept", O_RDONLY);
+        STORAGE_CHECK(a >= 0);
+        atomic_store(&storage_relay_result, 0);
+        atomic_store(&storage_relay_probe, 1);
+        double deadline = emscripten_get_now() + 5000;
+        while (atomic_load(&storage_relay_probe) == 1 && emscripten_get_now() < deadline) usleep(1000);
+        STORAGE_CHECK(atomic_load(&storage_relay_probe) == 2 && fsync(a) == 0);
+        atomic_store(&storage_relay_probe, 3);
+        while (atomic_load(&storage_relay_result) == 0 && emscripten_get_now() < deadline) usleep(1000);
+        STORAGE_CHECK(close(a) == 0);
+        STORAGE_CHECK(atomic_load(&storage_relay_result) == 1);
+        atomic_store(&storage_relay_probe, 0);
+        return checks;
+    }
+    if (phase >= 12 && phase <= 14) {
+        if (phase == 12) {
+            STORAGE_CHECK(mkdir("/persistent/recovery", 0700) == 0 || errno == EEXIST);
+            STORAGE_CHECK(unlink("/persistent/recovery/after") == 0 || errno == ENOENT);
+            a = open("/persistent/recovery/before", O_CREAT | O_TRUNC | O_RDWR, 0600);
+            STORAGE_CHECK(a >= 0 && write(a, "identity", 8) == 8 && fsync(a) == 0 && close(a) == 0);
+        } else if (phase == 13) {
+            STORAGE_CHECK(rename("/persistent/recovery/before", "/persistent/recovery/after") == 0);
+        } else {
+            int before = stat("/persistent/recovery/before", &old) == 0;
+            int after = stat("/persistent/recovery/after", &current) == 0;
+            STORAGE_CHECK(before != after);
+            a = open(before ? "/persistent/recovery/before" : "/persistent/recovery/after", O_RDONLY);
+            STORAGE_CHECK(a >= 0 && read(a, buffer, sizeof(buffer)) == 8 && memcmp(buffer, "identity", 8) == 0 && close(a) == 0);
+        }
+        return checks;
+    }
     if (phase >= 4 && phase <= 11) {
         if (phase == 4) {
             STORAGE_CHECK(mkdir("/persistent/faults", 0700) == 0);

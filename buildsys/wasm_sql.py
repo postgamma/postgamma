@@ -40,9 +40,12 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
                  str(config.root / source), str(site / target)],
                 builder.current / "typescript.log", builder.env, config.root)
         (site / "sql.html").write_bytes((config.root / "tests/wasm/sql/sql.html").read_bytes())
+        (site / "recovery.html").write_bytes((config.root / "tests/wasm/storage/recovery.html").read_bytes())
+        report["harness_sources"].update({name: digest(config.root / name) for name in
+            ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs")})
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
-                             for name in (*[target for _, target in sources], "sql.html", "src/protocol/limits.js")}
+                             for name in (*[target for _, target in sources], "sql.html", "recovery.html", "src/protocol/limits.js")}
         if action == "check":
             if scenario in ("results", "all"):
                 from wasm_sql_oracle import oracle
@@ -53,11 +56,15 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
                 builder.env, config.root)
             run([builder.tools["node"], str(config.root / "tests/wasm/storage/namespace.mjs"),
                  str(site / "src/storage/namespace.js")], builder.current / "namespace.log", builder.env, config.root)
-            scenarios = SCENARIOS if scenario == "all" else (scenario,)
+            scenarios = SCENARIOS if scenario == "all" else ("storage", "durability", "storage-errors", "recovery") if scenario == "storage-all" else (scenario,)
             report["browsers"] = {}
             with serve(site, "sql.html") as url:
                 for name in scenarios:
                     print("wasm SQL: checking " + name, flush=True)
+                    if name == "recovery":
+                        from wasm_storage_recovery import check
+                        report["recovery"] = check(config, builder, url.replace("sql.html", "recovery.html"))
+                        continue
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
                                           url + "?scenario=" + name, timeout_ms=90000 if name in ("storage", "durability", "storage-errors") else 30000)
                     report["browsers"][name] = browser

@@ -408,7 +408,12 @@ EMSCRIPTEN_KEEPALIVE int postgamma_wasm_submit(void *data, unsigned size)
     atomic_store_explicit(&state, 1, memory_order_release);
     return 0;
 }
-EMSCRIPTEN_KEEPALIVE int postgamma_wasm_poll(void) { return atomic_load_explicit(&state, memory_order_acquire); }
+EMSCRIPTEN_KEEPALIVE int postgamma_wasm_poll(void) {
+#ifdef POSTGAMMA_WASM_TESTING
+    storage_relay_parent_wait();
+#endif
+    return atomic_load_explicit(&state, memory_order_acquire);
+}
 EMSCRIPTEN_KEEPALIVE void *postgamma_wasm_reply(void) { return reply.data; }
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_reply_size(void) { return reply.size; }
 EMSCRIPTEN_KEEPALIVE void postgamma_wasm_ack(void)

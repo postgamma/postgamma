@@ -407,8 +407,12 @@ Use `WASM_SQL_SCENARIO=abi`, `concurrency`, `errors`, `results`, `lifecycle`,
 the native reference test installation for its SQL/COPY oracle. The reviewed
 SQL profile is debug Chromium with an ephemeral filesystem, four connections
 and up to 512 MiB of shared linear memory. `make wasm-storage-check JOBS=2`
-checks OPFS ownership, file semantics and orderly SQL reopen. WAL crash recovery
-and a versioned consumer package are later milestones.
+runs the separate OPFS suite: ownership, file semantics, WAL barriers, storage
+errors, orderly reopen and Worker/browser crash recovery. Use
+`WASM_STORAGE_SCENARIO=storage`, `durability`, `storage-errors`, or `recovery`
+to select one group. All four groups, including the 18-case Worker/browser
+recovery matrix, have passed in debug Chromium. A versioned consumer package
+remains a later milestone.
 `wasm-resource-check` refreshes the platform probes
 and measures platform capacity; the SQL gate records actual kernel resource usage.
 `make wasm-clean` retains the installed tools. See the

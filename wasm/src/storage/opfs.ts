@@ -59,6 +59,7 @@ export class Store {
           if (data.command === 'release') {this.resume?.(); this.resume = undefined;}
           if (data.command === 'metrics') this.channel!.postMessage({metrics: this.metrics, request: data.request});
         };
+        this.channel.postMessage({mounted: true, metrics: this.metrics});
       }
     } catch (cause) {this.journal?.close(); this.journal = undefined; throw cause;}
   }
@@ -99,7 +100,16 @@ export class Store {
     const record = encode(change, this.namespace.sequence + 1);
     if (this.bytes + record.length > journalLimit) throw error('QuotaExceededError', 'Namespace journal is full');
     try {
-      await this.point('namespace-before', 0, change.op);
+      const action = await this.point('namespace-before', 0, change.op);
+      if (action === 'partial') {
+        const partial = record.subarray(0, Math.floor(record.length / 2));
+        if (this.journal.write(partial, {at: this.bytes}) !== partial.length)
+          throw error('UnknownError', 'Short injected journal tail');
+        this.journal.flush();
+        this.channel!.postMessage({gate: 'namespace-partial', path: change.op, bytes: partial.length});
+        await new Promise<void>(resolve => {this.resume = resolve;});
+        throw error('UnknownError', 'Interrupted namespace tail requires recovery');
+      }
       let offset = 0;
       while (offset < record.length) {
         const n = this.journal.write(record.subarray(offset), {at: this.bytes + offset});

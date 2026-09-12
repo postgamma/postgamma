@@ -13,9 +13,9 @@ export class Control {
       for (const listener of this.listeners) listener();
     };
   }
-  wait(predicate: (event: any) => boolean): Promise<any> {
+  wait(predicate: (event: any) => boolean, timeoutMs = 5000): Promise<any> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {this.listeners.delete(check); reject(new Error('Storage control event timed out'));}, 5000);
+      const timer = setTimeout(() => {this.listeners.delete(check); reject(new Error('Storage control event timed out'));}, timeoutMs);
       const check = () => {
         const i = this.events.findIndex(predicate);
         if (i < 0) return;
@@ -31,9 +31,12 @@ export class Control {
   }
   release() {this.channel.postMessage({command: 'release'});}
   async metrics() {
+    return (await this.inspect()).metrics;
+  }
+  async inspect() {
     const request = this.identity + ':' + ++this.sequence;
     const ready = this.wait(event => event.metrics && event.request === request);
-    this.channel.postMessage({command: 'metrics', request}); return (await ready).metrics;
+    this.channel.postMessage({command: 'metrics', request}); return await ready;
   }
   close() {this.channel.close();}
 }
