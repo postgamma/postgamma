@@ -2,7 +2,7 @@
 import type {KernelModule} from '../bindings/kernel.js';
 
 export async function loadKernel(output: {
-  print(text: string): void; printErr(text: string): void;
+  print(text: string): void; printErr(text: string): void; onAbort?(reason: unknown): void;
 }): Promise<KernelModule> {
   if (!globalThis.crossOriginIsolated || !globalThis.crypto?.getRandomValues)
     throw new Error('Kernel Worker requires cross-origin isolation and Web Crypto');

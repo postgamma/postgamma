@@ -349,3 +349,11 @@ SQL errors expose SQLSTATE plus the native diagnostic fields.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).
+
+`WASM_SQL_SCENARIO=lifecycle` exercises close during lock waits, result/COPY
+backpressure and handle submission. `fatal-trap` and `fatal-abort` exercise real
+test-only faults and fresh-module recreation. Normal close waits for native
+resource and pthread reclamation. Fatal teardown requests Worker termination
+and discards the failed module; the browser does not provide synchronous VM
+termination acknowledgement. These checks cover ephemeral databases in the
+debug Chromium profile.

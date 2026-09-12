@@ -12,13 +12,16 @@ export interface SqlModule extends KernelModule {
   _postgamma_wasm_join(): number;
 }
 export const tick = () => new Promise<void>(resolve => setTimeout(resolve, 1));
-export async function exchange(module: SqlModule, message: ArrayBuffer): Promise<ArrayBuffer> {
+export async function exchange(module: SqlModule, message: ArrayBuffer, signal?: AbortSignal): Promise<ArrayBuffer> {
   const pointer = module._postgamma_wasm_alloc(message.byteLength);
   if (!pointer) throw new Error('Bridge allocation failed');
   new Uint8Array(module.wasmMemory.buffer).set(new Uint8Array(message), pointer);
   const status = module._postgamma_wasm_submit(pointer, message.byteLength);
   if (status) {module._postgamma_wasm_free(pointer); throw new Error(`Bridge submission failed: ${status}`);}
-  while (module._postgamma_wasm_poll() === 1) await tick();
+  while (module._postgamma_wasm_poll() === 1) {
+    await tick();
+    if (signal?.aborted) throw new Error('Kernel instance failed');
+  }
   if (module._postgamma_wasm_poll() !== 2) throw new Error('Bridge driver failed');
   try {
     // Acquire the current memory buffer, even when another pthread grew it. The returned buffer owns its

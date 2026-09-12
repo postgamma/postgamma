@@ -21,7 +21,8 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
         builder.frontends()
         builder.modules()
         builder.product()
-        builder.link(config.root / "wasm/bridge/sql.c")
+        builder.link(config.root / "wasm/bridge/sql.c",
+                     ("-DPOSTGAMMA_WASM_TESTING",) if action == "check" else ())
         site = builder.output / "site"
         report["site"] = str(site)
         sources = [(str(p.relative_to(config.root)), "src/" + str(p.relative_to(config.root / "wasm/src").with_suffix(".js")))

@@ -397,11 +397,11 @@ class Builder:
                                    "files": {str(p.relative_to(resources)): digest(p) for p in sorted(resources.rglob("*")) if p.is_file()}}
         return resources
 
-    def link(self, bridge_source=None):
+    def link(self, bridge_source=None, bridge_flags=()):
         resources = self.resources()
         if bridge_source is not None:
-            self.report["bridge"] = {"path": str(bridge_source), "sha256": digest(bridge_source)}
-            bridge = self.compile(bridge_source, "bridge/kernel-smoke")
+            self.report["bridge"] = {"path": str(bridge_source), "sha256": digest(bridge_source), "flags": list(bridge_flags)}
+            bridge = self.compile(bridge_source, "bridge/kernel-smoke", extra=bridge_flags)
             self.objects.append(bridge)
         from wasm_dependency_inventory import classify_symbol
         defined = self.definitions(self.objects)

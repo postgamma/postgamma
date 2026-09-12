@@ -1,5 +1,9 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 #include "postgamma/postgamma.h"
+#include "postgamma/private/data_directory_lock.h"
+#include "postgamma/shmem_platform.h"
+#include "postgamma/dsm_platform.h"
+#include "postgamma/io_platform.h"
 #include <emscripten.h>
 #include <errno.h>
 #include <pthread.h>
@@ -142,6 +146,15 @@ static bool command(void)
     bool stop = false;
     Handle *h = NULL, *slot = NULL;
     if (version != WIRE_VERSION) r.failed = true;
+#ifdef POSTGAMMA_WASM_TESTING
+    /* Test-only actual Wasm traps/abort on the owning host pthread. */
+    if (!r.failed && op == 65535) {
+        uint32_t fault = get(&r);
+        if (r.failed || r.offset != r.size) r.failed = true;
+        else if (fault == 1) __builtin_trap();
+        else if (fault == 2) abort();
+    }
+#endif
     if (op != OPEN && op != STOP)
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
@@ -243,7 +256,15 @@ static bool command(void)
         if (op == RELEASE) pgm_request_free(h->pointer);
         else if (op == DISCONNECT) status = pgm_connection_close(h->pointer, 10000, &error);
         else status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
-        if (!status) retire(h);
+        if (!status) {
+            retire(h);
+            if (op == CLOSE) {
+                put(&payload, postgamma_data_directory_lock_active_count());
+                put(&payload, postgamma_platform_shmem_count());
+                put(&payload, postgamma_platform_dsm_count());
+                put(&payload, postgamma_platform_pipe_count());
+            }
+        }
         break;
     case CONNECTION_STATUS: {
         if (r.offset != r.size) { r.failed = true; break; }
