@@ -35,7 +35,7 @@ export async function storage(checks: string[], metrics: unknown[]) {
   assert(denied, 'Ownership remains held during in-flight close');
   control.release();
   const completed = await io; assert(completed.u32() === 4, 'Peer close drains the actual write'); completed.end();
-  metrics.push(await close); control.close();
+  metrics.push(await close); await control.wait(event => event.closed); control.close();
   const reopened = await Database.open({...options, create: false});
   const c = await reopened.connect();
   assert(scalar(await c.query('SELECT value FROM durable_values')) === 'committed', 'Reopen persists SQL and rollback');

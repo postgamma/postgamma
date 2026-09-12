@@ -59,7 +59,7 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
                 for name in scenarios:
                     print("wasm SQL: checking " + name, flush=True)
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
-                                          url + "?scenario=" + name, timeout_ms=90000 if name == "storage" else 30000)
+                                          url + "?scenario=" + name, timeout_ms=90000 if name in ("storage", "durability", "storage-errors") else 30000)
                     report["browsers"][name] = browser
                     probe = browser["probe"]
                     if probe.get("scenario") != name or not probe.get("checks") or probe.get("pageTicks", 0) < 2:

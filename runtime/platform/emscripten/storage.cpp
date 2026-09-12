@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <atomic>
 #include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <condition_variable>
 #include <fcntl.h>
@@ -63,12 +64,18 @@ class Owner {
     bool ready = false;
 public:
     int error = 0;
+    size_t stack_bytes = 0;
     Owner() {
         pthread_attr_t attributes;
         pthread_attr_init(&attributes);
         pthread_attr_setstacksize(&attributes, 2 * 1024 * 1024);
         error = pthread_create(&thread, &attributes, [](void *argument) -> void * {
             auto self = static_cast<Owner *>(argument);
+            pthread_attr_t observed;
+            if (pthread_getattr_np(pthread_self(), &observed) == 0) {
+                pthread_attr_getstacksize(&observed, &self->stack_bytes);
+                pthread_attr_destroy(&observed);
+            }
             {std::lock_guard<std::mutex> lock(self->mutex); self->ready = true;}
             self->started.notify_one();
             emscripten_exit_with_live_runtime();
@@ -192,6 +199,8 @@ std::shared_ptr<Directory> Storage::createDirectory(mode_t mode) {return std::ma
 extern "C" int postgamma_wasm_storage_mount(const char *name, const char *test_channel) {
     if (active) return EBUSY;
     auto storage = std::make_unique<Storage>();
+    if (!storage->worker->error && storage->worker->stack_bytes != 2 * 1024 * 1024) return EIO;
+    fprintf(stderr, "POSTGAMMA_STORAGE io_stack_bytes=%zu\n", storage->worker->stack_bytes);
     int status = storage->call(0, 0, 0, name, const_cast<char *>(test_channel));
     if (status < 0) return -status;
     active = storage.get();

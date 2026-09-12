@@ -8,6 +8,9 @@ import {results} from './results.js';
 import {lifecycle, fatal} from './lifecycle.js';
 import {budget} from './budget.js';
 import {storage} from '../storage-tests/run.js';
+import {durability} from '../storage-tests/durability.js';
+import {storageErrors} from '../storage-tests/errors.js';
+import {storageBudget} from '../storage-tests/budget.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -48,6 +51,8 @@ async function abi(db: Database) {
 try {
   const metrics: unknown[] = [];
   if (scenario === 'storage') await storage(checks, metrics);
+  else if (scenario === 'durability') await durability(checks, metrics);
+  else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
   else {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
@@ -64,7 +69,8 @@ try {
     await saturated(small, checks); metrics.push(await small.close());
   }
   }
-  page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks,
+  const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) : undefined;
+  page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks, resourceBudget,
     isolated: crossOriginIsolated, worker: true, sharedMemory: true};
 } catch (error) {
   page.probeResult = {status: 'failed', scenario, checks, pageTicks,

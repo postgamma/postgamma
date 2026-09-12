@@ -65,6 +65,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run all eight SQL, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
 | `make wasm-storage-check` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen in Chromium. |
+| `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
+| `make wasm-storage-check WASM_STORAGE_SCENARIO=storage-errors` | Inject WAL and namespace failures, discard the failed module and verify PostgreSQL recovery. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -417,7 +419,18 @@ and the namespace to 16,384 live entries. The profile does not provide symlinks
 or external tablespaces. It requires OPFS and Web Locks and never falls back to
 an ephemeral database when persistent storage cannot be opened.
 
-The storage check includes cold target initdb and reopen with a separate 90-second
-case deadline and records the observed duration. Passing this check establishes
-file/ownership and orderly-reopen behavior; durable COMMIT failure and crash
-recovery acceptance are separate checks still under development.
+Storage cases include cold target initdb and reopen with a separate 90-second
+case deadline and record the observed duration. The durability case keeps fsync
+and synchronous commit enabled, pauses actual WAL flush before COMMIT acknowledgement
+and lock release, and checks unrelated session progress. Short writes, quota,
+file/directory sync and teardown failures propagate to callers. A missing namespace
+journal rejects opening a nonempty store and preserves its data files.
+
+The storage-errors case verifies that a WAL flush failure cannot acknowledge
+COMMIT and that uncertain namespace writes require a fresh module. Recovery must
+retain acknowledged commits and transaction atomicity; a transaction whose reply
+was lost may already be committed. The OPFS resource checks include the measured
+2 MiB I/O stack, existing 13-Worker pool, 512 MiB linear memory maximum, bounded
+queues, 64 data access handles plus one journal handle, and healthy shutdown drain.
+Browser VM/RSS and hardware power-loss durability are not measured. A separate
+Worker/browser crash-boundary matrix remains to be completed.

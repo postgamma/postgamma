@@ -97,6 +97,7 @@ self.onmessage = ({data}) => {
         postMessage({sequence, reply, metrics: await dispose(module)}, [reply]);
         return;
       }
+      throw new Error('Storage teardown failed; the instance has been discarded');
     }
     postMessage({sequence, reply, sample: {memory: module.wasmMemory.buffer.byteLength,
       threads: Object.keys(module.PThread.pthreads).length, queuedBytes}}, [reply]);

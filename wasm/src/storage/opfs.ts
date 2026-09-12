@@ -27,7 +27,15 @@ export class Store {
     const databases = await origin.getDirectoryHandle('postgamma', {create: true});
     this.root = await databases.getDirectoryHandle(name, {create: true});
     try {
-      this.journal = await (await this.root.getFileHandle('namespace-v1', {create: true})).createSyncAccessHandle();
+      let journal;
+      try {journal = await this.root.getFileHandle('namespace-v1');}
+      catch (cause) {
+        if ((cause as DOMException).name !== 'NotFoundError') throw cause;
+        for await (const _entry of this.root.entries())
+          throw error('NotFoundError', 'Namespace journal is missing from nonempty database storage');
+        journal = await this.root.getFileHandle('namespace-v1', {create: true});
+      }
+      this.journal = await journal.createSyncAccessHandle();
       const length = this.journal.getSize();
       if (length > journalLimit) throw error('QuotaExceededError', 'Namespace journal exceeds its limit');
       const bytes = new Uint8Array(length);
@@ -151,9 +159,21 @@ export class Store {
     }
     if (op === 12) {
       if (this.opens.size) throw error('InvalidStateError', 'Virtual files remain open');
-      for (const h of this.handles.values()) {if (!this.poisoned) h.flush(); h.close();}
-      this.handles.clear(); if (!this.poisoned) this.journal.flush(); this.journal.close();
-      this.channel?.close(); return 0;
+      let failure: unknown;
+      try {await this.point('close-flush', 1);} catch (cause) {failure = cause;}
+      for (const h of this.handles.values()) {
+        try {if (!this.poisoned) h.flush();} catch (cause) {failure ??= cause;}
+        try {h.close();} catch (cause) {failure ??= cause;}
+      }
+      this.handles.clear();
+      try {if (!this.poisoned) this.journal.flush();} catch (cause) {failure ??= cause;}
+      try {this.journal.close();} catch (cause) {failure ??= cause;}
+      this.journal = undefined;
+      this.channel?.postMessage({closed: true, metrics: this.metrics, handles: this.handles.size, virtualOpens: this.opens.size,
+        failed: failure !== undefined});
+      this.channel?.close();
+      if (failure) throw failure;
+      return 0;
     }
     if (op === 13) {await this.point('directory-flush', id); this.journal.flush(); this.metrics.directoryFlushes++; return 0;}
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
