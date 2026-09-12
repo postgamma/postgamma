@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "buildsys"))
 
 import wasm  # noqa: E402
 import wasm_toolchain as toolchain  # noqa: E402
+import wasm_browsers as browsers  # noqa: E402
 
 
 class WasmTests(unittest.TestCase):
@@ -251,6 +252,39 @@ class WasmTests(unittest.TestCase):
             browser = toolchain.browser_environment(config, env)
             self.assertEqual(env["LD_LIBRARY_PATH"], "/opt/host-libs")
             self.assertEqual(browser["LD_LIBRARY_PATH"], str(local) + ":/opt/host-libs")
+
+    def test_browser_matrix_link_check_retains_symbol_version_failures(self):
+        config = self.config(ROOT)
+        engine = {"name": "firefox", "executable": "/cached firefox/firefox"}
+        failure = subprocess.CompletedProcess([], 1, "", "libxul.so: version NSS_3.95 not found")
+        with mock.patch.object(browsers.subprocess, "run", return_value=failure) as run:
+            errors = browsers.missing_libraries(config, [engine], {})
+            self.assertEqual(errors, ["firefox: libxul.so: version NSS_3.95 not found"])
+            self.assertEqual(run.call_count, 2)
+            for call in run.call_args_list:
+                self.assertTrue(call.kwargs["env"]["LD_LIBRARY_PATH"].startswith("/cached firefox:"))
+
+    def test_webkit_launcher_preserves_cached_libs_and_runtime_driver_lookup(self):
+        with tempfile.TemporaryDirectory(prefix="wasm test '") as temporary:
+            config = self.config(Path(temporary))
+            host = config.deps / "browser-libs/root"
+            drivers = host / "usr/lib/x86_64-linux-gnu/dri"
+            drivers.mkdir(parents=True)
+            vendor = host / "usr/share/glvnd/egl_vendor.d/50_mesa.json"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_text("{}")
+            engine = {"name": "webkit", "executable": str(config.deps / "webkit/pw_run.sh")}
+            binary = config.deps / "webkit/minibrowser-wpe/bin/MiniBrowser"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("#!/bin/sh\nprintf '%s\\n' \"$LD_LIBRARY_PATH\" "
+                              "\"$__EGL_VENDOR_LIBRARY_FILENAMES\" \"$LIBGL_DRIVERS_PATH\" \"$1\"\n")
+            binary.chmod(0o755)
+            launcher = browsers.write_webkit_launcher(config, engine)
+            result = subprocess.run([str(launcher), "argument with spaces"], check=True, capture_output=True, text=True)
+            lines = result.stdout.splitlines()
+            self.assertIn(str(drivers.parent), lines[0])
+            self.assertIn(str(binary.parent.parent / "sys/lib"), lines[0])
+            self.assertEqual(lines[1:], [str(vendor), str(drivers), "argument with spaces"])
 
     def test_command_timeout_retains_diagnostics(self):
         with tempfile.TemporaryDirectory() as temporary:

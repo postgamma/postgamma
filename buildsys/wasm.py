@@ -43,6 +43,9 @@ PROBES = {
              "modules": {"opfs": ["opfs.c", "opfs-bench.c"]},
              "headers": ["opfs.h"], "pre_js": ["opfs-observe.js"],
              "harness": ["opfs.html", "opfs-page.mjs", "opfs-worker.mjs"]},
+    "deployment": {"scope": "browser-startup-and-deployment",
+                   "modules": {"deployment": ["deployment.c"]}, "headers": [],
+                   "harness": ["deployment.html", "deployment-page.mjs", "deployment-worker.mjs"]},
 }
 
 
@@ -75,22 +78,25 @@ def serve(directory: Path, page: str = "smoke.html"):
 
 
 def run_browser(config: Configuration, tools: dict, env: dict, directory: Path,
-                url: str | None = None) -> dict:
+                url: str | None = None, harness: Path | None = None) -> dict:
     output = directory / "browser.json"
     directory.mkdir(parents=True, exist_ok=True)
-    command = [tools["node"], str(config.harness), "--root", str(config.root),
+    command = [tools["node"], str(harness or config.harness), "--root", str(config.root),
                "--output", str(output), "--profile", str(directory / "profile")]
     if config.browser_override:
         command += ["--executable", str(Path(config.browser_override).resolve())]
     if url:
         command += ["--url", url]
+    launcher = config.deps / "browser-libs/launch-webkit.sh"
+    if harness and launcher.is_file():
+        command += ["--webkit-executable", str(launcher)]
     try:
         # Chromium's singleton socket cannot use long checkout/run paths.
         # Keep its disposable socket directory short and the profile in the run.
         with tempfile.TemporaryDirectory(prefix="pgm-wasm-", dir="/tmp") as temporary:
             run(command, directory / "browser.log",
                 dict(browser_environment(config, env), TMPDIR=temporary),
-                config.root, timeout=60)
+                config.root, timeout=180 if harness else 60)
     except WasmError as error:
         if output.is_file():
             detail = read_json(output).get("error", str(error))
@@ -151,6 +157,7 @@ def source_identity(config: Configuration) -> dict:
     root = config.root
     paths = [root / "Makefile", config.profile_path,
              root / "buildsys/wasm.py", root / "buildsys/wasm_toolchain.py",
+             root / "buildsys/wasm_browsers.py",
              root / "buildsys/wasm.mk", root / "wasm/package.json",
              root / "wasm/package-lock.json", root / "postgres/src/include/utils/elog.h"]
     paths += sorted((root / "tests/wasm").rglob("*"))
@@ -283,13 +290,22 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
         report["artifacts"] = read_json(stamp)["outputs"]
         report["harness"] = {filename: digest(site / filename) for filename in spec["harness"]}
         if check:
-            run([tools["node"], "--test", str(config.root / "tests/wasm/browser/evidence.test.mjs")],
+            if name == "deployment":
+                setup_receipt = config.deps / "receipts/browser-matrix.json"
+                report["browser_matrix_setup"] = ({"sha256": digest(setup_receipt),
+                    "receipt": read_json(setup_receipt)} if setup_receipt.is_file() else {"provider": "system"})
+            run([tools["node"], "--test", *(str(path) for path in
+                 sorted((config.root / "tests/wasm/browser").glob("*.test.mjs")))],
                 current_run / "harness-tests.log", env, config.root, timeout=30)
             report["harness_tests_passed"] = True
             page = name + ".html" + (f"?seed={seed}" if name == "wait" else
                                       f"?longjmp={longjmp}" if name == "recovery" else "")
             with serve(site, page) as url:
-                report["browser"] = run_browser(config, tools, env, current_run, url)
+                if name == "deployment":
+                    report["browser"] = run_browser(config, tools, env, current_run, url,
+                                                   config.root / "tests/wasm/browser/deployment.mjs")
+                else:
+                    report["browser"] = run_browser(config, tools, env, current_run, url)
             report["browser_probe_validated"] = True
         report["status"] = "passed" if check else "built"
         print(f"wasm probe: {report['status']}; build {'reused' if reuse else 'compiled'}", flush=True)
@@ -317,7 +333,7 @@ def clean(config: Configuration) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "doctor", "probe-build", "probe-check", "clean", "kernel"))
+    parser.add_argument("command", choices=("setup", "browser-setup", "doctor", "probe-build", "probe-check", "clean", "kernel"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--deps-dir", type=Path)
@@ -337,8 +353,11 @@ def main() -> int:
                        "use make wasm-probe-check for the toolchain smoke probe\n")
     try:
         config = configuration(args)
-        if args.command == "setup":
+        if args.command in ("setup", "browser-setup"):
             setup(config)
+            if args.command == "browser-setup":
+                from wasm_browsers import setup_browsers
+                setup_browsers(config)
         elif args.command == "doctor":
             doctor(config)
         elif args.command == "clean":

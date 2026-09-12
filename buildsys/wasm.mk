@@ -20,6 +20,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 
 .PHONY: wasm-setup doctor-wasm wasm-probe-build wasm-probe-check wasm-clean
 .PHONY: wasm-platform-check wasm-wait-check wasm-recovery-check wasm-opfs-check
+.PHONY: wasm-browser-setup wasm-browser-check
 .PHONY: wasm wasm-check wasm-check-full wasm-serve
 
 wasm-setup:
@@ -45,6 +46,12 @@ wasm-recovery-check:
 
 wasm-opfs-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS) --probe opfs
+
+wasm-browser-setup:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" browser-setup $(POSTGAMMA_WASM_ARGS)
+
+wasm-browser-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS) --probe deployment
 
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)

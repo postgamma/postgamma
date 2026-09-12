@@ -1148,6 +1148,8 @@ help:
 	@echo "  wasm-wait-check                check Wasm waits, deadlines, and cancellation"
 	@echo "  wasm-recovery-check            check Wasm longjmp and error recovery"
 	@echo "  wasm-opfs-check                check OPFS file semantics and proxy costs"
+	@echo "  wasm-browser-setup             install the pinned three-engine browser matrix"
+	@echo "  wasm-browser-check             check browser startup and deployment failures"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"

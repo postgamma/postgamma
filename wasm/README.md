@@ -2,7 +2,7 @@
 
 The current commands validate the Wasm toolchain, ABI, pthread/TLS behavior,
 stacks, basic libc interfaces, waits, deadlines, cancellation, error recovery,
-and OPFS file behavior in Chromium.
+and OPFS file behavior in Chromium, plus deployment in Chromium, Firefox, and WebKit.
 They do not build a PostgreSQL kernel or provide a browser SQL API.
 The package is private and contains development dependencies only.
 
@@ -15,6 +15,8 @@ make wasm-platform-check
 make wasm-wait-check
 make wasm-recovery-check
 make wasm-opfs-check
+make wasm-browser-setup
+make wasm-browser-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -41,6 +43,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-wait-check` | Run wait/notify, deadline conversion and rescheduling, cancellation, close, and stale-event probes. |
 | `make wasm-recovery-check` | Run nested error recovery, cleanup, signal-mask, stack, and thread-isolation probes. Requires the PostgreSQL source initialized by `make source-init`. |
 | `make wasm-opfs-check` | Exercise the SDK WasmFS OPFS backend, descriptor and namespace semantics, errors, inflight close, and proxy costs. |
+| `make wasm-browser-setup` | Install or reuse all three pinned browsers and their headless host libraries. |
+| `make wasm-browser-check` | Run shared-memory pthread startup and ten deployment failure scenarios in Chromium, Firefox, and WebKit. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -155,18 +159,35 @@ which are retained. These small cached-file measurements do not establish
 database throughput or justify I/O sharding. Orderly reopen after flush does
 not test crash recovery, WAL durability, or SQL transactions.
 
+The deployment matrix starts the same shared-memory C module in each browser.
+Two rounds keep three pthreads waiting while the control Worker and page remain
+responsive, then release and join them with distinct TLS values. Ten fault cases
+remove COOP, COEP, both headers, Worker, SharedArrayBuffer, or WebAssembly;
+remove the Worker, module, or Wasm asset; or corrupt the Wasm binary. Each must
+report its specific error before starting the C probe. The actual HTTP response
+headers, browser versions, capability checks, network errors, and per-case
+results are retained. Missing browsers are `not-run`; missing required baseline
+capabilities are `unsupported`; other launch/runtime errors fail the command.
+
+`make wasm-browser-setup` extends the reusable cache without installing system
+packages on Ubuntu 24.04 x86-64. Its Linux WebKit launcher retains the bundle's
+own libraries and locates cached EGL vendor data and drivers. Each scenario uses
+a fresh browser context. The baseline also records an optional raw OPFS
+write/flush/reopen check, separately from the SDK WasmFS probe. Neither a Linux
+WebKit result nor this small storage check establishes Safari or SQL support.
+
 Each build uses
 `build/wasm/wasm32-emscripten-pthreads/<mode>/<config-id>/`. Configuration changes
 select a separate directory; unchanged probe inputs and verified outputs are
 reused. Each attempt retains `runs/<run-id>/report.json` and logs.
 `reports/smoke.json`, `reports/platform.json`, `reports/wait.json`,
-`reports/recovery.json`, or `reports/opfs.json` points to the latest attempt,
+`reports/recovery.json`, `reports/opfs.json`, or `reports/deployment.json` points to the latest attempt,
 including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
 browser pass and always set `kernel_validated` to false.
 
-Browser profiles stay under each run. Chromium's disposable socket directory
+Single-browser probe profiles stay under each run. Chromium's disposable socket directory
 uses a short `/tmp/pgm-wasm-*` path to avoid Unix socket path limits and is
 removed after the browser run. Probe files and dependencies remain separate
 from native build output.
@@ -181,6 +202,7 @@ make wasm-wait-check WASM_SEED=17
 make wasm-recovery-check WASM_MODE=release
 make wasm-recovery-check WASM_LONGJMP=wasm
 make wasm-opfs-check WASM_MODE=release
+make wasm-browser-check WASM_MODE=release
 make wasm-probe-build WASM_PROBE=platform
 make wasm-setup WASM_DEPS_DIR=/opt/postgamma-wasm-tools
 make wasm-probe-check WASM_DEPS_DIR=/opt/postgamma-wasm-tools
