@@ -37,6 +37,9 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
         report["harness"] = {name: digest(site / name)
                              for name in (*[target for _, target in sources], "sql.html")}
         if action == "check":
+            if scenario in ("results", "budget"):
+                from wasm_sql_oracle import oracle
+                report["oracle"] = oracle(config.root, builder.current, site)
             run([builder.tools["node"], str(config.root / "tests/wasm/sql/protocol.mjs"),
                  str(site / "src/protocol/wire.js")], builder.current / "protocol.log",
                 builder.env, config.root)

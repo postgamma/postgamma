@@ -428,7 +428,7 @@ class Builder:
                    *("-Wl,--undefined=" + name for name in roots),
                    *self.inputs["profile"]["modes"][self.config.mode],
                    "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
-                   '-sEXPORTED_RUNTIME_METHODS=["HEAPU8","PThread"]', f"-sPTHREAD_POOL_SIZE={pool}",
+                   '-sEXPORTED_RUNTIME_METHODS=["HEAPU8","PThread","wasmMemory"]', f"-sPTHREAD_POOL_SIZE={pool}",
                    "-sPTHREAD_POOL_SIZE_STRICT=2", "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",
                    f"-sINITIAL_MEMORY={policy['initial_memory_bytes']}", f"-sMAXIMUM_MEMORY={policy['maximum_memory_bytes']}",
                    "-sALLOW_MEMORY_GROWTH=1", "-sABORTING_MALLOC=0", f"-sSTACK_SIZE={policy['control_stack_bytes']}",

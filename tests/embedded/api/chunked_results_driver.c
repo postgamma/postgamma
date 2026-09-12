@@ -398,6 +398,48 @@ main(int argument_count, char **arguments)
 			goto fail;
 	}
 
+	/* Buffer a second batch before cancellation, then require a real cancel
+	 * diagnostic without draining an unbounded successful result sequence. */
+	{
+		static const char sql[] = "SELECT generate_series(1, 10000000)";
+		bool canceled = false;
+		options.target_chunk_rows = 32;
+		status = pgm_execute_async_ex(connection, sql, strlen(sql), &options,
+			&request, &error);
+		if (status != PGM_STATUS_OK) goto fail;
+		status = pgm_request_next_result(request, TEST_TIMEOUT_MS, &result,
+			&availability, &error);
+		if (status != PGM_STATUS_OK || result == NULL) goto fail;
+		pgm_result_free(result); result = NULL;
+		if (!pause_milliseconds(100)) goto fail;
+		pgm_request_state state;
+		status = pgm_request_progress(request, &state, &error);
+		if (status != PGM_STATUS_OK) goto fail;
+		status = pgm_request_cancel(request, &error);
+		if (status != PGM_STATUS_OK) goto fail;
+		for (unsigned batch = 0; batch < 512; batch++)
+		{
+			status = pgm_request_next_result(request, TEST_TIMEOUT_MS, &result,
+				&availability, &error);
+			if (status != PGM_STATUS_OK || result == NULL) goto fail;
+			if (pgm_result_kind(result) == PGM_RESULT_ERROR)
+			{
+				canceled = error != NULL && strcmp(pgm_error_sqlstate(error), "57014") == 0;
+				pgm_result_free(result); result = NULL;
+				pgm_error_free(error); error = NULL;
+				break;
+			}
+			pgm_result_free(result); result = NULL;
+		}
+		if (!canceled)
+		{
+			fprintf(stderr, "buffered results suppressed request cancellation\n");
+			goto fail;
+		}
+		pgm_request_free(request); request = NULL;
+		if (!execute_reuse_probe(connection, "46")) goto fail;
+	}
+
 	baseline_rss = resident_bytes();
 	baseline_threads = thread_count();
 	if (baseline_rss == 0 || baseline_threads == 0)

@@ -1,6 +1,7 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 export interface KernelModule {
   HEAPU8: Uint8Array;
+  wasmMemory: WebAssembly.Memory;
   PThread: {pthreads: Record<string, unknown>; unusedWorkers: unknown[]; terminateAllThreads(): void};
   _postgamma_wasm_smoke_start(): number;
   _postgamma_wasm_smoke_poll(): number;

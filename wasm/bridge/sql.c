@@ -15,7 +15,8 @@
  * One host driver owns every pgm handle. Queries use nonblocking next-result
  * calls, so a kernel wait never occupies the control Worker or this driver. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
-       CONNECTION_STATUS, CANCEL, TELEMETRY, STOP };
+       CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
+       COPY_FINISH, COPY_CLOSE, COPY_ABORT };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
 #define WIRE_VERSION 1
 #define SLOT_COUNT 64
@@ -143,7 +144,8 @@ static bool command(void)
     if (version != WIRE_VERSION) r.failed = true;
     if (op != OPEN && op != STOP)
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
-                   op == NEXT || op == RELEASE || op == CANCEL ? REQUEST : CONNECTION);
+                   op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
+                   op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
     if (op == OPEN || op == CONNECT || op == EXECUTE) {
         slot = reserve();
         if (!slot) status = PGM_STATUS_BUSY;
@@ -221,6 +223,16 @@ static bool command(void)
         if (!status && error) status = pgm_error_status(error);
         put(&payload, availability);
         if (!status && result) status = marshal_result(&payload, result, &error);
+        if (!status && result && (pgm_result_kind(result) == PGM_RESULT_COPY_IN ||
+                                  pgm_result_kind(result) == PGM_RESULT_COPY_OUT)) {
+            pgm_copy *copy = NULL;
+            slot = reserve();
+            if (!slot) status = PGM_STATUS_BUSY;
+            else {
+                status = pgm_result_take_copy(&result, &copy, &error);
+                if (!status) publish(&payload, slot, STREAM, h, copy);
+            }
+        }
         pgm_result_free(result); break;
     }
     case RELEASE:
@@ -244,6 +256,37 @@ static bool command(void)
     case CANCEL:
         if (r.offset != r.size) { r.failed = true; break; }
         status = pgm_request_cancel(h->pointer, &error); break;
+    case COPY_READ: {
+        uint32_t capacity = get(&r);
+        unsigned char buffer[16384];
+        size_t produced = 0;
+        pgm_io_state progress = PGM_IO_AGAIN;
+        if (r.offset != r.size || capacity == 0 || capacity > sizeof(buffer)) { r.failed = true; break; }
+        status = pgm_copy_read(h->pointer, buffer, capacity, &produced, &progress, &error);
+        put(&payload, progress); value(&payload, buffer, produced, false); break;
+    }
+    case COPY_WRITE: {
+        size_t size, consumed = 0;
+        const void *data = blob(&r, &size);
+        pgm_io_state progress = PGM_IO_AGAIN;
+        if (r.failed || r.offset != r.size || size == 0 || size > 16384) { r.failed = true; break; }
+        status = pgm_copy_write(h->pointer, data, size, &consumed, &progress, &error);
+        put(&payload, progress); put(&payload, consumed); break;
+    }
+    case COPY_FINISH: {
+        pgm_io_state progress = PGM_IO_AGAIN;
+        if (r.offset != r.size) { r.failed = true; break; }
+        status = pgm_copy_finish(h->pointer, NULL, 0, &progress, &error);
+        put(&payload, progress); break;
+    }
+    case COPY_CLOSE:
+        if (r.offset != r.size) { r.failed = true; break; }
+        status = pgm_copy_close(h->pointer, 10000, &error);
+        if (!status) retire(h);
+        break;
+    case COPY_ABORT:
+        if (r.offset != r.size) { r.failed = true; break; }
+        status = pgm_copy_abort(h->pointer, NULL, 0, &error); break;
     case TELEMETRY: {
         if (r.offset != r.size) { r.failed = true; break; }
         pgm_instance_telemetry t = PGM_INSTANCE_TELEMETRY_INIT;

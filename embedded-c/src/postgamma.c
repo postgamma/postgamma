@@ -1693,7 +1693,7 @@ pgm_request_cancel(pgm_request *request, pgm_error **error)
 	request->cancel_requested = true;
 	copy_active = request->active_copy != NULL;
 	(void) postgamma_mutex_unlock(request->mutex);
-	if (copy_active)
+	/* A buffered result is not evidence that cancellation was dispatched. */
 	{
 		PostgammaPrivateLibpqStatus private_status =
 			postgamma_private_libpq_cancel(
@@ -1702,9 +1702,10 @@ pgm_request_cancel(pgm_request *request, pgm_error **error)
 		if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
 			return return_simple_error(
 				error, status_from_private(private_status),
-				"could not cancel an active COPY request");
-		return PGM_STATUS_OK;
+				"could not dispatch request cancellation");
 	}
+	if (copy_active)
+		return PGM_STATUS_OK;
 	for (;;)
 	{
 		PostgammaPrivateLibpqStatus private_status;

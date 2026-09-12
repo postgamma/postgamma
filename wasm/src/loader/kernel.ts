@@ -19,7 +19,7 @@ export async function loadKernel(output: {
       return resources;
     },
   });
-  if (!(module.HEAPU8.buffer instanceof SharedArrayBuffer))
+  if (!(module.wasmMemory.buffer instanceof SharedArrayBuffer))
     throw new Error('Kernel requires shared Wasm memory');
   return module;
 }

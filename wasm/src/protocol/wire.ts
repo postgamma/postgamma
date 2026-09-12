@@ -2,7 +2,7 @@
 export const VERSION = 1;
 export const LIMIT = 2 * 1024 * 1024;
 export const Op = {open: 1, connect: 2, execute: 3, next: 4, release: 5, disconnect: 6,
-  close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11} as const;
+  close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11, copyRead: 12, copyWrite: 13, copyFinish: 14, copyClose: 15, copyAbort: 16} as const;
 export interface Handle {kind: number; id: number; generation: number}
 export class Writer {
   private parts: Uint8Array[] = [];
@@ -47,6 +47,7 @@ export class Reader {
   }
   text(): string | null {const value = this.blob(); return value === null ? null : new TextDecoder('utf-8', {fatal: true}).decode(value);}
   handle(): Handle {return {kind: this.u32(), id: this.u32(), generation: this.u32()};}
+  get byteLength(): number {return this.buffer.byteLength;}
   end(): void {if (this.offset !== this.buffer.byteLength) throw new Error('Trailing wire data');}
 }
 export class DatabaseError extends Error {

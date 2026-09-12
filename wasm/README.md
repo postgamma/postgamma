@@ -340,7 +340,12 @@ buffers crossing the Worker boundary own their bytes and do not borrow Wasm
 memory. `WASM_SQL_SCENARIO=concurrency` checks real lock waits, independent session
 state and progress under pool saturation. `WASM_SQL_SCENARIO=errors` checks
 request cancellation, SQL timeouts and real crossed-row deadlocks. Bounded
-streaming has its own acceptance task.
+streaming and COPY are checked with `WASM_SQL_SCENARIO=results`, including a
+native PostgreSQL oracle (requires the existing `build/reference/tmp_install`
+installation). Iterator/COPY delivery grants one batch of credit at a time.
+Collected queries are limited to 4 MiB; larger results use async iteration.
+Exact text values stay strings, binary values stay owned byte buffers, and
+SQL errors expose SQLSTATE plus the native diagnostic fields.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).

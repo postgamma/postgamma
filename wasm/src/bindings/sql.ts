@@ -15,16 +15,16 @@ export const tick = () => new Promise<void>(resolve => setTimeout(resolve, 1));
 export async function exchange(module: SqlModule, message: ArrayBuffer): Promise<ArrayBuffer> {
   const pointer = module._postgamma_wasm_alloc(message.byteLength);
   if (!pointer) throw new Error('Bridge allocation failed');
-  module.HEAPU8.set(new Uint8Array(message), pointer);
+  new Uint8Array(module.wasmMemory.buffer).set(new Uint8Array(message), pointer);
   const status = module._postgamma_wasm_submit(pointer, message.byteLength);
   if (status) {module._postgamma_wasm_free(pointer); throw new Error(`Bridge submission failed: ${status}`);}
   while (module._postgamma_wasm_poll() === 1) await tick();
   if (module._postgamma_wasm_poll() !== 2) throw new Error('Bridge driver failed');
   try {
-    // Reacquire the heap after each native call. The returned buffer owns its
+    // Acquire the current memory buffer, even when another pthread grew it. The returned buffer owns its
     // bytes and survives result release, Worker transfer and Wasm memory growth.
     const start = module._postgamma_wasm_reply(), size = module._postgamma_wasm_reply_size();
-    const copy = new Uint8Array(size); copy.set(module.HEAPU8.subarray(start, start + size));
+    const copy = new Uint8Array(size); copy.set(new Uint8Array(module.wasmMemory.buffer, start, size));
     return copy.buffer;
   } finally {module._postgamma_wasm_ack();}
 }

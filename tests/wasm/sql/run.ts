@@ -4,6 +4,7 @@ import type {Connection, Result} from '../src/api/database.js';
 import {assert, scalar, errorState} from './helpers.js';
 import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
+import {results} from './results.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -46,6 +47,7 @@ try {
   if (scenario === 'abi') await abi(db);
   else if (scenario === 'concurrency') await concurrency(db, checks);
   else if (scenario === 'errors') await errors(db, checks);
+  else if (scenario === 'results') await results(db, checks);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);
   const metrics = [await db.close()];
   if (scenario === 'concurrency') {

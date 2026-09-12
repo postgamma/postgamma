@@ -1,0 +1,9 @@
+{
+  "basic": "SELECT g FROM generate_series(1, 10) AS g",
+  "binary": "SELECT g::int4 FROM generate_series(1, 5) AS g",
+  "lateError": "SELECT 10 / (g - 8) FROM generate_series(1, 10) AS g",
+  "copyCreate": "CREATE TABLE copy_fixture (id integer PRIMARY KEY, payload text)",
+  "copyIn": "COPY copy_fixture FROM STDIN WITH (FORMAT csv)",
+  "copyOut": "COPY (SELECT id, payload FROM copy_fixture ORDER BY id) TO STDOUT WITH (FORMAT csv)",
+  "copyPayloadBytes": 20000
+}

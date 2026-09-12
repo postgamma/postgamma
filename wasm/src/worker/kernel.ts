@@ -14,8 +14,8 @@ try {
     throw new Error('SDK Worker pool disposal was incomplete');
   postMessage({status: 'passed', ...result, worker: true,
     workerPoolDisposed: true,
-    sharedMemory: module.HEAPU8.buffer instanceof SharedArrayBuffer,
-    memoryBytes: module.HEAPU8.byteLength, output});
+    sharedMemory: module.wasmMemory.buffer instanceof SharedArrayBuffer,
+    memoryBytes: module.wasmMemory.buffer.byteLength, output});
 } catch (error) {
   postMessage({status: 'failed', error: error instanceof Error ? error.stack : String(error), output});
 }
