@@ -97,15 +97,20 @@ wasm-check-full:
 
 .PHONY: wasm-sql-check
 WASM_SQL_SCENARIO ?= all
+WASM_EXTENSIONS ?= none
 wasm-sql-check:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_SQL_SCENARIO)"
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_SQL_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
 
 .PHONY: wasm-storage-check
 WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)"
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
 
 .PHONY: wasm-vector-check
-WASM_VECTOR_SCENARIO ?= vector-load
+WASM_VECTOR_SCENARIO ?= vector-all
 wasm-vector-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_VECTOR_SCENARIO)"
+
+.PHONY: wasm-vector-serve
+wasm-vector-serve:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" serve $(POSTGAMMA_WASM_ARGS) --scenario vector-example

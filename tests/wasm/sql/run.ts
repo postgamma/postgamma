@@ -12,6 +12,10 @@ import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
 import {storageBudget} from '../storage-tests/budget.js';
 import {loadVector} from '../vector-tests/load.js';
+import {vectorQueries} from '../vector-tests/query.js';
+import {vectorStorage} from '../vector-tests/storage.js';
+import {vectorExample} from '../vector-tests/example.js';
+import {vectorBudget} from '../vector-tests/budget.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -54,10 +58,13 @@ try {
   if (scenario === 'storage') await storage(checks, metrics);
   else if (scenario === 'durability') await durability(checks, metrics);
   else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
+  else if (scenario === 'vector-storage') await vectorStorage(checks, metrics);
+  else if (scenario === 'vector-example') await vectorExample(checks, metrics);
   else {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
   else if (scenario === 'vector-load') await loadVector(db, checks);
+  else if (scenario === 'vector-query') await vectorQueries(db, checks);
   else if (scenario === 'concurrency') await concurrency(db, checks);
   else if (scenario === 'errors') await errors(db, checks);
   else if (scenario === 'results') await results(db, checks);
@@ -71,7 +78,9 @@ try {
     await saturated(small, checks); metrics.push(await small.close());
   }
   }
-  const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) : undefined;
+  const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) :
+    scenario.startsWith('vector') || scenario === 'abi' && new URL(location.href).searchParams.get('extension') === 'pgvector'
+      ? vectorBudget(metrics, scenario === 'vector-query') : undefined;
   page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks, resourceBudget,
     isolated: crossOriginIsolated, worker: true, sharedMemory: true};
 } catch (error) {

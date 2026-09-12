@@ -71,7 +71,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage-errors` | Inject WAL and namespace failures, discard the failed module and verify PostgreSQL recovery. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=recovery` | Run the Worker/browser termination matrix, including interrupted initialization and torn namespace-log recovery. |
-| `make wasm-vector-check` | Build the static pgvector variant and check extension loading and scalar vector functions in Chromium. |
+| `make wasm-vector-check` | Check static pgvector, exact/ANN queries, parallel builds, transactions, independent sessions, persistent recovery and the browser example in Chromium. |
+| `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -459,6 +460,33 @@ under `<target-build>/variants/<extension-id>/`; the base kernel output remains
 available. CPU dispatch and Wasm SIMD are disabled for this scalar profile.
 The static registry includes the exact SQL and parallel-worker entry signatures,
 matching control/SQL resources, and the upstream license in the resource pack.
-The initial check validates `CREATE EXTENSION vector` and vector, halfvec, bit
-and sparsevec functions. ANN, transactions and persistent vector indexes require
-the subsequent vector workload checks.
+The complete gate runs five groups: base ABI with the extension linked,
+extension loading/scalar functions, vector queries, persistent vector indexes,
+and the browser example. Use `WASM_VECTOR_SCENARIO=vector-load`, `vector-query`,
+`vector-storage`, or `vector-example` to rerun one group.
+
+The query group reuses the native 2,000-row dataset and pinned upstream L2,
+NULL, insert and truncate fixtures. It checks actual HNSW/IVFFlat plans and
+distance ordering, with a workload-specific minimum recall of 8/10 against
+exact neighbors. Both index builds must actually launch and reclaim one
+parallel worker. Transactions, DDL rollback, SQL error reuse and four concurrent
+sessions with independent extension settings are checked separately.
+The OPFS group checks orderly reopen, committed indexed rows, Worker termination
+before WAL acknowledgement, atomic recovery of a cross-index transaction and
+index queries after VACUUM. The example uses parameterized SQL and the same
+three documents as the Python vector search example.
+
+Run `make wasm-sql-check JOBS=2` first to create a passing base-kernel receipt
+for the resource comparison. The full vector gate records matching core input
+identity, static/TLS and asset-size deltas, the repeated ABI memory measurement,
+and separate workload peaks in `vector-resource-budget.json`. These checks use
+the existing 13-Worker and 512 MiB limits. They cover debug Chromium; browser
+VM/RSS, hardware power loss and the full upstream pgvector regression suite
+are outside this measured scope.
+
+`make wasm-sql-check WASM_EXTENSIONS=pgvector JOBS=2` runs the original SQL gate
+against the extension variant. The storage gate accepts the same variable.
+Use `make wasm-vector-serve JOBS=2` and open the printed URL to try
+`examples/wasm/vector-search.html`; close and reopen the database to reuse its
+documents. The development server supplies the required isolation headers.
+A versioned consumer package remains a later milestone.
