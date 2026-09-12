@@ -17,6 +17,7 @@ make wasm-recovery-check
 make wasm-opfs-check
 make wasm-browser-setup
 make wasm-browser-check
+make wasm-resource-check
 ```
 
 Setup uses the candidate Emscripten version pinned in
@@ -45,6 +46,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-opfs-check` | Exercise the SDK WasmFS OPFS backend, descriptor and namespace semantics, errors, inflight close, and proxy costs. |
 | `make wasm-browser-setup` | Install or reuse all three pinned browsers and their headless host libraries. |
 | `make wasm-browser-check` | Run shared-memory pthread startup and ten deployment failure scenarios in Chromium, Firefox, and WebKit. |
+| `make wasm-resource-check` | Refresh platform, wait, recovery, OPFS, deployment, and capacity evidence; write the provisional resource budget. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -186,6 +188,22 @@ including failures. Partial browser events are retained when a check fails.
 `inputs.json` records source revisions, modified inputs, compiler identity,
 flags, and the npm lockfile. Reports distinguish a compiled probe from a
 browser pass and always set `kernel_validated` to false.
+
+The resource command runs all six required probes again, reusing compiled
+outputs when their inputs match. It never selects an older passing report to
+replace a failing attempt. `reports/resource-budget.json` contains the complete
+budget and points to its immutable run report. The policy is in
+[`wasm-resource-budget.json`](../manifests/profiles/wasm-resource-budget.json).
+It reserves a control Worker plus 13 pthread slots (supervisor, six background,
+four carriers, I/O owner, and one spare), with 74 MiB of C stacks in total.
+The capacity probe starts all slots together, touches synthetic static/TLS
+reserves and 144 MiB of allocations, grows shared memory, verifies refreshed
+views in JS and pthreads, rejects an excessive allocation with ENOMEM, and
+releases allocations across two rounds. The candidate starts at 128 MiB and
+allows growth to 512 MiB. These are probe and provisional policy values;
+actual kernel static/TLS sizes, SQL stack depth and JS/VM overhead are unmeasured.
+The budget records an initial wasm32/ephemeral decision and conditions that
+would require reconsidering target width; it does not validate a Memory64 port.
 
 Single-browser probe profiles stay under each run. Chromium's disposable socket directory
 uses a short `/tmp/pgm-wasm-*` path to avoid Unix socket path limits and is

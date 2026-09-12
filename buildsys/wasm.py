@@ -46,6 +46,9 @@ PROBES = {
     "deployment": {"scope": "browser-startup-and-deployment",
                    "modules": {"deployment": ["deployment.c"]}, "headers": [],
                    "harness": ["deployment.html", "deployment-page.mjs", "deployment-worker.mjs"]},
+    "resource": {"scope": "provisional-thread-and-memory-capacity",
+                 "modules": {"resource": ["resource.c"]}, "headers": [],
+                 "harness": ["resource.html", "resource-page.mjs", "resource-worker.mjs"]},
 }
 
 
@@ -145,6 +148,8 @@ def build_configuration(config: Configuration, tools: dict, longjmp: str = "emsc
         "mode": config.mode,
         "longjmp": longjmp,
         "builder_sha256": digest(Path(__file__)),
+        "resource_policy": read_json(config.root / "manifests/profiles/wasm-resource-budget.json"),
+        "resource_builder_sha256": digest(config.root / "buildsys/wasm_budget.py"),
         "probe_layout": PROBES,
         "compiler": {key: tools[key] for key in (
             "emcc_version", "emcc_sha256", "clang_version", "clang_sha256",
@@ -158,6 +163,7 @@ def source_identity(config: Configuration) -> dict:
     paths = [root / "Makefile", config.profile_path,
              root / "buildsys/wasm.py", root / "buildsys/wasm_toolchain.py",
              root / "buildsys/wasm_browsers.py",
+             root / "buildsys/wasm_budget.py", root / "manifests/profiles/wasm-resource-budget.json",
              root / "buildsys/wasm.mk", root / "wasm/package.json",
              root / "wasm/package-lock.json", root / "postgres/src/include/utils/elog.h"]
     paths += sorted((root / "tests/wasm").rglob("*"))
@@ -194,6 +200,10 @@ def probe_sources(root: Path, name: str) -> dict:
         if not source.is_file():
             raise WasmError("recovery probes require PostgreSQL source; run make source-init")
         result["postgres/src/include/utils/elog.h"] = digest(source)
+    if name == "resource":
+        from wasm_budget import POLICY
+        result[POLICY] = digest(root / POLICY)
+        result["buildsys/wasm_budget.py"] = digest(root / "buildsys/wasm_budget.py")
     return result
 
 
@@ -211,7 +221,7 @@ def recovery_macros(source: str) -> str:
 
 
 def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1,
-          longjmp: str = "emscripten") -> None:
+          longjmp: str = "emscripten") -> Path:
     if not 1 <= seed <= 0xffffffff:
         raise WasmError("probe seed must be a nonzero uint32")
     if longjmp not in ("emscripten", "wasm"):
@@ -239,6 +249,13 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
         stamp = site / "build.json"
         expected = {"configuration": selected, "sources": probe_sources(config.root, name)}
         generated = {}
+        resource_flags = []
+        if name == "resource":
+            from wasm_budget import probe_configuration
+            header = site / "resource-policy.h"
+            text, resource_flags = probe_configuration(config.root)
+            header.write_text(text)
+            generated[header.name] = digest(header)
         if name == "recovery":
             header = site / "recovery-pg-try.h"
             header.write_text(recovery_macros((config.root / "postgres/src/include/utils/elog.h").read_text()))
@@ -270,6 +287,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
                     required.add(obj.name)
                 run([*compiler, *mode_flags["link_flags"], *config.profile["link_flags"],
                      *settings.get("link_flags", []),
+                     *resource_flags,
                      *settings.get("module_link_flags", {}).get(module, []),
                      *recovery_flags, *pre_js,
                      *objects, "-o", str(site / (module + ".mjs"))],
@@ -319,6 +337,7 @@ def probe(config: Configuration, check: bool, name: str = "smoke", seed: int = 1
         write_json(directory / "reports" / (name + ".json"),
                    {"run_report": str(current_run / "report.json"), "status": report["status"]})
         print(f"wasm probe report: {current_run / 'report.json'}", flush=True)
+    return current_run / "report.json"
 
 
 def clean(config: Configuration) -> None:
@@ -333,7 +352,7 @@ def clean(config: Configuration) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "browser-setup", "doctor", "probe-build", "probe-check", "clean", "kernel"))
+    parser.add_argument("command", choices=("setup", "browser-setup", "doctor", "probe-build", "probe-check", "resource-check", "clean", "kernel"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--deps-dir", type=Path)
@@ -362,6 +381,9 @@ def main() -> int:
             doctor(config)
         elif args.command == "clean":
             clean(config)
+        elif args.command == "resource-check":
+            from wasm_budget import check
+            check(config, args.longjmp)
         else:
             probe(config, args.command == "probe-check", args.probe, args.seed, args.longjmp)
     except (WasmError, OSError, ValueError, subprocess.TimeoutExpired) as error:

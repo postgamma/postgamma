@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-resource-policy",
+  "status": "provisional",
+  "target": "wasm32-emscripten-pthreads",
+  "initial_memory_bytes": 134217728,
+  "maximum_memory_bytes": 536870912,
+  "control_stack_bytes": 4194304,
+  "initial_max_live_sessions": 4,
+  "thread_roles": [
+    {"role": "supervisor", "count": 1, "stack_bytes": 4194304, "lifetime": "instance"},
+    {"role": "background", "count": 6, "stack_bytes": 4194304, "lifetime": "bounded overlapping startup and background roles"},
+    {"role": "carrier", "count": 4, "stack_bytes": 8388608, "lifetime": "pool including idle carriers"},
+    {"role": "io_owner", "count": 1, "stack_bytes": 2097152, "lifetime": "storage provider"},
+    {"role": "reserve", "count": 1, "stack_bytes": 8388608, "lifetime": "capacity reserved for a transient role"}
+  ],
+  "static_reserve_bytes": 16777216,
+  "tls_reserve_per_worker_bytes": 1048576,
+  "linear_allocations": [
+    {"name": "shared_buffers", "bytes": 25165824, "basis": "native query fixture setting; target estimate"},
+    {"name": "kernel_and_session_heap", "bytes": 67108864, "basis": "estimate; excludes stacks, TLS, storage and queues"},
+    {"name": "memory_filesystem", "bytes": 33554432, "basis": "bounded initial ephemeral database estimate"},
+    {"name": "request_and_result_queues", "bytes": 8388608, "basis": "aggregate estimate for all carriers"},
+    {"name": "allocator_and_runtime_reserve", "bytes": 16777216, "basis": "estimate including fragmentation and shared metadata"}
+  ],
+  "outside_linear_memory": {
+    "estimated_bytes": 67108864,
+    "includes": ["JS heaps", "Worker VM stacks", "compiled code", "messages and browser storage bookkeeping"],
+    "measured_bytes": null
+  },
+  "kernel_static_measured_bytes": null,
+  "kernel_tls_measured_bytes": null,
+  "kernel_stack_depth_validated": false,
+  "first_storage_profile": "ephemeral-wasmfs",
+  "memory64_cost_hypothesis": null,
+  "revalidate_at": ["W11 target state layout", "W14 initdb and SQL", "W25 concurrent SQL resource measurement", "W30/W31 durable storage"]
+}
