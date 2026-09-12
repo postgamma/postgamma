@@ -391,7 +391,10 @@ additionally configures PostgreSQL and captures actual target object compilation
 and transformed PostgreSQL sources with the shared ownership rules.
 `make wasm-kernel-link` then compiles the transformed kernel and private support
 libraries, packages matching initialization resources, and audits the linked
-module's imports and static/TLS sizes. A browser SQL API is not available yet.
+module's imports and static/TLS sizes. `make wasm-check` builds the private
+C/TypeScript bridge and checks browser initdb, parameterized SQL, shutdown,
+and repeated reopen on an in-memory filesystem. A public browser SQL API
+and persistent browser storage are not available yet.
 `wasm-resource-check` refreshes the platform probes
 and measures the provisional thread and memory envelope.
 `make wasm-clean` retains the installed tools. See the

@@ -82,6 +82,15 @@ wasm-kernel-link:
 wasm-clean:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" clean $(POSTGAMMA_WASM_ARGS)
 
-# The source directory named wasm must not make an unimplemented build succeed.
-wasm wasm-check wasm-check-full wasm-serve:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" kernel $(POSTGAMMA_WASM_ARGS)
+wasm:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_startup.py" build $(POSTGAMMA_WASM_ARGS)
+
+wasm-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_startup.py" check $(POSTGAMMA_WASM_ARGS)
+
+wasm-serve:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_startup.py" serve $(POSTGAMMA_WASM_ARGS)
+
+# The full SQL/concurrency/persistence suite is a later milestone.
+wasm-check-full:
+	$(error The full Wasm SQL/concurrency/persistence suite is not implemented yet; use make wasm-check for the startup check)

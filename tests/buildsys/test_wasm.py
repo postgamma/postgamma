@@ -294,13 +294,19 @@ class WasmTests(unittest.TestCase):
                               log, timeout=0.2)
             self.assertIn("started", log.read_text())
 
-    def test_unimplemented_kernel_commands_fail_even_with_a_wasm_source_directory(self):
-        for target in ("wasm", "wasm-check", "wasm-check-full", "wasm-serve"):
+    def test_kernel_commands_dispatch_to_the_startup_driver(self):
+        for target, action in (("wasm", "build"), ("wasm-check", "check"), ("wasm-serve", "serve")):
+            result = subprocess.run(["make", "-n", "--no-print-directory", target], cwd=ROOT,
+                                    text=True, capture_output=True, timeout=10, check=True)
+            self.assertIn(f'/wasm_startup.py" {action} ', result.stdout)
+
+    def test_unimplemented_full_suite_fails_even_with_a_wasm_source_directory(self):
+        for target in ("wasm-check-full",):
             result = subprocess.run(["make", "--no-print-directory", target], cwd=ROOT,
                                     text=True, capture_output=True, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not implemented yet", result.stderr)
-            self.assertIn("make wasm-probe-check", result.stderr)
+            self.assertIn("make wasm-check", result.stderr)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>postgamma kernel startup check</title>
+<script type="module">
+window.probeResult = null;
+window.probeEvents = [];
+let ticks = 0;
+const timer = setInterval(() => ticks++, 1);
+const worker = new Worker('./src/worker/kernel.js', {type: 'module'});
+worker.onmessage = ({data}) => {
+  clearInterval(timer);
+  window.probeResult = {...data, isolated: crossOriginIsolated, pageTicks: ticks};
+  worker.terminate();
+};
+worker.onerror = event => {
+  clearInterval(timer);
+  window.probeResult = {status: 'failed', error: event.message, isolated: crossOriginIsolated};
+  worker.terminate();
+};
+</script>

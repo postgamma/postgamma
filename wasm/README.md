@@ -5,7 +5,9 @@ stacks, basic libc interfaces, waits, deadlines, cancellation, error recovery,
 and OPFS file behavior in Chromium, plus deployment in Chromium, Firefox, and WebKit.
 The target build commands also configure PostgreSQL and capture its Wasm
 compilation database, generate target state layouts, and link the kernel with
-matching initialization resources. A browser SQL API is not available yet.
+matching initialization resources. The private C/TypeScript startup bridge runs
+initdb and SQL in Chromium. A public browser SQL API and persistent browser
+storage are not available yet.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -56,6 +58,9 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-kernel-generate` | Generate target state layouts, replacement plans, and PostgreSQL sources with the shared AST tools and ownership rules. |
 | `make wasm-runtime-check` | Exercise shared threads, backend execution, notification I/O, timer resampling, main/DSM memory lifetime, and semaphores in Chromium, including TLS destruction and Worker reuse. |
 | `make wasm-kernel-link` | Compile the generated kernel, private initdb/libpq and static modules; package target resources and audit final imports and static/TLS sizes. Requires `make wasm-kernel-generate`. |
+| `make wasm` | Build the private C/TypeScript startup fixture and Worker assets. Requires `make wasm-kernel-generate`. |
+| `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
+| `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -90,8 +95,9 @@ Reports retain integration boundaries: unsigned i64 exports require
 `BigInt.asUintN(64, value)` at the JS boundary; the pinned SDK rejects
 `sem_init(pshared=1)` with a direct `ENOTSUP` return; accepted named locales still
 use bytewise `strcoll`. The probes validate these behaviors explicitly. Full
-PostgreSQL locale support, kernel wait/cancel behavior, ERROR recovery, initdb, SQL, and
-persistence require later checks.
+These platform probes alone do not establish PostgreSQL locale support, kernel
+wait/cancel behavior, ERROR recovery, initdb, SQL, or persistence. The separate
+kernel startup check below now covers initdb and a limited SQL lifecycle.
 
 The wait probe uses shared request state and Emscripten futex wait/wake in
 three precreated pthreads. A 30-second wait is held for about a second while
@@ -284,6 +290,36 @@ map are saved in `runs/link-*/`; `reports/link.json` points to the latest result
 Unknown final imports and stale generated inputs fail the command. Retained
 address compatibility branches are identified separately from the supported
 memory transport. Linking does not establish browser startup or persistence.
+
+After target generation, run:
+
+```sh
+make wasm-check JOBS=2
+```
+
+The C bridge creates a database in the module's memory filesystem, opens a
+pooled threaded instance, executes `SELECT $1::int4` with a bound parameter,
+and closes it. Two further rounds reopen the same database. Each round checks
+the checkpointer, background writer and WAL writer, a static Snowball call,
+division-by-zero recovery, and rejection of an unavailable libc locale.
+Directory claims, main/DSM segments and notification pipes must be released.
+The report checks each instance's role and stack accounting, confirms all
+SDK pthreads have returned to the pool, and then disposes the idle Worker pool.
+Both the page and control Worker must remain responsive during the run.
+
+`make wasm` builds the same fixture without claiming SQL validation;
+`make wasm-serve` prints a local URL for manual inspection. The pinned Node
+runtime strips the private TypeScript sources; browser execution validates the
+result, without adding a separate TypeScript compiler dependency. Startup
+reports are saved beside link reports, with `reports/startup.json` pointing to
+the latest result. Repeating a check reuses matching target objects and runs a
+fresh module. If runtime/manifests/headers changed, refresh generation first.
+
+This is an initial debug-mode Chromium check, not the public JavaScript SDK.
+It does not establish concurrent SQL coverage, durable OPFS storage, release
+kernel validation, or a full browser matrix. `wasm-check-full` remains unavailable
+until those later checks are implemented. The resource budget remains provisional;
+linear memory's high-water size need not shrink when an instance closes.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
 Emscripten version; setup does not install or activate that SDK. `WASM_NODE` can select a
