@@ -11,6 +11,7 @@ import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
 import {storageBudget} from '../storage-tests/budget.js';
+import {loadVector} from '../vector-tests/load.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -56,6 +57,7 @@ try {
   else {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
+  else if (scenario === 'vector-load') await loadVector(db, checks);
   else if (scenario === 'concurrency') await concurrency(db, checks);
   else if (scenario === 'errors') await errors(db, checks);
   else if (scenario === 'results') await results(db, checks);

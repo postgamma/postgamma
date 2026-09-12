@@ -17,13 +17,20 @@ from wasm_toolchain import (WasmError, configuration, digest, fingerprint, read_
 
 
 class Builder:
-    def __init__(self, config, longjmp):
+    def __init__(self, config, longjmp, extensions=()):
         self.config, self.root = config, config.root
+        self.extensions = tuple(extensions)
+        if self.extensions not in ((), ("pgvector",)):
+            raise WasmError("unsupported Wasm extension selection")
         self.longjmp = longjmp
         self.directory, self.inputs, self.tools, self.env = prepare(config, longjmp)
         self.raw = self.directory / "configure"
         self.source = self.directory / "generated/postgres"
         self.output = self.directory / "link"
+        if self.extensions:
+            variant = {"extensions": list(self.extensions), "upstream": read_json(
+                self.root / "manifests/extensions/pgvector-upstream.json")}
+            self.output = self.directory / "variants" / fingerprint(variant) / "link"
         self.artifacts = self.output / "generated"
         self.current = self.directory / "runs" / ("link-" + run_id())
         self.current.mkdir(parents=True, exist_ok=True)
@@ -46,6 +53,7 @@ class Builder:
         self.objects = []
         self.report = {"kind": "postgamma.wasm-kernel-link", "status": "failed",
                        "inputs": self.inputs, "kernel_linked": False, "sql_validated": False}
+        self.report["extensions"] = list(self.extensions)
         receipt = read_json(self.directory / "reports/generate.json")
         generated = read_json(Path(receipt["run_report"]))
         if receipt["status"] != "passed" or generated["status"] != "passed":
@@ -79,6 +87,9 @@ class Builder:
         result["buildsys"] = {str(p.relative_to(self.root)): digest(p)
                               for p in sorted((self.root / "buildsys").iterdir())
                               if p.suffix in (".py", ".mjs", ".mk")}
+        if self.extensions:
+            for name in ("extensions/pgvector", "third_party/pgvector"):
+                result[name] = tree_hashes(self.root / name)
         return result
 
     def generated_artifacts(self):
@@ -215,8 +226,12 @@ class Builder:
         if not set(mapping).issubset(definitions):
             raise WasmError("namespace definition is missing for " + name)
         header = self.output / (name + "-namespace.h")
+        # Command-line renames (notably upstream _PG_init) must not expand the
+        # pragma's symbol token and accidentally alias two distinct definitions.
         header.write_text("/* Target linkage names; generated from actual definitions. */\n" +
-                          "".join(f"#pragma redefine_extname {old} {new}\n" for old, new in sorted(mapping.items())))
+                          "".join(f'#pragma push_macro("{old}")\n#undef {old}\n'
+                                  f'#pragma redefine_extname {old} {new}\n#pragma pop_macro("{old}")\n'
+                                  for old, new in sorted(mapping.items())))
         with ThreadPoolExecutor(max_workers=self.config.jobs) as executor:
             objects = list(executor.map(lambda job: self.compile(job[0], job[1],
                                        [*job[2], "-include", str(header)]), jobs))
@@ -299,7 +314,7 @@ class Builder:
     def modules(self):
         from bundle_embedded_static_modules import validate_manifest, render_facts
         manifest = read_json(self.root / "manifests/extensions/embedded-static.json")
-        manifest["modules"] = [m for m in manifest["modules"] if m["id"] in ("dict_snowball", "plpgsql")]
+        manifest["modules"] = [m for m in manifest["modules"] if m["id"] in ("dict_snowball", "plpgsql", *self.extensions)]
         manifest = validate_manifest(manifest)
         facts = render_facts(manifest)
         for module in manifest["modules"]:
@@ -308,14 +323,21 @@ class Builder:
                 if name == "_PG_init": continue
                 signature = "const Pg_magic_struct *" if name == "Pg_magic_func" else "const Pg_finfo_record *" if name.startswith("pg_finfo_") else "Datum "
                 arguments = "void" if name == "Pg_magic_func" or name.startswith("pg_finfo_") else "FunctionCallInfo"
+                if name in ("HnswParallelBuildMain", "IvfflatParallelBuildMain"):
+                    signature, arguments = "void ", "dsm_segment *, shm_toc *"
                 declaration = f"extern void {link}(void);"
                 if facts.count(declaration) != 1:
                     raise WasmError("static module declaration changed: " + link)
                 facts = facts.replace(declaration, f"extern {signature}{link}({arguments});")
-        (self.output / "postgamma_embedded_static_modules.inc").write_text('#include "postgres.h"\n#include "fmgr.h"\n' + facts)
+        (self.output / "postgamma_embedded_static_modules.inc").write_text(
+            '#include "postgres.h"\n#include "fmgr.h"\n#include "storage/dsm.h"\n#include "storage/shm_toc.h"\n' + facts)
         self.report["static_modules"] = manifest
         for module in manifest["modules"]:
             name = module["id"]
+            if name == "pgvector":
+                from wasm_pgvector import build
+                build(self, module)
+                continue
             if name == "plpgsql":
                 sources = [Path(row["file"]) for row in self.rows if "/src/pl/plpgsql/src/" in row["file"]]
                 sources = [self.target_source(src) for src in sources]
@@ -387,6 +409,10 @@ class Builder:
                 target = resources / resource["logical_path"]
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+        if "pgvector" in self.extensions:
+            target = share / "licenses/pgvector-LICENSE"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.root / "third_party/pgvector/LICENSE", target)
         receipt = read_json(self.directory / "reports/capture.json")
         captured = read_json(Path(receipt["run_report"]))
         zic = Path(captured["configure"]["host_zic"])

@@ -13,7 +13,7 @@ from wasm_toolchain import WasmError, configuration, digest, read_json, run, wri
 
 
 def startup(config, longjmp: str, action: str, scenario: str) -> Path:
-    builder = Builder(config, longjmp)
+    builder = Builder(config, longjmp, ("pgvector",) if scenario.startswith("vector") else ())
     report = {"kind": "postgamma.wasm-sql", "status": "failed",
               "sql_validated": False, "action": action, "scenario": scenario}
     try:
@@ -34,6 +34,8 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
                     for p in sorted((config.root / "tests/wasm/sql").glob("*.ts"))]
         sources += [(str(p.relative_to(config.root)), "storage-tests/" + p.with_suffix(".js").name)
                     for p in sorted((config.root / "tests/wasm/storage").glob("*.ts"))]
+        sources += [(str(p.relative_to(config.root)), "vector-tests/" + p.with_suffix(".js").name)
+                    for p in sorted((config.root / "tests/wasm/vector").glob("*.ts"))]
         report["harness_sources"] = {source: digest(config.root / source) for source, _ in sources}
         for source, target in sources:
             run([builder.tools["node"], str(config.root / "buildsys/wasm_typescript.mjs"),

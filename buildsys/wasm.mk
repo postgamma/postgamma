@@ -104,3 +104,8 @@ wasm-sql-check:
 WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)"
+
+.PHONY: wasm-vector-check
+WASM_VECTOR_SCENARIO ?= vector-load
+wasm-vector-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_VECTOR_SCENARIO)"

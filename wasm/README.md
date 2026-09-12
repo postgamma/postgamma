@@ -71,6 +71,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage-errors` | Inject WAL and namespace failures, discard the failed module and verify PostgreSQL recovery. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=recovery` | Run the Worker/browser termination matrix, including interrupted initialization and torn namespace-log recovery. |
+| `make wasm-vector-check` | Build the static pgvector variant and check extension loading and scalar vector functions in Chromium. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -450,3 +451,14 @@ each receipt retains gates, interruption method, browser process identity,
 recovered SQL, logs and resource measurements. Progress is saved periodically
 so failed runs retain the last reached boundary and startup phase.
 The process-group termination harness currently requires Linux `/proc`.
+
+`make wasm-vector-check JOBS=2` compiles the pinned pgvector 0.8.6 source with
+the shared extension state policy and the actual wasm32 ABI. The extension
+variant has separate generated sources, objects, resources and linked assets
+under `<target-build>/variants/<extension-id>/`; the base kernel output remains
+available. CPU dispatch and Wasm SIMD are disabled for this scalar profile.
+The static registry includes the exact SQL and parallel-worker entry signatures,
+matching control/SQL resources, and the upstream license in the resource pack.
+The initial check validates `CREATE EXTENSION vector` and vector, halfvec, bit
+and sparsevec functions. ANN, transactions and persistent vector indexes require
+the subsequent vector workload checks.

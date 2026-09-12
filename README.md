@@ -413,8 +413,10 @@ errors, orderly reopen and Worker/browser crash recovery. Use
 to select one group. All four groups, including the 18-case Worker/browser
 recovery matrix, have passed in debug Chromium. A versioned consumer package
 remains a later milestone.
-`wasm-resource-check` refreshes the platform probes
-and measures platform capacity; the SQL gate records actual kernel resource usage.
+`make wasm-vector-check JOBS=2` checks static pgvector loading and scalar
+vector functions in an isolated extension variant. `wasm-resource-check`
+refreshes the platform probes and measures platform capacity; the SQL gate
+records actual kernel resource usage.
 `make wasm-clean` retains the installed tools. See the
 [Wasm development commands](wasm/README.md) for configuration, reports, and reuse.
 
