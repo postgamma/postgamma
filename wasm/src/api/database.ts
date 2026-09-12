@@ -5,6 +5,7 @@ import {result} from '../codecs/results.js';
 import type {Result} from '../codecs/results.js';
 export {DatabaseError} from '../protocol/wire.js';
 export type {Result, Column} from '../codecs/results.js';
+import {limits} from '../protocol/limits.js';
 export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
@@ -16,6 +17,8 @@ class Transport {
   private pendingBytes = 0;
   sample: {memory: number; threads: number; queuedBytes: number} | undefined;
   metrics: unknown;
+  peakHostQueuedBytes = 0;
+  hostQueuedBytes = 0;
   private worker: Worker;
   constructor(worker: Worker) {
     this.worker = worker;
@@ -40,11 +43,11 @@ class Transport {
   }
   async call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader> {
     if (this.failure) throw this.failure;
-    if (this.pending.size >= 64 || this.sequence === 0xffffffff) throw new Error('Request capacity exhausted');
+    if (this.pending.size >= limits.maxPendingCommands || this.sequence === 0xffffffff) throw new Error('Request capacity exhausted');
     const sequence = ++this.sequence, w = new Writer().u32(VERSION).u32(sequence).u32(op);
     if (handle) w.handle(handle); write?.(w);
     const bytes = w.finish();
-    if (this.pendingBytes + bytes.byteLength > 8 * 1024 * 1024) throw new Error('Worker byte queue is full');
+    if (this.pendingBytes + bytes.byteLength > limits.workerQueueBytes) throw new Error('Worker byte queue is full');
     const reply = await new Promise<ArrayBuffer>((resolve, reject) => {
       this.pendingBytes += bytes.byteLength; this.pending.set(sequence, {resolve, reject, bytes: bytes.byteLength}); this.worker.postMessage(bytes, [bytes]);
     });
@@ -99,7 +102,9 @@ export class Database {
       const resources = {locks: r.u32(), shmem: r.u32(), dsm: r.u32(), pipes: r.u32()}; r.end();
       if (Object.values(resources).some(count => count !== 0)) throw new Error('Native resources remain after close');
       (await this.transport.call(Op.stop)).end(); this.transport.terminate();
-      return {...this.transport.metrics as object, resources};
+      this.transport.metrics = {...this.transport.metrics as object, resources,
+        peakHostQueuedBytes: this.transport.peakHostQueuedBytes};
+      return this.transport.metrics;
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }
@@ -133,9 +138,17 @@ export class Connection {
   }
   private queryTail: Promise<unknown> = Promise.resolve();
   private queuedQueries = 0;
+  private queuedBytes = 0;
   query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {
     if (this.closing) return Promise.reject(new ClosedError());
-    if (this.queuedQueries >= 64) return Promise.reject(new Error('Connection query queue is full'));
+    if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
+    let bytes = sql.length * 3 + 64;
+    for (const p of options.parameters ?? [])
+      bytes += 16 + (typeof p.value === 'string' ? p.value.length * 3 : p.value?.byteLength ?? 0);
+    if (bytes > limits.commandBytes || this.queuedBytes + bytes > limits.connectionQueueBytes)
+      return Promise.reject(new Error('Connection query byte queue is full'));
+    this.queuedBytes += bytes; this.transport.hostQueuedBytes += bytes;
+    this.transport.peakHostQueuedBytes = Math.max(this.transport.peakHostQueuedBytes, this.transport.hostQueuedBytes);
     this.queuedQueries++;
     const work = this.queryTail.then(async () => {
       const request = await this.execute(sql, options), results: Result[] = [];
@@ -144,12 +157,12 @@ export class Connection {
         const batch = await request.next(); if (batch === null) return results;
         if (batch.copy) throw new Error('Use execute() for COPY streams');
         bytes += batch.byteLength;
-        if (bytes > 4 * 1024 * 1024) throw new Error('Collected results exceed 4 MiB; consume an iterator');
+        if (bytes > limits.collectedResultBytes) throw new Error('Collected results exceed 4 MiB; consume an iterator');
         results.push(batch);
       }}
       finally {await request.close();}
     });
-    this.queryTail = work.then(() => {}, () => {}).finally(() => this.queuedQueries--);
+    this.queryTail = work.then(() => {}, () => {}).finally(() => {this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;});
     return work;
   }
   async status() {
@@ -229,7 +242,7 @@ export class CopyStream {
     if (this.closed || this.busy || this.direction !== direction) throw new Error('COPY operation conflicts with stream state');
     this.busy = true;
   }
-  async read(capacity = 16384): Promise<Uint8Array | null> {
+  async read(capacity = limits.copyChunkBytes): Promise<Uint8Array | null> {
     this.enter('out');
     try {
       if (this.ended) return null;
@@ -250,7 +263,7 @@ export class CopyStream {
       let offset = 0;
       while (offset < bytes.length) {
         if (this.closed) throw new ClosedError();
-        const piece = bytes.subarray(offset, offset + 16384);
+        const piece = bytes.subarray(offset, offset + limits.copyChunkBytes);
         const r = await this.transport.call(Op.copyWrite, this.handle, w => w.blob(piece));
         const state = r.u32(), consumed = r.u32(); r.end();
         if (consumed > piece.length) throw new Error('Invalid COPY consumption count');

@@ -66,6 +66,7 @@ export async function saturated(db: Database, checks: string[]) {
   await b.query('BEGIN');
   const occupied = await db.telemetry();
   assert(occupied.workers === 2 && occupied.pinned === 2n, 'Both small-pool carriers are pinned');
+  const opening = db.connect('pool-new').then(connection => connection, error => error);
   // Admission at saturation may queue or return a capacity diagnostic. In
   // either case, the holder must retain a path to COMMIT and release the pool.
   let outcome: unknown;
@@ -76,9 +77,13 @@ export async function saturated(db: Database, checks: string[]) {
     admission = await db.telemetry();
   assert(admission.pinned === 2n && (admission.requests > 0n || outcome !== undefined), 'Third request admitted at saturation');
   await a.query('COMMIT'); await b.query('ROLLBACK'); await waiting;
+  const rejectedOpen = await opening;
+  assert(rejectedOpen instanceof DatabaseError && rejectedOpen.status === 2 &&
+    rejectedOpen.message.includes('carrier'), 'New connection cannot block the holder at saturation');
   assert(outcome === '3' || outcome instanceof DatabaseError &&
     (outcome.status === 2 || outcome.sqlstate === '53300'), 'Only success or capacity rejection is allowed');
   assert(scalar(await c.query('SELECT 4')) === '4', 'Pool progresses after holder commit');
   checks.push('small-pool-pinning', 'saturated-holder-progress');
+  checks.push('connect-admission-at-saturation');
   await a.close(); await b.close(); await c.close();
 }

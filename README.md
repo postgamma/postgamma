@@ -367,7 +367,7 @@ The documentation build treats warnings and broken references as errors. The
 static site is written to `build/docs/site/`; see
 [Documentation website](#documentation-website) to preview it locally.
 
-### Run the WebAssembly probes
+### Run the WebAssembly checks
 
 ```sh
 make wasm-setup
@@ -393,12 +393,25 @@ and transformed PostgreSQL sources with the shared ownership rules.
 libraries, packages matching initialization resources, and audits the linked
 module's imports and static/TLS sizes. `make wasm-check` builds the private
 C/TypeScript bridge and checks browser initdb, parameterized SQL, shutdown,
-and repeated reopen on an in-memory filesystem. A public browser SQL API
-and persistent browser storage are not available yet.
+and repeated reopen on an in-memory filesystem. The source TypeScript API
+supports independent SQL sessions, bounded results and COPY. Run its complete
+SQL/concurrency/lifecycle/resource gate with:
+
+```sh
+make wasm-kernel-generate JOBS=2
+make wasm-sql-check JOBS=2
+```
+
+Use `WASM_SQL_SCENARIO=abi`, `concurrency`, `errors`, `results`, `lifecycle`,
+`fatal-trap`, `fatal-abort`, or `budget` for a focused check. The full gate uses
+the native reference test installation for its SQL/COPY oracle. The reviewed
+SQL profile is debug Chromium with an ephemeral filesystem, four connections
+and up to 512 MiB of shared linear memory. A versioned consumer package and
+persistent browser storage are later milestones.
 `wasm-resource-check` refreshes the platform probes
-and measures the provisional thread and memory envelope.
+and measures platform capacity; the SQL gate records actual kernel resource usage.
 `make wasm-clean` retains the installed tools. See the
-[Wasm probe commands](wasm/README.md) for configuration, reports, and reuse.
+[Wasm development commands](wasm/README.md) for configuration, reports, and reuse.
 
 ### Build a complete local release candidate
 

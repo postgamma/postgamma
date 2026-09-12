@@ -6,8 +6,9 @@ and OPFS file behavior in Chromium, plus deployment in Chromium, Firefox, and We
 The target build commands also configure PostgreSQL and capture its Wasm
 compilation database, generate target state layouts, and link the kernel with
 matching initialization resources. The private C/TypeScript startup bridge runs
-initdb and SQL in Chromium. A public browser SQL API and persistent browser
-storage are not available yet.
+initdb and SQL in Chromium. The source TypeScript API supports independent
+sessions, request cancellation, bounded results and COPY. A versioned consumer
+package and persistent browser storage are later milestones.
 The package is private and contains development dependencies only.
 
 From the repository root:
@@ -61,6 +62,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm` | Build the private C/TypeScript startup fixture and Worker assets. Requires `make wasm-kernel-generate`. |
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
+| `make wasm-sql-check` | Run all eight SQL, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -94,7 +96,7 @@ probe enables the SDK's in-memory filesystem, not persistent storage.
 Reports retain integration boundaries: unsigned i64 exports require
 `BigInt.asUintN(64, value)` at the JS boundary; the pinned SDK rejects
 `sem_init(pshared=1)` with a direct `ENOTSUP` return; accepted named locales still
-use bytewise `strcoll`. The probes validate these behaviors explicitly. Full
+use bytewise `strcoll`. The probes validate these behaviors explicitly.
 These platform probes alone do not establish PostgreSQL locale support, kernel
 wait/cancel behavior, ERROR recovery, initdb, SQL, or persistence. The separate
 kernel startup check below now covers initdb and a limited SQL lifecycle.
@@ -215,8 +217,10 @@ The capacity probe starts all slots together, touches synthetic static/TLS
 reserves and 144 MiB of allocations, grows shared memory, verifies refreshed
 views in JS and pthreads, rejects an excessive allocation with ENOMEM, and
 releases allocations across two rounds. The candidate starts at 128 MiB and
-allows growth to 512 MiB. These are probe and provisional policy values;
-actual kernel static/TLS sizes, SQL stack depth and JS/VM overhead are unmeasured.
+allows growth to 512 MiB. The SQL gate now validates these bounds for debug
+Chromium and ephemeral WasmFS, including kernel layout, stack depth and managed
+JS queue measurements.
+Total browser VM/RSS overhead remains unmeasured.
 The budget records an initial wasm32/ephemeral decision and conditions that
 would require reconsidering target width; it does not validate a Memory64 port.
 
@@ -318,8 +322,8 @@ fresh module. If runtime/manifests/headers changed, refresh generation first.
 This is an initial debug-mode Chromium check, not the public JavaScript SDK.
 It does not establish concurrent SQL coverage, durable OPFS storage, release
 kernel validation, or a full browser matrix. `wasm-check-full` remains unavailable
-until those later checks are implemented. The resource budget remains provisional;
-linear memory's high-water size need not shrink when an instance closes.
+until those later checks are implemented. The SQL gate below validates its
+resource budget separately; linear memory's high-water size need not shrink when an instance closes.
 
 `WASM_EMSDK_DIR` selects an already activated SDK matching the profile's
 Emscripten version; setup does not install or activate that SDK. `WASM_NODE` can select a
@@ -332,9 +336,10 @@ are rejected, including symlinked paths. Both `make wasm-clean` and the root
 `make clean` retain `.deps/wasm/` and `wasm/node_modules/`. Cleaning build output
 therefore does not require downloading the toolchain again.
 
-`make wasm-sql-check` builds the asynchronous SQL bridge and runs its browser
-ABI checks (parameters, exact text values, NULL, binary data, diagnostics and
-stale handles). Results are recorded in `reports/sql.json`. The source API is
+`make wasm-sql-check JOBS=2` builds the asynchronous SQL bridge once and runs
+all eight stage-2 browser scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
+parameters, exact text values, NULL, binary data, diagnostics and stale handles.
+Results are recorded in `reports/sql.json`. The source API is
 under `src/api/`; a versioned consumer package is a later milestone. Result
 buffers crossing the Worker boundary own their bytes and do not borrow Wasm
 memory. `WASM_SQL_SCENARIO=concurrency` checks real lock waits, independent session
@@ -357,3 +362,35 @@ resource and pthread reclamation. Fatal teardown requests Worker termination
 and discards the failed module; the browser does not provide synchronous VM
 termination acknowledgement. These checks cover ephemeral databases in the
 debug Chromium profile.
+
+The accepted SQL limits are generated for both C and JavaScript from
+`manifests/profiles/wasm-resource-budget.json`: four live connections, 256 KiB
+native result buffers, 128 KiB values, 16 KiB COPY fragments, 2 MiB pending
+query bytes per connection, and 8 MiB queued Worker messages. `budget` checks
+all four carriers and admission/queue limits. The full run writes
+`sql-resource-budget.json` beside its `sql.json`; the latter includes all
+scenario results and source/asset identities. Startup samples run at 1 ms;
+the 13-slot SDK pool supplies the hard pthread bound. Caller-retained results
+and the browser's VM/code memory are outside managed queue accounting.
+
+A minimal source-API call, from a page serving the generated assets with
+COOP/COEP headers, is:
+
+```typescript
+import {Database} from './src/api/database.js';
+const db = await Database.open();
+const connection = await db.connect();
+const result = await connection.query('SELECT $1::int8', {
+  parameters: [{typeOid: 20, value: '9223372036854775807'}],
+});
+console.log(result[0].rows[0][0]); // Exact string
+await db.close();
+```
+
+Use `for await (const batch of await connection.execute(sql, {chunkRows: 128}))`
+for larger results. Each connection serializes `query()` calls; explicit request
+objects expose a single-consumer iterator and `cancel()`/`close()` methods.
+Opening another connection can return `DatabaseError` with BUSY status when
+pinned sessions and in-flight requests reserve the available carriers. Retry
+after existing work releases capacity; existing connections can still commit
+or roll back their transactions.

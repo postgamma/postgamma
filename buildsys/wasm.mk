@@ -96,6 +96,6 @@ wasm-check-full:
 	$(error The full Wasm SQL/concurrency/persistence suite is not implemented yet; use make wasm-check for the startup check)
 
 .PHONY: wasm-sql-check
-WASM_SQL_SCENARIO ?= abi
+WASM_SQL_SCENARIO ?= all
 wasm-sql-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_SQL_SCENARIO)"

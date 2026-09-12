@@ -3,30 +3,40 @@ import {loadKernel} from '../loader/kernel.js';
 import {exchange, tick} from '../bindings/sql.js';
 import type {SqlModule} from '../bindings/sql.js';
 import {LIMIT, Op, Reader, VERSION} from '../protocol/wire.js';
+import {limits} from '../protocol/limits.js';
 const output: string[] = [];
 let droppedLogs = 0;
 function record(text: string) {
-  if (output.length === 512) {output.shift(); droppedLogs++;}
-  output.push(text.slice(0, 4096));
+  if (output.length === limits.logLines) {output.shift(); droppedLogs++;}
+  output.push(text.slice(0, limits.logLineCharacters));
 }
 let loaded: SqlModule | undefined;
 const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
+let samples = 0;
+function sample() {
+  if (!loaded) return;
+  samples++;
+  peakMemory = Math.max(peakMemory, loaded.wasmMemory.buffer.byteLength);
+  peakThreads = Math.max(peakThreads, Object.keys(loaded.PThread.pthreads).length);
+}
+const sampler = setInterval(sample, 1);
 function fail(error: unknown) {
   if (failed) return;
+  sample(); clearInterval(sampler);
   failed = true; stopped.abort();
   const interruptedWorkers = loaded ? Object.keys(loaded.PThread.pthreads).length : null;
   loaded?.PThread.terminateAllThreads();
   postMessage({fatal: String(error), output, metrics: {peakMemory, peakThreads, peakPending,
-    peakQueuedBytes, droppedLogs, interruptedWorkers, terminationRequested: true,
+    peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
   self.close();
 }
 self.addEventListener('error', event => {event.preventDefault(); fail(event.message);});
 self.addEventListener('unhandledrejection', event => {event.preventDefault(); fail(event.reason);});
 const kernel = loadKernel({print: record, printErr: text => {
-  record(text); console.error(text.slice(0, 4096));
+  record(text); console.error(text.slice(0, limits.logLineCharacters));
 }, onAbort: fail}).then(value => {
   const module = value as SqlModule;
   loaded = module;
@@ -38,7 +48,7 @@ let queue = Promise.resolve();
 kernel.catch(fail);
 self.onmessage = ({data}) => {
   if (failed) return;
-  if (!(data instanceof ArrayBuffer) || data.byteLength > LIMIT || ++pending > 64 || queuedBytes + data.byteLength > 8 * 1024 * 1024) {
+  if (!(data instanceof ArrayBuffer) || data.byteLength > LIMIT || ++pending > limits.maxPendingCommands || queuedBytes + data.byteLength > limits.workerQueueBytes) {
     fail(new Error('Invalid or excessive Worker messages')); return;
   }
   queuedBytes += data.byteLength; peakQueuedBytes = Math.max(peakQueuedBytes, queuedBytes);
@@ -50,8 +60,7 @@ self.onmessage = ({data}) => {
     if (request.u32() !== VERSION) throw new Error('Unsupported protocol');
     const sequence = request.u32(), op = request.u32();
     const reply = await exchange(module, data, stopped.signal);
-    peakMemory = Math.max(peakMemory, module.wasmMemory.buffer.byteLength);
-    peakThreads = Math.max(peakThreads, Object.keys(module.PThread.pthreads).length);
+    sample();
     if (op === Op.stop) {
       const status = new Reader(reply); status.u32(); status.u32(); status.u32();
       if (status.u32() === 0) {
@@ -63,8 +72,9 @@ self.onmessage = ({data}) => {
         }
         while (Object.keys(module.PThread.pthreads).length) await tick();
         const returnedWorkers = module.PThread.unusedWorkers.length;
+        sample(); clearInterval(sampler);
         module.PThread.terminateAllThreads();
-        postMessage({sequence, reply, metrics: {peakMemory, peakThreads, peakPending, peakQueuedBytes, droppedLogs, returnedWorkers,
+        postMessage({sequence, reply, metrics: {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, droppedLogs, returnedWorkers,
           runningWorkers: Object.keys(module.PThread.pthreads).length, output}}, [reply]);
         return;
       }

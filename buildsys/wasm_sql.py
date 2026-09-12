@@ -17,6 +17,9 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
     report = {"kind": "postgamma.wasm-sql", "status": "failed",
               "sql_validated": False, "action": action, "scenario": scenario}
     try:
+        from wasm_sql_budget import SCENARIOS, generate_policy, summarize
+        policy = read_json(config.root / "manifests/profiles/wasm-resource-budget.json")
+        generate_policy(config.root, builder.output, policy)
         builder.backend()
         builder.frontends()
         builder.modules()
@@ -26,9 +29,10 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
         site = builder.output / "site"
         report["site"] = str(site)
         sources = [(str(p.relative_to(config.root)), "src/" + str(p.relative_to(config.root / "wasm/src").with_suffix(".js")))
-                   for p in sorted((config.root / "wasm/src").rglob("*.ts"))]
+                   for p in sorted((config.root / "wasm/src").rglob("*.ts")) if not p.name.endswith(".d.ts")]
         sources += [(str(p.relative_to(config.root)), "tests/" + p.with_suffix(".js").name)
                     for p in sorted((config.root / "tests/wasm/sql").glob("*.ts"))]
+        report["harness_sources"] = {source: digest(config.root / source) for source, _ in sources}
         for source, target in sources:
             run([builder.tools["node"], str(config.root / "buildsys/wasm_typescript.mjs"),
                  str(config.root / source), str(site / target)],
@@ -36,20 +40,40 @@ def startup(config, longjmp: str, action: str, scenario: str) -> Path:
         (site / "sql.html").write_bytes((config.root / "tests/wasm/sql/sql.html").read_bytes())
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
-                             for name in (*[target for _, target in sources], "sql.html")}
+                             for name in (*[target for _, target in sources], "sql.html", "src/protocol/limits.js")}
         if action == "check":
-            if scenario in ("results", "budget"):
+            if scenario in ("results", "all"):
                 from wasm_sql_oracle import oracle
                 report["oracle"] = oracle(config.root, builder.current, site)
+                report["harness"].update({name: digest(site / name) for name in ("fixtures.json", "oracle.json")})
             run([builder.tools["node"], str(config.root / "tests/wasm/sql/protocol.mjs"),
                  str(site / "src/protocol/wire.js")], builder.current / "protocol.log",
                 builder.env, config.root)
+            scenarios = SCENARIOS if scenario == "all" else (scenario,)
+            report["browsers"] = {}
             with serve(site, "sql.html") as url:
-                report["browser"] = run_browser(config, builder.tools, builder.env, builder.current, url + "?scenario=" + scenario)
-            probe = report["browser"]["probe"]
-            if probe.get("scenario") != scenario or not probe.get("checks") or probe.get("pageTicks", 0) < 2:
-                raise WasmError("incomplete browser SQL evidence")
+                for name in scenarios:
+                    print("wasm SQL: checking " + name, flush=True)
+                    browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
+                                          url + "?scenario=" + name)
+                    report["browsers"][name] = browser
+                    probe = browser["probe"]
+                    if probe.get("scenario") != name or not probe.get("checks") or probe.get("pageTicks", 0) < 2:
+                        raise WasmError("incomplete browser SQL evidence")
+            if scenario == "all":
+                if config.mode != "debug":
+                    raise WasmError("SQL resource acceptance currently covers debug Chromium only")
+                report["resource_budget"] = summarize(policy, builder.report["audit"]["layout"], report["browsers"])
+                write_json(builder.current / "sql-resource-budget.json", report["resource_budget"])
             report["sql_validated"] = True
+        for source, checksum in report["harness_sources"].items():
+            if digest(config.root / source) != checksum:
+                raise WasmError("SQL harness source changed during validation: " + source)
+        for source, checksum in report["harness"].items():
+            if digest(site / source) != checksum:
+                raise WasmError("SQL harness asset changed during validation: " + source)
+        if builder.snapshot() != builder.source_snapshot or digest(config.root / "wasm/bridge/sql.c") != builder.report["bridge"]["sha256"]:
+            raise WasmError("kernel inputs changed during SQL validation")
         report["status"] = "passed"
     except Exception as error:
         report["error"] = str(error)
@@ -77,7 +101,7 @@ def main() -> None:
     parser.add_argument("--node", default="")
     parser.add_argument("--browser-executable", default="")
     parser.add_argument("--jobs", type=int, default=2)
-    parser.add_argument("--scenario", default="abi")
+    parser.add_argument("--scenario", default="all")
     args = parser.parse_args()
     try:
         path = startup(configuration(args), args.longjmp, args.action, args.scenario)

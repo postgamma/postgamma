@@ -6,6 +6,7 @@ import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
 import {results} from './results.js';
 import {lifecycle, fatal} from './lifecycle.js';
+import {budget} from './budget.js';
 const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
 page.probeResult = null; page.probeEvents = [];
 const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
@@ -49,6 +50,7 @@ try {
   else if (scenario === 'concurrency') await concurrency(db, checks);
   else if (scenario === 'errors') await errors(db, checks);
   else if (scenario === 'results') await results(db, checks);
+  else if (scenario === 'budget') await budget(db, checks);
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
   else if (scenario === 'fatal-trap' || scenario === 'fatal-abort') await fatal(db, checks, scenario === 'fatal-trap' ? 1 : 2);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);

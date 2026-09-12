@@ -1,5 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 #include "postgamma/postgamma.h"
+#include "wasm-sql-policy.h"
 #include "postgamma/private/data_directory_lock.h"
 #include "postgamma/shmem_platform.h"
 #include "postgamma/dsm_platform.h"
@@ -24,7 +25,7 @@ enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
 #define WIRE_VERSION 1
 #define SLOT_COUNT 64
-#define WIRE_LIMIT (2U * 1024U * 1024U)
+#define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle { uint32_t kind, generation, parent; void *pointer; } Handle;
 typedef struct Reader { const unsigned char *data; size_t size, offset; bool failed; } Reader;
 typedef struct Writer { unsigned char *data; size_t size, capacity; bool failed; } Writer;
@@ -142,6 +143,7 @@ static bool command(void)
     Writer payload = {0};
     pgm_error *error = NULL;
     pgm_status status = PGM_STATUS_OK;
+    const char *bridge_message = NULL;
     uint32_t version = get(&r), sequence = get(&r), op = get(&r);
     bool stop = false;
     Handle *h = NULL, *slot = NULL;
@@ -181,7 +183,7 @@ static bool command(void)
             o.create = create; o.path = path; o.executor_worker_count = workers;
             o.executable_path = "/postgamma/bin/postgres"; o.resource_root = "/postgamma";
             o.settings = settings; o.setting_count = sizeof(settings) / sizeof(settings[0]);
-            o.result_buffer_limit = 256 * 1024; o.maximum_value_size = 128 * 1024;
+            o.result_buffer_limit = PGW_RESULT_BUFFER_BYTES; o.maximum_value_size = PGW_MAXIMUM_VALUE_BYTES;
             o.log_callback = log_record;
             status = pgm_instance_open(&o, &instance, &error);
             if (!status) publish(&payload, slot, INSTANCE, NULL, instance);
@@ -189,6 +191,20 @@ static bool command(void)
         free(path); break;
     }
     case CONNECT: {
+        unsigned connections = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTION) connections++;
+        if (connections >= PGW_MAX_CONNECTIONS) {
+            status = PGM_STATUS_BUSY; bridge_message = "Maximum live connections reached"; break;
+        }
+        /* Connect performs a synchronous handshake on this driver. Reserve
+         * its carrier before entering it, including requests that can still
+         * become pinned. Only this driver admits/progresses host requests. */
+        pgm_instance_telemetry capacity = PGM_INSTANCE_TELEMETRY_INIT;
+        status = pgm_instance_get_telemetry(h->pointer, &capacity, &error);
+        if (status) break;
+        if (capacity.pinned_session_count + capacity.active_request_count >= capacity.executor_worker_count) {
+            status = PGM_STATUS_BUSY; bridge_message = "No carrier is available for a new connection"; break;
+        }
         char *name = string(&r);
         if (!r.failed && r.offset == r.size) {
             pgm_connection_options o = PGM_CONNECTION_OPTIONS_INIT;
@@ -204,7 +220,7 @@ static bool command(void)
         pgm_execute_options o = PGM_EXECUTE_OPTIONS_INIT;
         uint32_t format = get(&r), chunk_rows = get(&r), count = get(&r);
         pgm_parameter parameters[64];
-        if (count > 64 || format > 1 || chunk_rows > 1024) r.failed = true;
+        if (count > 64 || format > 1 || chunk_rows > PGW_MAXIMUM_CHUNK_ROWS) r.failed = true;
         for (uint32_t i = 0; i < count && !r.failed; i++) {
             parameters[i] = (pgm_parameter)PGM_PARAMETER_INIT;
             parameters[i].type_oid = get(&r);
@@ -222,7 +238,7 @@ static bool command(void)
             o.parameters = parameters; o.parameter_count = count; o.result_format = format;
             o.delivery_mode = chunk_rows ? PGM_DELIVERY_CHUNKED : PGM_DELIVERY_MATERIALIZED;
             o.target_chunk_rows = chunk_rows;
-            o.result_buffer_limit = 256 * 1024;
+            o.result_buffer_limit = PGW_RESULT_BUFFER_BYTES;
             status = pgm_execute_async_ex(h->pointer, sql, strlen(sql), &o, &request, &error);
             if (!status) publish(&payload, slot, REQUEST, h, request);
         } else r.failed = true;
@@ -279,7 +295,7 @@ static bool command(void)
         status = pgm_request_cancel(h->pointer, &error); break;
     case COPY_READ: {
         uint32_t capacity = get(&r);
-        unsigned char buffer[16384];
+        unsigned char buffer[PGW_COPY_CHUNK_BYTES];
         size_t produced = 0;
         pgm_io_state progress = PGM_IO_AGAIN;
         if (r.offset != r.size || capacity == 0 || capacity > sizeof(buffer)) { r.failed = true; break; }
@@ -290,7 +306,7 @@ static bool command(void)
         size_t size, consumed = 0;
         const void *data = blob(&r, &size);
         pgm_io_state progress = PGM_IO_AGAIN;
-        if (r.failed || r.offset != r.size || size == 0 || size > 16384) { r.failed = true; break; }
+        if (r.failed || r.offset != r.size || size == 0 || size > PGW_COPY_CHUNK_BYTES) { r.failed = true; break; }
         status = pgm_copy_write(h->pointer, data, size, &consumed, &progress, &error);
         put(&payload, progress); put(&payload, consumed); break;
     }
@@ -328,7 +344,8 @@ done:
     if (r.failed) status = PGM_STATUS_INVALID_ARGUMENT;
     if (payload.failed) status = PGM_STATUS_OUT_OF_MEMORY;
     put(&reply, WIRE_VERSION); put(&reply, sequence); put(&reply, op); put(&reply, status);
-    for (unsigned i = 1; i <= 17; i++) text(&reply, pgm_error_field(error, i));
+    for (unsigned i = 1; i <= 17; i++)
+        text(&reply, error ? pgm_error_field(error, i) : i == PGM_DIAG_MESSAGE ? bridge_message : NULL);
     if (!status) bytes(&reply, payload.data, payload.size);
     free(payload.data); pgm_error_free(error);
     return stop;
