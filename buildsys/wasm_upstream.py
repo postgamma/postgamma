@@ -86,7 +86,8 @@ def candidate(config, ref, branch, profile, longjmp='emscripten'):
                  report['pgvector_commit'])):
             attach_source(project, name, repository, revision)
         manifest = read_json(project/'manifests/upstream.json')
-        manifest.update(commit=commit,ref_name=branch,repository=selected['postgres_url'])
+        # A download mirror does not replace the canonical source identity.
+        manifest.update(commit=commit,ref_name=branch)
         write_json(project/'manifests/upstream.json',manifest)
         modules = project/'wasm/node_modules'
         modules.symlink_to(config.package/'node_modules',target_is_directory=True)

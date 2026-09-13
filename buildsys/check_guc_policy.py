@@ -65,7 +65,7 @@ def catalog_names(document: dict[str, Any]) -> set[str]:
     return set(names)
 
 
-def policy_owners(document: dict[str, Any]) -> dict[str, str]:
+def policy_owners(document: dict[str, Any], catalog: Iterable[str] | None = None) -> dict[str, str]:
     require_document(document, POLICY_KIND, "policy")
     parameters = document.get("parameters")
     if not isinstance(parameters, dict):
@@ -76,6 +76,17 @@ def policy_owners(document: dict[str, Any]) -> dict[str, str]:
             allowed = ", ".join(sorted(ALLOWED_OWNERS))
             raise PolicyError(f"policy: {name} has invalid owner {owner!r}; use {allowed}")
         result[name] = owner
+    conditional = document.get("conditional_parameters", {})
+    if not isinstance(conditional, dict):
+        raise PolicyError("policy: conditional_parameters must be an object")
+    names = set(catalog or ())
+    for name, entry in conditional.items():
+        if name in result or not isinstance(entry, dict) or entry.get("owner") not in ALLOWED_OWNERS:
+            raise PolicyError("policy: invalid conditional ownership for " + name)
+        if not isinstance(entry.get("condition"), str) or not entry["condition"].strip():
+            raise PolicyError("policy: missing availability condition for " + name)
+        if name in names:
+            result[name] = entry["owner"]
     return result
 
 
@@ -118,7 +129,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         catalog = catalog_names(load_json(args.catalog))
-        policy = policy_owners(load_json(args.policy))
+        policy = policy_owners(load_json(args.policy), catalog)
         report = validate_alignment(catalog, policy)
     except PolicyError as exc:
         parser.error(str(exc))

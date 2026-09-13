@@ -1564,6 +1564,13 @@
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
     },
     {
+      "id": "external:binary_upgrade_next_toast_chunk_id_typoid",
+      "owner": "role",
+      "rationale": "Next TOAST chunk type OID is consumed and reset by the executing binary-upgrade backend.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "external:binary_upgrade_next_toast_pg_class_oid",
       "owner": "role",
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
@@ -1862,6 +1869,13 @@
       "id": "external:enable_group_by_reordering",
       "owner": "managed_guc",
       "rationale": "owned by the exhaustive built-in GUC state pipeline"
+    },
+    {
+      "id": "external:enable_groupagg",
+      "owner": "managed_guc",
+      "rationale": "Session planner switch is owned by the exhaustive built-in GUC pipeline.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "external:enable_hashagg",
@@ -2387,6 +2401,13 @@
       "id": "external:log_statement",
       "owner": "managed_guc",
       "rationale": "owned by the exhaustive built-in GUC state pipeline"
+    },
+    {
+      "id": "external:log_statement_max_length",
+      "owner": "managed_guc",
+      "rationale": "Session logging limit is owned by the exhaustive built-in GUC pipeline.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "external:log_statement_sample_rate",
@@ -3169,7 +3190,7 @@
     },
     {
       "availability": "conditional",
-      "condition": "DEBUG_NODE_TESTS_ENABLED",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes.",
       "id": "external:restore_location_fields",
       "owner": "role",
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
@@ -3889,17 +3910,23 @@
     {
       "id": "function_static:src/backend/commands/variable.c:src/backend/commands/variable.c:show_data_directory_mode:buf",
       "owner": "role",
-      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/backend/commands/variable.c:src/backend/commands/variable.c:show_log_file_mode:buf",
       "owner": "role",
-      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/backend/commands/variable.c:src/backend/commands/variable.c:show_unix_socket_permissions:buf",
       "owner": "role",
-      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/backend/executor/spi.c:src/backend/executor/spi.c:SPI_result_code_string:buf",
@@ -5025,6 +5052,13 @@
       "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
     },
     {
+      "id": "internal:src/backend/access/common/reloptions.c:src/backend/access/common/reloptions.c::StdRdOptToastValueTypes",
+      "owner": "role",
+      "rationale": "Writable reloption definition table follows the existing backend-local enum table lifecycle.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/backend/access/common/reloptions.c:src/backend/access/common/reloptions.c::boolRelOpts",
       "owner": "role",
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
@@ -5352,7 +5386,9 @@
     {
       "id": "internal:src/backend/access/transam/xlog.c:src/backend/access/transam/xlog.c::LocalMinRecoveryPointTLI",
       "owner": "role",
-      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
+      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/access/transam/xlog.c:src/backend/access/transam/xlog.c::LocalRecoveryInProgress",
@@ -6367,7 +6403,9 @@
     {
       "id": "internal:src/backend/nodes/read.c:src/backend/nodes/read.c::pg_strtok_ptr",
       "owner": "role",
-      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
+      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/optimizer/util/extendplan.c:src/backend/optimizer/util/extendplan.c::PlannerExtensionNameArray",
@@ -6667,7 +6705,9 @@
     {
       "id": "internal:src/backend/postmaster/postmaster.c:src/backend/postmaster/postmaster.c::ReachedNormalRunning",
       "owner": "role",
-      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists"
+      "rationale": "role-local process-boundary emulation; no reviewed instance-sharing contract exists",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/postmaster/postmaster.c:src/backend/postmaster/postmaster.c::Shutdown",
@@ -7047,7 +7087,9 @@
     {
       "id": "internal:src/backend/replication/logical/worker.c:src/backend/replication/logical/worker.c::apply_error_callback_arg",
       "owner": "role",
-      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
+      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/replication/logical/worker.c:src/backend/replication/logical/worker.c::in_streamed_transaction",
@@ -7075,9 +7117,18 @@
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
     },
     {
+      "id": "internal:src/backend/replication/logical/worker.c:src/backend/replication/logical/worker.c::remote_ctx",
+      "owner": "role",
+      "rationale": "Remote apply transaction identity, error context and relation pointers belong to one logical apply worker.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/backend/replication/logical/worker.c:src/backend/replication/logical/worker.c::remote_final_lsn",
       "owner": "role",
-      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
+      "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/replication/logical/worker.c:src/backend/replication/logical/worker.c::skip_xact_finish_lsn",
@@ -8287,6 +8338,13 @@
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
     },
     {
+      "id": "internal:src/backend/utils/activity/pgstat_backend.c:src/backend/utils/activity/pgstat_backend.c::backend_has_lockstats",
+      "owner": "role",
+      "rationale": "Dirty flag for one backend lock-statistics accumulator is cleared by that backend flush and reset.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/backend/utils/activity/pgstat_backend.c:src/backend/utils/activity/pgstat_backend.c::prevBackendWalUsage",
       "owner": "role",
       "rationale": "confirmed role-local by the reviewed threaded PostgreSQL oracle"
@@ -9271,7 +9329,9 @@
     {
       "id": "internal:src/backend/utils/misc/guc_tables.c:src/backend/utils/misc/guc_tables.c::recovery_target_name_string",
       "owner": "managed_guc",
-      "rationale": "owned by the exhaustive built-in GUC state pipeline"
+      "rationale": "owned by the exhaustive built-in GUC state pipeline",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/backend/utils/misc/guc_tables.c:src/backend/utils/misc/guc_tables.c::recovery_target_string",

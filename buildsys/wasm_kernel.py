@@ -13,6 +13,7 @@ import sys
 
 from configure_postgres import CONFIGURE_ENVIRONMENT
 from wasm_kernel_checks import configured_abi, validate_database
+from wasm_source import adaptations, source_tree
 from wasm_toolchain import (
     WasmError, capture, configuration, digest, fingerprint, read_json, run,
     run_id, sdk_tools, write_json,
@@ -52,14 +53,15 @@ def prepare(config, longjmp: str) -> tuple[Path, dict, dict, dict]:
         "kind": "postgamma.wasm-kernel-inputs", "schema_version": 1,
         "target": config.target, "mode": config.mode, "profile": profile,
         "postgres_commit": capture(["git", "-C", str(source), "rev-parse", "HEAD"]),
-        "tools": tools,
+        "tools": tools, "source_adaptations": adaptations(source),
         "driver_sources": {name: digest(config.root / name) for name in (
             "buildsys/wasm_kernel.py", "buildsys/wasm_cc_capture.py",
             "buildsys/cc_capture.py", "buildsys/merge_compile_db.py",
-            "buildsys/wasm_toolchain.py", "buildsys/wasm_kernel_checks.py")},
+            "buildsys/wasm_toolchain.py", "buildsys/wasm_kernel_checks.py", "buildsys/wasm_source.py")},
     }
     directory = config.build / "wasm" / config.target / config.mode / fingerprint(inputs)
     write_json(directory / "inputs.json", inputs)
+    source_tree(config, directory, inputs)
     env = clean_environment(sdk_env)
     sdk_bin = config.sdk / "upstream/emscripten"
     llvm_bin = Path(tools["settings"]["LLVM_ROOT"])
@@ -100,6 +102,7 @@ def host_generators(config, inputs: dict, log: Path) -> Path:
 
 def build_target(config, command: str, longjmp: str) -> Path:
     directory, inputs, tools, env = prepare(config, longjmp)
+    source = source_tree(config, directory, inputs)
     current = directory / "runs" / (command + "-" + run_id())
     log = current / "build.log"
     report = {"kind": "postgamma.wasm-kernel-build", "schema_version": 1,
@@ -116,7 +119,7 @@ def build_target(config, command: str, longjmp: str) -> Path:
                      *inputs["profile"]["target_configure"]]
         if config.mode == "debug":
             arguments += ["--enable-cassert"]
-        configure(config.root / "postgres", build, arguments, env, log)
+        configure(source, build, arguments, env, log)
         run(["make", "-j", str(config.jobs), "-C", str(build / "src/backend"),
              "generated-headers"], log, env)
         run(["make", "-C", str(build / "src/port"), "pg_config_paths.h"], log, env)
@@ -143,11 +146,11 @@ def build_target(config, command: str, longjmp: str) -> Path:
             run([sys.executable, str(config.root / "buildsys/merge_compile_db.py"),
                  "--fragments", str(database / "fragments"),
                  "--output", str(database / "compile_commands.json"),
-                 "--source-root", str(config.root / "postgres"),
+                 "--source-root", str(source),
                  "--generated-root", str(build)], log, env)
             report["compile_database"] = str(database / "compile_commands.json")
             report["capture"] = validate_database(
-                database / "compile_commands.json", config.root / "postgres", build,
+                database / "compile_commands.json", source, build,
                 Path(tools["settings"]["LLVM_ROOT"]) / "clang",
                 Path(tools["settings"]["CACHE"]) / "sysroot")
         report["status"] = "passed"

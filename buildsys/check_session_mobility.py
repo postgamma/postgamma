@@ -186,6 +186,13 @@ def guc_semantic_owners(
     declarations = inventory.get("declarations")
     if not isinstance(parameters, dict) or not isinstance(declarations, list):
         raise SessionMobilityError("GUC policy/inventory has an invalid parameter envelope")
+    from check_guc_policy import policy_owners, PolicyError
+    names = {row['symbol_id'][len('pg.guc.'):] for row in declarations
+             if isinstance(row, dict) and isinstance(row.get('symbol_id'), str) and row['symbol_id'].startswith('pg.guc.')}
+    try:
+        parameters = policy_owners(policy, names)
+    except PolicyError as error:
+        raise SessionMobilityError(str(error)) from error
     for name, owner in parameters.items():
         if not isinstance(name, str) or not name or owner not in GUC_OWNERS:
             raise SessionMobilityError(f"GUC policy: invalid ownership for {name!r}")

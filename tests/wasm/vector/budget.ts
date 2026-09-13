@@ -12,8 +12,9 @@ export function vectorBudget(modules: any[], parallel: boolean) {
       m.peakHostQueuedBytes <= limits.connectionQueueBytes * limits.maxConnections, 'Vector bridge queue bounds');
     let classes = 0, stack = 2 * 4194304;
     for (const line of m.output) {
-      // The log callback and stderr both carry this message; count the callback once.
-      if (line === 'kernel: DEBUG: using 1 parallel workers') workersLaunched++;
+      // Callback delivery can drop events on router contention. Count the
+      // native stderr record, excluding its optional callback duplicate.
+      if (/\[\d+\] DEBUG:\s+using 1 parallel workers$/.test(line)) workersLaunched++;
       if (line.includes('POSTGAMMA_RUNTIME '))
         parallelThreadsStarted += Number(/parallel_threads_started=(\d+)/.exec(line)?.[1] ?? NaN);
       if (!line.includes('POSTGAMMA_STACK ')) continue;
@@ -27,7 +28,7 @@ export function vectorBudget(modules: any[], parallel: boolean) {
     assert(classes === 3 && stack <= 77594624, 'Vector stacks fit the existing role reservations');
   }
   if (parallel) assert(workersLaunched === 2 && parallelThreadsStarted === 2 && parallelObservations === 2, 'Both index builds actually launched and reclaimed a parallel worker');
-  return {scope: 'debug Chromium, scalar pgvector', healthyModules: modules.length,
+  return {scope: 'Chromium, scalar pgvector', healthyModules: modules.length,
     peakLinearMemory: Math.max(...modules.map(m => m.peakMemory)), peakPthreads: Math.max(...modules.map(m => m.peakThreads)),
     workersLaunched, parallelThreadsStarted, parallelObservations, outsideLinearMemoryRssMeasured: false};
 }

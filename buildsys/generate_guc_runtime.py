@@ -293,7 +293,7 @@ def compile_runtime(
     catalog: dict[str, Any], policy: dict[str, Any], controls: dict[str, Any]
 ) -> dict[str, str]:
     parameters = _validate_catalog(catalog)
-    owners = policy_owners(policy)
+    owners = policy_owners(policy, catalog_names(catalog))
     validate_alignment(catalog_names(catalog), owners)
     for entry in parameters:
         owner = owners[entry["name"]]

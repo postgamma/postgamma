@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -12,8 +13,24 @@ import shlex
 import sys
 
 from wasm_kernel import prepare
+from wasm_source import source_tree
 from wasm_toolchain import (WasmError, configuration, digest, fingerprint, read_json,
                             run, run_id, write_json, capture)
+
+
+def target_static_modules(document, selected, major, candidate=False):
+    from bundle_embedded_static_modules import validate_manifest
+    manifest = copy.deepcopy(document)
+    manifest["modules"] = [m for m in manifest["modules"] if m["id"] in selected]
+    manifest = validate_manifest(manifest)
+    if major != manifest["postgresql_major"] and not candidate:
+        raise WasmError("static module major differs from the pinned contract")
+    # Every selected module is compiled against these target headers. Keep the
+    # registration ABI checks intact and publish the actual compiled major.
+    manifest["postgresql_major"] = major
+    for module in manifest["modules"]:
+        module["postgresql_major"] = major
+    return manifest
 
 
 class Builder:
@@ -24,6 +41,7 @@ class Builder:
             raise WasmError("unsupported Wasm extension selection")
         self.longjmp = longjmp
         self.directory, self.inputs, self.tools, self.env = prepare(config, longjmp)
+        self.capture_source = source_tree(config, self.directory, self.inputs)
         self.raw = self.directory / "configure"
         self.source = self.directory / "generated/postgres"
         self.output = self.directory / "link"
@@ -64,6 +82,7 @@ class Builder:
             if digest(self.directory / name) != expected:
                 raise WasmError("generated target input changed: " + name)
         self.report["generation_report"] = receipt["run_report"]
+        self.candidate_probe = generated.get("candidate_probe", False)
         from wasm_generate import generation_sources, tree_hashes
         for name, expected in generated["inputs"]["sources"].items():
             if tree_hashes(self.root / name) != expected:
@@ -120,7 +139,7 @@ class Builder:
             resolved = path.resolve()
             data = transformed.get(str(resolved))
             if data is None:
-                template = self.source / resolved.relative_to(self.root / "postgres") if resolved.is_relative_to(self.root / "postgres") else path
+                template = self.source / resolved.relative_to(self.capture_source) if resolved.is_relative_to(self.capture_source) else path
                 data = template.read_bytes()
             target = self.artifacts / path.relative_to(self.raw)
             write_artifact(target, data, 0o644)
@@ -147,8 +166,8 @@ class Builder:
 
     def target_source(self, source):
         source = Path(source)
-        if source.is_relative_to(self.root / "postgres"):
-            return self.source / source.relative_to(self.root / "postgres")
+        if source.is_relative_to(self.capture_source):
+            return self.source / source.relative_to(self.capture_source)
         if source.is_relative_to(self.raw):
             return self.artifacts / source.relative_to(self.raw)
         return source
@@ -204,10 +223,10 @@ class Builder:
             seen.add(name)
             source = self.target_source(source)
             # Preserve unit-specific include directories and macro selections from capture.
-            extra = [a.replace(str(self.root / "postgres"), str(self.source))
+            extra = [a.replace(str(self.capture_source), str(self.source))
                      if a.startswith("-D") else
                      "-I" + str((Path(row["directory"]) / a[2:]).resolve()).replace(
-                         str(self.root / "postgres"), str(self.source))
+                         str(self.capture_source), str(self.source))
                      for a in row["arguments"] if a.startswith(("-I", "-D"))]
             extra = [a.replace(str(self.raw), str(self.artifacts)) for a in extra]
             extra += ["-DPOSTGAMMA_BACKEND"]
@@ -284,7 +303,7 @@ class Builder:
             if group == "libpq": extra = [a for a in extra if a != "-DUSE_PRIVATE_ENCODING_FUNCS"]
             extra += ["-I" + str(Path(row["directory"]))]
             extra += ["-I" + str((Path(row["directory"]) / a[2:]).resolve()).replace(
-                          str(self.root / "postgres"), str(self.source))
+                          str(self.capture_source), str(self.source))
                       for a in row["arguments"] if a.startswith("-I")]
             extra += ["-I" + str(self.source / "src/interfaces/libpq"),
                       "-I" + str(self.source / "src/port"), "-I" + str(self.raw / "src/port")]
@@ -329,10 +348,9 @@ class Builder:
         self.namespace_group("initdb", jobs, keep=("postgamma_initdb_create",))
 
     def modules(self):
-        from bundle_embedded_static_modules import validate_manifest, render_facts
-        manifest = read_json(self.root / "manifests/extensions/embedded-static.json")
-        manifest["modules"] = [m for m in manifest["modules"] if m["id"] in ("dict_snowball", "plpgsql", *self.extensions)]
-        manifest = validate_manifest(manifest)
+        from bundle_embedded_static_modules import render_facts
+        manifest = target_static_modules(read_json(self.root / "manifests/extensions/embedded-static.json"),
+            ("dict_snowball", "plpgsql", *self.extensions), int(self.postgres_major), self.candidate_probe)
         facts = render_facts(manifest)
         for module in manifest["modules"]:
             for symbol in module["symbols"]:

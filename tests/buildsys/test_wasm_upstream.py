@@ -77,4 +77,47 @@ class WasmUpstreamTests(unittest.TestCase):
         self.assertLess(names.index('vector'),names.index('storage'))
         self.assertLess(names.index('package'),names.index('matrix'))
 
+    def test_mirror_download_keeps_canonical_source_identity(self):
+        import json
+        from unittest.mock import patch
+        from wasm_toolchain import Configuration, write_json
+        from wasm_upstream import candidate
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary)
+            def git(root,*args):
+                return capture(['git','-C',str(root),'-c','commit.gpgsign=false',*args])
+            def repository(name):
+                path=base/name;path.mkdir()
+                git(path,'init');git(path,'config','user.name','test');git(path,'config','user.email','test@example.invalid')
+                return path
+            source=repository('source')
+            (source/'configure.ac').write_text('AC_INIT([PostgreSQL], [20devel])\n')
+            git(source,'add','.');git(source,'commit','-m','source')
+            revision=git(source,'rev-parse','HEAD')
+            root=repository('project')
+            canonical='https://git.postgresql.org/git/postgresql.git'
+            (root/'.gitmodules').write_text('[submodule "postgres"]\n path = postgres\n url = '+canonical+'\n[submodule "third_party/pgvector"]\n path = third_party/pgvector\n url = vector\n')
+            write_json(root/'manifests/upstream.json',{'repository':canonical,'commit':revision})
+            write_json(root/'profile.json',{'target':'wasm32-emscripten-pthreads'})
+            (root/'wasm').mkdir();(root/'wasm/placeholder').write_text('package')
+            git(root,'add','.')
+            attach_source(root,'postgres',source,revision)
+            attach_source(root,'third_party/pgvector',source,revision)
+            git(root,'commit','-m','pinned')
+            before=tracked_inputs(root)
+            config=Configuration(root,root/'build',root/'.deps',root/'.deps/sdk',root/'profile.json',
+                {'target':'wasm32-emscripten-pthreads'},'debug',False,jobs=2)
+            def suite(selected,*args,**kwargs):
+                self.assertTrue(kwargs['candidate'])
+                self.assertEqual(json.loads((selected.root/'manifests/upstream.json').read_text())['repository'],canonical)
+                receipt=selected.build/'ci.json';write_json(receipt,{'status':'passed'});return receipt
+            mirror='https://github.com/postgres/postgres.git'
+            with patch('wasm_upstream.source_inputs',return_value={'postgres_url':mirror,'postgres_commit':revision}), \
+                 patch('wasm_upstream.run') as fetch, patch('wasm_upstream.run_suite',side_effect=suite):
+                report=json.loads(candidate(config,'','master','weekly').read_text())
+                self.assertIn(mirror,fetch.call_args.args[0])
+            self.assertEqual(report['postgres_repository'],mirror)
+            self.assertEqual(report['status'],'passed')
+            self.assertEqual(tracked_inputs(root),before)
+
 if __name__=='__main__':unittest.main()

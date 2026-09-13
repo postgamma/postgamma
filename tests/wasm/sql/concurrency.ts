@@ -55,6 +55,24 @@ export async function concurrency(db: Database, checks: string[]) {
   await a.query('COMMIT');
   const queued = await Promise.all([a.query('SELECT 1'), a.query('SELECT 2')]);
   assert(scalar(queued[0]) === '1' && scalar(queued[1]) === '2', 'One connection serializes ordinary queries');
+  assert(scalar(await a.query('SHOW shared_memory_type')) === 'mmap' &&
+    scalar(await a.query("SELECT setting FROM pg_settings WHERE name = 'shared_memory_type'")) === 'mmap',
+    'Shared-memory GUC enum and configuration view');
+  checks.push('configuration-view');
+  if (Number(scalar(await a.query("SELECT current_setting('server_version_num')"))) >= 200000) {
+    await a.query('SET enable_groupagg = off');
+    await a.query('SET log_statement_max_length = 17');
+    await b.query('SET log_statement_max_length = 29');
+    for (let i = 0; i < 4; i++) {
+      assert(scalar(await a.query('SHOW enable_groupagg')) === 'off' &&
+        scalar(await b.query('SHOW enable_groupagg')) === 'on', 'PG20 planner GUC follows its session');
+      assert(scalar(await a.query("SELECT setting FROM pg_settings WHERE name = 'log_statement_max_length'")) === '17' &&
+        scalar(await b.query("SELECT setting FROM pg_settings WHERE name = 'log_statement_max_length'")) === '29',
+        'PG20 logging GUC follows its session across carrier scheduling');
+    }
+    await a.query('RESET enable_groupagg'); await a.query('RESET log_statement_max_length');
+    await b.query('RESET log_statement_max_length'); checks.push('pg20-guc-isolation');
+  }
   checks.push('guc-isolation', 'temp-isolation', 'prepared-isolation', 'snapshot-isolation', 'connection-serialization');
   await a.close(); await b.close(); await c.close();
 }

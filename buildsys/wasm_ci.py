@@ -64,7 +64,7 @@ def run_suite(config, profile, longjmp, candidate=False):
         if profile == 'weekly':
             pointer = read_json(config.build/'wasm/reports/matrix.json')
             report['matrix_report'] = pointer['run_report']
-            report['exploratory_browser_failures'] = read_json(Path(pointer['run_report']))['observedFailures']
+            report['browser_failures'] = read_json(Path(pointer['run_report']))['observedFailures']
         report['status']='passed'
     except Exception as error:
         report['error']=str(error)
@@ -86,8 +86,9 @@ def main():
     parser.add_argument('--node',default='');parser.add_argument('--browser-executable',default='')
     parser.add_argument('--longjmp',default='emscripten');parser.add_argument('--jobs',type=int,default=2)
     parser.add_argument('--suite',choices=('basic','weekly'),default='basic')
+    parser.add_argument('--candidate-probe',action='store_true')
     args=parser.parse_args()
-    try: run_suite(configuration(args),args.suite,args.longjmp)
+    try: run_suite(configuration(args),args.suite,args.longjmp,candidate=args.candidate_probe)
     except Exception as error: parser.exit(2,'wasm CI: '+str(error).splitlines()[0]+'\n')
 
 if __name__=='__main__':main()

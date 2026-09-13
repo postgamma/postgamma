@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "postgamma.backend-state-mobility",
   "review_fingerprint": {
-    "candidate_ids_sha256": "85cecf9a547f3206ab1138436d91f69692e6b17b7963649f765c3b8361c03784",
-    "ownership_decisions_sha256": "f3371a3ad2d15d9ae8b19a4763ea9c33619bc3d79f2e5faf25de40950761f87e"
+    "candidate_ids_sha256": "cd0504d8f0d2b1c207569520dcf9e8a2dc123b9866e5123ce5ce08b541049505",
+    "ownership_decisions_sha256": "37420ae556090483d1a4a9985e4f0dde593f9b11b0afc24b31e2ff271aea2b46"
   },
   "owner_defaults": {
     "immutable": {

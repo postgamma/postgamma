@@ -71,7 +71,7 @@ wasm-kernel-capture:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_kernel.py" capture $(POSTGAMMA_WASM_ARGS)
 
 wasm-kernel-generate:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_generate.py" $(POSTGAMMA_WASM_ARGS)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_generate.py" $(POSTGAMMA_WASM_ARGS) $(VERIFY_UPSTREAM_PROBE_ARG)
 
 wasm-runtime-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_runtime.py" $(POSTGAMMA_WASM_ARGS)
@@ -93,7 +93,7 @@ wasm-serve:
 
 # Keep the extension comparison before storage relinks the base artifacts.
 wasm-check-full:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite weekly
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite weekly $(VERIFY_UPSTREAM_PROBE_ARG)
 
 .PHONY: wasm-sql-check
 WASM_SQL_SCENARIO ?= all
@@ -129,7 +129,7 @@ wasm-matrix-check:
 
 .PHONY: wasm-ci
 wasm-ci:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic $(VERIFY_UPSTREAM_PROBE_ARG)
 
 .PHONY: wasm-weekly wasm-upstream-canary
 wasm-weekly:

@@ -54,6 +54,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                              for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
         if action == "check":
             if scenario.startswith("vector"):
+                check_source = "tests/wasm/vector/budget.mjs"
+                report["harness_sources"][check_source] = digest(config.root / check_source)
+                run([builder.tools["node"], str(config.root / check_source), str(site / "vector-tests/budget.js")],
+                    builder.current / "vector-budget-test.log", builder.env, config.root)
                 from wasm_pgvector_fixtures import fixtures
                 report["vector_fixtures"] = fixtures(config.root, builder.current, site)
                 report["harness_sources"].update(report["vector_fixtures"]["inputs"])

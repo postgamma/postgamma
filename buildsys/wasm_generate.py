@@ -12,10 +12,29 @@ import sys
 
 from filter_compile_database import select_compile_records
 from wasm_kernel import build_target, clean_environment
+from wasm_source import source_tree, apply_adaptations, SHMEM_HEADER, SHMEM_MARKER, SHMEM_REPLACEMENT
 from wasm_toolchain import (
     WasmError, capture, configuration, digest, fingerprint, read_json, run,
     run_id, sdk_tools, write_json,
 )
+
+
+def project_adapter(adapter: dict, adaptations: list[dict]) -> dict:
+    """Keep the shared installer strict after the target default was adapted."""
+    result = copy.deepcopy(adapter)
+    if not any(row['path'] == SHMEM_HEADER for row in adaptations):
+        return result
+    matches = [row for row in result['generated_support']['edits'] if row['id'] == 'shmem.target-default']
+    expected = {'id': 'shmem.target-default', 'path': SHMEM_HEADER, 'mode': 'replace',
+                'match': SHMEM_MARKER.splitlines()[0], 'expected_matches': 1,
+                'content': '#if defined(__EMSCRIPTEN__) || (!defined(WIN32) && !defined(EXEC_BACKEND))',
+                'reject_if_present': '#if defined(__EMSCRIPTEN__) ||'}
+    if matches != [expected]:
+        raise WasmError('unreviewed shared-memory default support adapter')
+    # The installer still checks and replaces exactly one reviewed guard. Both
+    # forms choose mmap for this target; native generation uses the original.
+    matches[0]['match'] = SHMEM_REPLACEMENT.splitlines()[0]
+    return result
 
 
 def project_policy(policy: dict, catalog: dict, scope: dict) -> tuple[dict, list[dict]]:
@@ -66,6 +85,7 @@ def host_ast_tools(config, log: Path) -> Path:
 
 def check_layout(config, directory: Path, host: Path, tools: dict, env: dict,
                  resource: str, log: Path) -> dict:
+    postgres = source_tree(config, directory, read_json(directory / "inputs.json"))
     source = config.root / "tests/wasm/fixtures/target-layout.c"
     output = directory / "inventory/abi"
     build = directory / "configure"
@@ -75,7 +95,7 @@ def check_layout(config, directory: Path, host: Path, tools: dict, env: dict,
     output.mkdir(parents=True, exist_ok=True)
     run([str(config.sdk / "upstream/emscripten/emcc"), "-pthread", "-std=gnu11", "-Werror",
          "-sSUPPORT_LONGJMP=emscripten", "-DEXEC_BACKEND", f"-I{build / 'src/include'}",
-         f"-I{config.root / 'postgres/src/include'}", "-c", str(source), "-o", str(output / "layout.o")],
+         f"-I{postgres / 'src/include'}", "-c", str(source), "-o", str(output / "layout.o")],
         log, sdk_env, config.root)
     fragments = [read_json(p) for p in sorted(fragments_dir.glob("*.json"))]
     if len(fragments) != 1:
@@ -141,16 +161,17 @@ def ast_cached(command: list[str], outputs: list[Path], inputs: dict,
                        "outputs": {str(p): digest(p) for p in outputs}})
 
 
-def generate(config, longjmp: str) -> Path:
+def generate(config, longjmp: str, candidate_probe: bool = False) -> Path:
     directory = build_target(config, "capture", longjmp)
     tools, environment = sdk_tools(config)
     env = clean_environment(environment)
     current = directory / "runs" / ("generate-" + run_id())
     log = current / "build.log"
     report = {"kind": "postgamma.wasm-kernel-generation", "schema_version": 1,
-              "status": "failed", "kernel_linked": False, "sql_validated": False}
+              "status": "failed", "kernel_linked": False, "sql_validated": False, "candidate_probe": candidate_probe}
     root = config.root
-    source, build = root / "postgres", directory / "configure"
+    kernel_inputs = read_json(directory / "inputs.json")
+    source, build = source_tree(config, directory, kernel_inputs), directory / "configure"
     inventory, plans = directory / "inventory", directory / "plans"
     runtime = directory / "generated/runtime"
     reports = directory / "reports"
@@ -159,6 +180,9 @@ def generate(config, longjmp: str) -> Path:
     def script(name: str, **arguments) -> None:
         command = [sys.executable, str(root / "buildsys" / (name + ".py"))]
         for key, value in arguments.items():
+            if isinstance(value, bool):
+                if value: command += ["--" + key.replace("_", "-")]
+                continue
             for item in value if isinstance(value, list) else [value]:
                 command += ["--" + key.replace("_", "-"), str(item)]
         run(command, log, env, root)
@@ -204,7 +228,10 @@ def generate(config, longjmp: str) -> Path:
                  *selected(database, domain_manifest=manifest)], [output], ast_inputs, log, env, root)
             databases[name], catalogs[name] = database, output
 
-        adapter = root / "manifests/postgresql/adapter.json"
+        shared_adapter = root / "manifests/postgresql/adapter.json"
+        adapter = inventory / "postgresql-adapter.json"
+        write_json(adapter, project_adapter(read_json(shared_adapter), kernel_inputs["source_adaptations"]))
+        report["support_adapter"] = {"shared_sha256": digest(shared_adapter), "target_sha256": digest(adapter)}
         facts = read_json(adapter)["fact_sources"]
         for fact, generator, label in (("guc_catalog", "generate_guc_catalog", "gucs"),
                                         ("backend_execution_catalog", "generate_backend_execution_catalog", "executions")):
@@ -233,11 +260,15 @@ def generate(config, longjmp: str) -> Path:
         guc_inputs = {**ast_inputs, "manifest_sha256": digest(guc_manifest)}
         ast_cached([*ast, "--mode=scan", f"--output={guc_inventory}"], [guc_inventory], guc_inputs, log, env, root)
 
+        from project_guc_storage import project as project_guc_storage
         excluded = {}
         policies = {}
         for name, filename in (("backend", "backend-state.json"), ("tool", "frontend-tool-state.json")):
-            policy, excluded[name] = project_policy(read_json(root / "manifests/ownership" / filename),
-                                                    read_json(catalogs[name]), target_policy[name])
+            shared_policy = read_json(root / "manifests/ownership" / filename)
+            if name == "backend":
+                shared_policy = project_guc_storage(shared_policy, read_json(catalogs[name]),
+                    read_json(guc_inventory), read_json(root / "manifests/ownership/backend-guc-transitions.json"))
+            policy, excluded[name] = project_policy(shared_policy, read_json(catalogs[name]), target_policy[name])
             policies[name] = inventory / (name + "-policy.json")
             write_json(policies[name], policy)
         rules = read_json(root / "manifests/ownership/backend-state-rules.json")
@@ -315,11 +346,13 @@ def generate(config, longjmp: str) -> Path:
                runtime=runtime / ".postgamma-backend-state-runtime.json",
                report=reports / "inheritance.json", facts=runtime / "include/postgamma/backend_inheritance.inc")
         tree = directory / "generated/postgres"
-        script("materialize", repository=source, manifest=root / "manifests/upstream.json",
+        script("materialize", repository=root / "postgres", manifest=root / "manifests/upstream.json",
                destination=tree, build_root=config.build)
+        apply_adaptations(tree, kernel_inputs["source_adaptations"])
+        report["source_adaptations"] = kernel_inputs["source_adaptations"]
         script("apply_replacements", plan=plans / "postgres.json", tree=tree)
         script("install_generated_support", project_root=root, runtime_dir=runtime, tree=tree,
-               adapter=adapter, profile="product")
+               adapter=adapter, profile="product", candidate_probe=candidate_probe)
         report["outputs"] = {str(path.relative_to(directory)): digest(path)
                              for subdir in (runtime, plans, tree)
                              for path in sorted(subdir.rglob("*")) if path.is_file()}
@@ -346,9 +379,10 @@ def main() -> int:
     parser.add_argument("--node", default="")
     parser.add_argument("--browser-executable", default="")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--candidate-probe", action="store_true")
     args = parser.parse_args()
     try:
-        generate(configuration(args), args.longjmp)
+        generate(configuration(args), args.longjmp, args.candidate_probe)
     except (WasmError, OSError, ValueError) as error:
         parser.exit(2, f"wasm generation: {error}\n")
     return 0

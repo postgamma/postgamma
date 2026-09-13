@@ -43,7 +43,7 @@ static const pgmex_descriptor PostgammaPgvectorDescriptor =
 {
 	.struct_size = sizeof(pgmex_descriptor),
 	.abi_version = PGMEX_ABI_VERSION,
-	.postgresql_major = 19,
+	.postgresql_major = PG_VERSION_NUM / 10000,
 	.reserved = 0,
 	.capabilities =
 		PGMEX_CAP_THREAD_SAFE |
