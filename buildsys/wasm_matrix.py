@@ -51,6 +51,9 @@ def matrix(config, package_receipt=None):
         raise WasmError('package archive changed since validation')
     if verify_tree(Path(package['package']), str(config.root)) != package['staged']:
         raise WasmError('package tree changed since validation')
+    manifest = read_json(Path(package['package']) / 'postgamma.assets.json')
+    if manifest['mode'] != config.mode:
+        raise WasmError('package mode differs from the requested browser matrix')
     for name, checksum in package['sources'].items():
         if name.startswith('wasm/src/') and digest(config.root/name) != checksum:
             raise WasmError('package API source changed; rebuild the package')
@@ -60,12 +63,12 @@ def matrix(config, package_receipt=None):
                config.root/'buildsys/wasm_matrix.py', config.root/'buildsys/wasm_package.py']
     sources = {str(p.relative_to(config.root)): digest(p) for p in sources if p.is_file()}
     report = {'kind':'postgamma.wasm-package-matrix', 'status':'failed',
-        'harness_sources':sources,
+        'harness_sources':sources, 'mode':config.mode,
         'package_receipt':str(package_receipt), 'package_receipt_sha256':digest(package_receipt),
         'archive':package['archive'], 'unpackedBytes':package['staged']['bytes'],
         'host':{'system':platform.system(), 'machine':platform.machine()},
         'requiredEngines':['chromium','firefox','webkit'], 'engines':{},
-        'measurementScope':'Debug preview, local HTTP with isolation headers, one create/reopen and 20 warm SQL samples per profile. Shared linear memory excludes JS heap and VM/RSS. Linux WebKit is not Safari.'}
+        'measurementScope':config.mode.capitalize() + ' preview, local HTTP with isolation headers, one create/reopen and 20 warm SQL samples per profile. Shared linear memory excludes JS heap and VM/RSS. Linux WebKit is not Safari.'}
     begin = time.monotonic()
     try:
         for engine in ('chromium','firefox','webkit'):

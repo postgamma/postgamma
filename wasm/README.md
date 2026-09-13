@@ -10,7 +10,7 @@ initdb and SQL in Chromium. The source TypeScript API supports independent
 sessions, request cancellation, bounded results and COPY. The OPFS suite covers
 ownership, orderly reopen, WAL barriers, storage errors and interrupted recovery.
 All four storage groups, including the 18-case Worker/browser recovery matrix,
-have passed in debug Chromium.
+have passed in debug and release Chromium.
 `make wasm-package-check` builds and validates the versioned browser consumer
 tarball. The source package manifest remains private and contains development
 tools only; generated consumer metadata has no runtime dependencies.
@@ -77,6 +77,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
 | `make wasm-ci` | Run tool/unit/generation/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
+| `make wasm-release` | Build an optimized package and run all SQL, vector, storage, package and browser gates. |
 | `make wasm-check-full` | Run the pinned source through SQL, vector, OPFS recovery, installed package and browser matrix gates. |
 | `make wasm-weekly` | Run the full suite against current PostgreSQL master in an isolated candidate checkout; `PG_BRANCH` and `PG_REPOSITORY` are configurable. |
 | `make wasm-matrix-check` | Validate and measure the last package on Chromium, Firefox and Linux WebKit; every engine must pass. |
@@ -572,8 +573,18 @@ OPFS ownership/failure/recovery checks, an independently installed package, and
 Chromium/Firefox/Linux WebKit package checks and measurements. Every engine must
 pass both ephemeral and OPFS profiles. OPFS uses normal persistent browser
 contexts; private browsing can disable the storage API. The full storage fault
-and crash-recovery suite is validated in Chromium. Release-mode SQL and actual
-Safari acceptance are separate work.
+and crash-recovery suite is validated in Chromium.
+`make wasm-release JOBS=2` repeats the full suite with `-O2` and records the
+actual build mode. Its pgvector comparison requires a passing base SQL budget
+from that same mode and source. Actual Safari and mobile-device acceptance
+requires runs on those devices; Linux WebKit does not provide that evidence.
+
+The PostgreSQL 20 master candidate `7a0aa99e51c7a3263e6ee45f19f270ddae430a92`
+passed the full debug suite on 2026-09-13, including all six engine/storage
+package profiles. Target source adaptations record their input/output hashes;
+unknown source shapes and unreviewed state still fail generation. Candidate
+validation leaves the product pinned to PostgreSQL 19beta3 and does not declare
+all later master commits compatible.
 
 The existing **PostgreSQL upstream canary** workflow runs every Sunday at 02:17
 UTC and supports **Run workflow** with `weekly` or shorter `daily` profiles.

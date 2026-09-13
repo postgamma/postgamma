@@ -34,8 +34,9 @@ an import map. All Worker, Wasm and initialization-resource paths then resolve
 relative to that package. No compiler, Python, PostgreSQL installation or Arrow
 runtime is required by the browser application.
 
-Omit `storage` for an ephemeral database. OPFS requires Web Locks and synchronous
-file access handles; one origin/database name has one live owner. Always close
+Omit `storage` for an ephemeral database. OPFS requires Web Locks,
+BroadcastChannel and synchronous file access handles; one origin/database name
+has one live owner. Always close
 the database to release its Workers and file handles. Clusters are target-specific;
 do not mount a native PostgreSQL data directory. Synchronous COMMIT waits for the
 browser storage barrier; hardware power-loss durability is not established.

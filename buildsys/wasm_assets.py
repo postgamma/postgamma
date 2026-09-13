@@ -31,7 +31,7 @@ def generate(builder, worker='src/worker/sql.js'):
                                  'storage': ['ephemeral-wasmfs', 'owned-opfs'], 'arrowRuntime': False,
                                  'maximumMemoryBytes': policy['maximum_memory_bytes'],
                                  'requirements': ['crossOriginIsolated', 'SharedArrayBuffer', 'WebAssembly', 'moduleWorker', 'WebCrypto'],
-                                 'opfsRequirements': ['WebLocks', 'FileSystemSyncAccessHandle']},
+                                 'opfsRequirements': ['WebLocks', 'FileSystemSyncAccessHandle', 'BroadcastChannel']},
                 'files': hashes}
     manifest['buildId'] = fingerprint(manifest)
     identity = site / 'src/loader/identity.js'

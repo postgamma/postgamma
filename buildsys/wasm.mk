@@ -25,7 +25,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-target-check
 .PHONY: wasm-kernel-configure wasm-kernel-capture wasm-kernel-generate wasm-runtime-check
 .PHONY: wasm-kernel-link
-.PHONY: wasm wasm-check wasm-check-full wasm-serve
+.PHONY: wasm wasm-check wasm-check-full wasm-release wasm-serve
 
 wasm-setup:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" setup $(POSTGAMMA_WASM_ARGS)
@@ -90,6 +90,10 @@ wasm-check:
 
 wasm-serve:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_startup.py" serve $(POSTGAMMA_WASM_ARGS)
+
+wasm-release:
+	@$(MAKE) wasm-browser-setup
+	@$(MAKE) wasm-check-full WASM_MODE=release
 
 # Keep the extension comparison before storage relinks the base artifacts.
 wasm-check-full:

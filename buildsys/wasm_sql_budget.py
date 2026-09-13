@@ -24,7 +24,9 @@ def generate_policy(root: Path, output: Path, policy: dict) -> None:
     module.write_text('export const limits = Object.freeze(' + json.dumps(limits, sort_keys=True) + ');\n')
 
 
-def summarize(policy: dict, layout: dict, browsers: dict) -> dict:
+def summarize(policy: dict, layout: dict, browsers: dict, mode: str) -> dict:
+    if mode not in ("debug", "release"):
+        raise WasmError("unsupported SQL acceptance mode")
     if set(browsers) != set(SCENARIOS):
         raise WasmError('resource acceptance requires every SQL scenario from the same build')
     modules = []
@@ -85,7 +87,7 @@ def summarize(policy: dict, layout: dict, browsers: dict) -> dict:
     if stack_bound > reserved or layout['__data_end'] > policy['static_reserve_bytes'] or layout['__tls_size'] > policy['tls_reserve_per_worker_bytes']:
         raise WasmError('measured stack/static/TLS layout exceeds reserves')
     return {'kind': 'postgamma.wasm-sql-resource-budget', 'status': 'passed',
-            'validated_scope': {'target': policy['target'], 'mode': 'debug', 'browser': 'chromium', 'storage': 'ephemeral-wasmfs'},
+            'validated_scope': {'target': policy['target'], 'mode': mode, 'browser': 'chromium', 'storage': 'ephemeral-wasmfs'},
             'kernel_resource_policy_frozen': policy['status'] == 'validated',
             'healthy_modules': len(healthy), 'fatal_modules': len(fatal),
             'peak_pthreads_sampled': max(m['peakThreads'] for m in modules), 'precreated_pthread_workers': pool,

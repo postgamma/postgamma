@@ -4,13 +4,14 @@ from wasm_toolchain import WasmError, digest, read_json
 
 
 def baseline(builder):
-    if builder.config.mode != "debug":
-        raise WasmError("vector resource acceptance currently covers debug Chromium")
     site = builder.directory / "link/site"
     names = ("postgamma.wasm", "postgamma.data", "postgamma.mjs")
     for path in reversed(sorted((builder.directory / "runs").glob("link-*/sql.json"))):
         sql = read_json(path)
         if sql.get("status") != "passed" or sql.get("scenario") != "all":
+            continue
+        budget = sql.get("resource_budget", {})
+        if budget.get("status") != "passed" or budget.get("validated_scope", {}).get("mode") != builder.config.mode:
             continue
         link_path = Path(sql["link_report"])
         if not link_path.is_file(): continue
@@ -39,7 +40,7 @@ def summarize(builder, base, browsers):
     layout = builder.report["audit"]["layout"]
     files = {name: (builder.output / "site" / name).stat().st_size for name in base["artifact_bytes"]}
     return {"kind": "postgamma.wasm-vector-resource-budget", "status": "passed",
-            "scope": {"mode": "debug", "browser": "chromium", "pgvector": "0.8.6", "simd": False},
+            "scope": {"mode": builder.config.mode, "browser": "chromium", "pgvector": "0.8.6", "simd": False},
             "baseline": base, "layout": layout, "artifact_bytes": files,
             "artifact_byte_delta": {name: size - base["artifact_bytes"][name] for name, size in files.items()},
             "static_byte_delta": layout["__data_end"] - base["layout"]["__data_end"],

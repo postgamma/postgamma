@@ -29,13 +29,15 @@ class SqlBudgetTests(unittest.TestCase):
 
     def test_partial_or_failed_scenarios_cannot_freeze_the_profile(self):
         from wasm_sql_budget import SCENARIOS
-        with self.assertRaisesRegex(WasmError, 'every SQL scenario'):
-            summarize(self.policy(), {}, {})
-        reports = {name: {'status': 'passed', 'probe': {'scenario': name, 'checks': ['ok'], 'metrics': []}}
-                   for name in SCENARIOS}
-        reports['results']['status'] = 'failed'
-        with self.assertRaisesRegex(WasmError, 'results'):
-            summarize(self.policy(), {}, reports)
+        for mode in ('debug', 'release'):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(WasmError, 'every SQL scenario'):
+                    summarize(self.policy(), {}, {}, mode)
+                reports = {name: {'status': 'passed', 'probe': {'scenario': name, 'checks': ['ok'], 'metrics': []}}
+                           for name in SCENARIOS}
+                reports['results']['status'] = 'failed'
+                with self.assertRaisesRegex(WasmError, 'results'):
+                    summarize(self.policy(), {}, reports, mode)
 
 if __name__ == '__main__':
     unittest.main()

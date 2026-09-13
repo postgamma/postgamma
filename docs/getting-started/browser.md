@@ -1,22 +1,21 @@
 # Browser preview
 
 The browser package runs the PostgreSQL kernel in Workers, with four independent
-SQL sessions and static pgvector. The accepted package profile is debug wasm32
-with pthreads in Chromium, Firefox and Linux WebKit. This package is a source-built preview; an npm
-registry release has not been published.
+SQL sessions and static pgvector. Debug and optimized release wasm32 packages
+with pthreads have passed in Chromium, Firefox and Linux WebKit. This package is
+a source-built preview; an npm registry release has not been published.
 
 ## Build and install
 
 From a source checkout with the native build prerequisites installed:
 
 ```sh
-make source-init wasm-setup
-make wasm-kernel-generate JOBS=2
-make wasm-package-check JOBS=2
+make source-init
+make wasm-release JOBS=2
 ```
 
-The last command prints the exact `postgamma-wasm-*.tgz` path. Install that file
-in your application:
+The full-suite report is under `build/wasm/ci/`. Its sibling `package.log`
+records the exact `postgamma-wasm-*.tgz` path. Install that file in your application:
 
 ```sh
 npm install /path/to/postgamma-wasm-0.1.0-alpha.1.tgz
@@ -101,7 +100,7 @@ source checkout with `make wasm-vector-serve`.
 
 ## Measured scope
 
-`make wasm-browser-setup wasm-matrix-check` installs/reuses the pinned browsers
+`make wasm-browser-setup wasm-matrix-check WASM_MODE=release` reuses the pinned browsers
 and measures the previously validated package. Reports are under
 `build/wasm/matrix/`; each engine runs SQL, four concurrent sessions,
 transactions, cancellation, vector indexes and separate ephemeral/OPFS reopen
@@ -111,13 +110,19 @@ The complete storage error and crash-recovery suite remains a Chromium gate.
 
 The shared linear-memory ceiling is 512 MiB with a fixed 13-slot pthread pool.
 JS heap, compilation memory and browser VM/RSS are additional and are not
-measured by that ceiling. Timings are local debug observations, not release
-performance guarantees. Safari on macOS/iOS, mobile browsers, release-mode SQL,
-Node.js and WASI execution have not been accepted. Multiple live instances and
+measured by that ceiling. The timings below are local release observations, not
+performance guarantees. Safari on macOS/iOS, mobile browsers, Node.js and WASI
+execution have not been accepted. Multiple live instances and
 arbitrary native extension loading are outside the initial profile.
 
+To validate an optimized archive, run `make wasm-release JOBS=2` after toolchain
+setup. This runs the same complete SQL, vector, recovery and browser gates with
+`-O2`; reports and artifacts identify their build mode. OPFS requires Web Locks,
+BroadcastChannel and synchronous file access handles in addition to the page's
+isolation headers.
+
 Measured on Linux x86-64 on 2026-09-13, with Playwright 1.63.0 and the
-`0.1.0-alpha.1` package built from PostgreSQL 19beta3 and pgvector 0.8.6:
+`0.1.0-alpha.1` release package (`-O2`) built from PostgreSQL 19beta3 and pgvector 0.8.6:
 
 | Engine | Ephemeral package profile | OPFS package profile |
 | --- | --- | --- |
@@ -125,23 +130,23 @@ Measured on Linux x86-64 on 2026-09-13, with Playwright 1.63.0 and the
 | Firefox 155.0 | Passed | Passed |
 | Linux WebKit 26.6 | Passed | Passed |
 
-The npm archive was 6,007,505 bytes (5.73 MiB), with 20,305,097 unpacked bytes
-(19.36 MiB), including notices and declarations. The representative query was
+The npm archive was 3,592,432 bytes (3.43 MiB), with 12,187,668 unpacked bytes
+(11.62 MiB), including notices and declarations. The representative query was
 `SELECT sum(i) FROM generate_series(1,10000) i`, sampled 20 times after startup.
 
 | Engine / storage | Create | Reopen | Query median / p95 | Peak shared linear memory |
 | --- | --- | --- | --- | --- |
-| Chromium / ephemeral | 8.94 s | 9.01 s | 36.59 / 40.49 ms | 184.38 MiB |
-| Chromium / OPFS | 25.02 s | 1.56 s | 40.47 / 49.15 ms | 128.00 MiB |
-| Firefox / ephemeral | 10.15 s | 10.34 s | 43.32 / 70.46 ms | 184.38 MiB |
-| Firefox / OPFS | 45.56 s | 2.39 s | 44.14 / 72.10 ms | 128.00 MiB |
-| Linux WebKit / ephemeral | 7.43 s | 7.44 s | 42.85 / 57.98 ms | 184.38 MiB |
-| Linux WebKit / OPFS | 17.57 s | 1.71 s | 35.37 / 45.74 ms | 128.00 MiB |
+| Chromium / ephemeral | 3.64 s | 3.49 s | 21.53 / 32.93 ms | 184.38 MiB |
+| Chromium / OPFS | 14.25 s | 1.25 s | 18.97 / 21.05 ms | 128.00 MiB |
+| Firefox / ephemeral | 3.66 s | 3.57 s | 23.02 / 34.32 ms | 184.38 MiB |
+| Firefox / OPFS | 36.82 s | 1.95 s | 21.85 / 27.40 ms | 128.00 MiB |
+| Linux WebKit / ephemeral | 3.57 s | 3.83 s | 24.11 / 31.28 ms | 184.38 MiB |
+| Linux WebKit / OPFS | 11.66 s | 1.42 s | 19.96 / 22.90 ms | 128.00 MiB |
 
 Ephemeral reopen initializes another fresh cluster; OPFS reopen opens existing
 files. Peaks cover the full SQL/vector workload and are not idle memory sizes.
 These are single local runs without exclusive host access; browser caches,
-host load and debug instrumentation affect timings. The complete record is
-`build/wasm/matrix/20260913T015419Z-16ee7a8e/report.json`, including package and
+host load and engine scheduling affect timings. The complete record is
+`build/wasm/matrix/20260913T033050Z-e3cb95ed/report.json`, including package and
 harness hashes, raw samples and version identities. Earlier failed rounds remain
 in their own report directories.

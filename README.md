@@ -405,13 +405,13 @@ make wasm-sql-check JOBS=2
 Use `WASM_SQL_SCENARIO=abi`, `concurrency`, `errors`, `results`, `lifecycle`,
 `fatal-trap`, `fatal-abort`, or `budget` for a focused check. The full gate uses
 the native reference test installation for its SQL/COPY oracle. The reviewed
-SQL profile is debug Chromium with an ephemeral filesystem, four connections
+SQL profiles are debug and release Chromium with an ephemeral filesystem, four connections
 and up to 512 MiB of shared linear memory. `make wasm-storage-check JOBS=2`
 runs the separate OPFS suite: ownership, file semantics, WAL barriers, storage
 errors, orderly reopen and Worker/browser crash recovery. Use
 `WASM_STORAGE_SCENARIO=storage`, `durability`, `storage-errors`, or `recovery`
 to select one group. All four groups, including the 18-case Worker/browser
-recovery matrix, have passed in debug Chromium.
+recovery matrix, have passed in debug and release Chromium.
 `make wasm-vector-check JOBS=2` checks static pgvector loading, exact and ANN
 queries, parallel HNSW/IVFFlat builds, transactions, independent sessions and
 persistent index recovery in an isolated extension variant. It also checks the
@@ -539,6 +539,10 @@ The [browser preview guide](docs/getting-started/browser.md) covers installing
 the generated npm package, serving its assets and choosing ephemeral or OPFS
 storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
 validated package in Chromium, Firefox and Linux WebKit.
+
+`make wasm-release JOBS=2` builds an optimized browser package and runs the full
+SQL, pgvector, OPFS recovery and three-engine acceptance suite. It reuses the
+installed toolchain and keeps release artifacts separate from debug builds.
 
 `make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
 Relevant pull requests and main-branch changes also run them in the Browser

@@ -97,9 +97,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                 report["vector_resource_budget"] = vector_summary(builder, vector_baseline, report["browsers"])
                 write_json(builder.current / "vector-resource-budget.json", report["vector_resource_budget"])
             if scenario == "all":
-                if config.mode != "debug":
-                    raise WasmError("SQL resource acceptance currently covers debug Chromium only")
-                report["resource_budget"] = summarize(policy, builder.report["audit"]["layout"], report["browsers"])
+                report["resource_budget"] = summarize(policy, builder.report["audit"]["layout"], report["browsers"], config.mode)
                 write_json(builder.current / "sql-resource-budget.json", report["resource_budget"])
             report["sql_validated"] = True
         for source, checksum in report["harness_sources"].items():

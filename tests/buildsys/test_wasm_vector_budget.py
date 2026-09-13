@@ -35,8 +35,20 @@ class VectorBudgetTests(unittest.TestCase):
                     'audit': {'layout': {}}}
             write_json(report, link)
             write_json(run / 'sql.json', {'status': 'passed', 'scenario': 'all', 'link_report': str(report),
+                       'resource_budget': {'status': 'passed', 'validated_scope': {'mode': 'debug'}},
                        'browsers': {'abi': {'probe': {'metrics': [{'peakMemory': 128}]}}}})
             self.assertEqual(baseline(builder)['abi_peak_linear_memory'], 128)
+            builder.config.mode = 'release'
+            with self.assertRaisesRegex(WasmError, 'matching base artifacts'):
+                baseline(builder)
+            import json
+            sql = json.loads((run / 'sql.json').read_text())
+            sql['resource_budget']['validated_scope']['mode'] = 'release'
+            write_json(run / 'sql.json', sql)
+            self.assertEqual(baseline(builder)['abi_peak_linear_memory'], 128)
+            sql['resource_budget']['validated_scope']['mode'] = 'debug'
+            write_json(run / 'sql.json', sql)
+            builder.config.mode = 'debug'
             mutations = [('source_snapshot', 'runtime'), ('source_snapshot', 'manifests'),
                          ('inputs', 'tools'), ('bridge', 'sha256'), ('bridge', 'flags'),
                          ('outputs', 'postgamma.wasm')]
