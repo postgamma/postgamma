@@ -2,7 +2,7 @@
 export interface Node {id: number; parent: number; name: string; kind: number; mode: number}
 export type Change = {op: 'create'; node: Node} | {op: 'move'; id: number; parent: number; name: string} |
   {op: 'remove'; parent: number; name: string};
-const magic = 0x314e4750;
+export const legacyMagic = 0x314e4750;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal: true});
 export const journalLimit = 16 * 1024 * 1024;
 export const nodeLimit = 16384;
@@ -19,7 +19,7 @@ export function encode(change: Change, sequence: number): Uint8Array {
   if (payload.length > 4096 || !Number.isSafeInteger(sequence) || sequence < 1 || sequence >= 0x80000000)
     throw new Error('Namespace record exceeds the format');
   const bytes = new Uint8Array(16 + payload.length), view = new DataView(bytes.buffer);
-  view.setUint32(0, magic, true); view.setUint32(4, payload.length, true);
+  view.setUint32(0, legacyMagic, true); view.setUint32(4, payload.length, true);
   view.setUint32(8, sequence, true); bytes.set(payload, 16);
   // Include sequence and length in the checksum, as well as the payload.
   view.setUint32(12, checksum(bytes), true);
@@ -33,6 +33,48 @@ export class Namespace {
     for (const node of this.nodes.values()) if (node.parent === parent && node.name === name) return node;
   }
   children(parent: number): Node[] {return [...this.nodes.values()].filter(n => n.parent === parent);}
+  static restore(nodes: Node[], nextId: number): Namespace {
+    const namespace = new Namespace();
+    namespace.nodes.clear();
+    const names = new Set<string>();
+    if (!nodes.length || nodes.length > nodeLimit || !Number.isSafeInteger(nextId) ||
+        nextId < 2 || nextId > 0x80000000) throw new Error('Invalid namespace snapshot size or next ID');
+    for (const node of nodes) {
+      if (!Number.isSafeInteger(node.id) || node.id < 1 || node.id >= nextId ||
+          namespace.nodes.has(node.id) || ![1, 2].includes(node.kind) ||
+          !Number.isInteger(node.mode) || node.mode < 0 || node.mode > 0o7777)
+        throw new Error('Invalid namespace snapshot node');
+      if (node.id === 1) {
+        if (node.parent !== 0 || node.name !== '' || node.kind !== 2)
+          throw new Error('Invalid namespace snapshot root');
+      } else if (!node.name || node.name === '.' || node.name === '..' ||
+                 /[\0/]/.test(node.name) || encoder.encode(node.name).length > 255) {
+        throw new Error('Invalid namespace snapshot name');
+      }
+      const key = node.parent + ':' + node.name;
+      if (names.has(key)) throw new Error('Duplicate namespace snapshot name');
+      names.add(key);
+      namespace.nodes.set(node.id, {...node});
+    }
+    if (!namespace.nodes.has(1)) throw new Error('Missing namespace snapshot root');
+    // Renaming can put an old node under a newer parent. Validate the whole
+    // graph without relying on ID order or recursive JavaScript stack depth.
+    const reached = new Set([1]);
+    for (const node of nodes) {
+      const path = new Set<number>();
+      let current = node;
+      while (!reached.has(current.id)) {
+        if (path.has(current.id)) throw new Error('Namespace snapshot cycle');
+        path.add(current.id);
+        const parent = namespace.nodes.get(current.parent);
+        if (!parent || parent.kind !== 2) throw new Error('Invalid namespace snapshot parent');
+        current = parent;
+      }
+      for (const id of path) reached.add(id);
+    }
+    namespace.nextId = nextId;
+    return namespace;
+  }
   apply(change: Change) {
     const validName = (name: string) => typeof name === 'string' && name.length > 0 &&
       name !== '.' && name !== '..' && !/[\0/]/.test(name) && encoder.encode(name).length <= 255;
@@ -60,15 +102,14 @@ export class Namespace {
       this.nodes.delete(replaced.id);
     } else throw new Error('Unknown namespace operation');
   }
-  static replay(bytes: Uint8Array): {namespace: Namespace; validBytes: number; discardedBytes: number} {
+  static replay(bytes: Uint8Array, namespace = new Namespace()): {namespace: Namespace; validBytes: number; discardedBytes: number} {
     if (bytes.length > journalLimit) throw new Error('Namespace journal exceeds its limit');
-    const namespace = new Namespace();
     let offset = 0;
     while (offset < bytes.length) {
       if (bytes.length - offset < 16) break;
       const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.length - offset);
       const length = view.getUint32(4, true);
-      if (view.getUint32(0, true) !== magic || length > 4096) throw new Error('Corrupt namespace header');
+      if (view.getUint32(0, true) !== legacyMagic || length > 4096) throw new Error('Corrupt namespace header');
       if (16 + length > bytes.length - offset) break;
       const record = Uint8Array.from(bytes.subarray(offset, offset + 16 + length)), copy = new DataView(record.buffer);
       const crc = copy.getUint32(12, true); copy.setUint32(12, 0, true);

@@ -89,6 +89,12 @@ suite covers interrupted Workers/browser processes and storage failures; it
 does not establish hardware power-loss durability. Handle quota and I/O errors
 and reopen a discarded instance before further work.
 
+Metadata checkpoints reclaim the history of file creation, deletion and rename.
+The profile supports 16,384 live file/directory entries and keeps its two
+metadata files within 16 MiB in normal operation. Existing preview databases
+upgrade automatically when opened; that migration needs up to 5 MiB of extra
+space for a snapshot. Older builds cannot open the upgraded storage format.
+
 Each connection serializes `query()` calls; different connections can execute
 concurrently. Use `execute()` and its request iterator for large results,
 `cancel()` for cancellation, and COPY streams for bulk data. Values preserve

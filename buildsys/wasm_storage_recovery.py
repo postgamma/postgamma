@@ -16,7 +16,7 @@ def check(config, builder, url: str) -> dict:
         run(command, output / 'runner.log', dict(browser_environment(config, builder.env), TMPDIR=temporary),
             config.root, timeout=600)
     report = read_json(output / 'browser.json')
-    if report.get('status') != 'passed' or len(report.get('cases', [])) != 18:
+    if report.get('status') != 'passed' or len(report.get('cases', [])) != 32:
         raise WasmError('incomplete storage recovery matrix')
     if any(case.get('status') != 'passed' for case in report['cases']):
         raise WasmError('storage recovery case failed')

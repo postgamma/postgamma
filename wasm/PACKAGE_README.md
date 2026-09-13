@@ -41,6 +41,12 @@ the database to release its Workers and file handles. Clusters are target-specif
 do not mount a native PostgreSQL data directory. Synchronous COMMIT waits for the
 browser storage barrier; hardware power-loss durability is not established.
 
+Namespace checkpoints automatically reclaim metadata history. The initial
+profile allows 16,384 live file/directory entries and bounds the two metadata
+files to 16 MiB together. Existing preview databases upgrade when opened;
+the migration needs room for one additional snapshot of at most 5 MiB.
+Older builds cannot open the upgraded storage format.
+
 Four independent connections share the instance. A connection serializes
 `query()` calls; different connections run concurrently. Use `execute()` and the
 request's async iterator for bounded result batches, `cancel()` for cancellation,

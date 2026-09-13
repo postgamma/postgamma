@@ -410,7 +410,7 @@ and up to 512 MiB of shared linear memory. `make wasm-storage-check JOBS=2`
 runs the separate OPFS suite: ownership, file semantics, WAL barriers, storage
 errors, orderly reopen and Worker/browser crash recovery. Use
 `WASM_STORAGE_SCENARIO=storage`, `durability`, `storage-errors`, or `recovery`
-to select one group. All four groups, including the 18-case Worker/browser
+to select one group. All four groups, including the 32-case Worker/browser
 recovery matrix, have passed in debug and release Chromium.
 `make wasm-vector-check JOBS=2` checks static pgvector loading, exact and ANN
 queries, parallel HNSW/IVFFlat builds, transactions, independent sessions and

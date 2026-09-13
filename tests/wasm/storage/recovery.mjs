@@ -72,7 +72,8 @@ try {
     assert(report.initialization.isolated);
   }
   const boundaries = startupOnly ? [] : values.case ? values.case.split(',') : ['wal-before', 'wal-after', 'checkpoint', 'create', 'extension',
-    'rename-written', 'rename-flushed', 'journal-tail'];
+    'rename-written', 'rename-flushed', 'journal-tail', 'compact-before', 'compact-prepared',
+    'compact-partial', 'compact-written', 'compact-flushed', 'compact-retired', 'compact-published'];
   const methods = values.method ? [values.method] : ['worker', 'browser'];
   for (const method of methods) {
     assert(['worker', 'browser'].includes(method));

@@ -1,19 +1,20 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {Namespace, encode, journalLimit, nodeLimit} from './namespace.js';
+import {Namespace, nodeLimit} from './namespace.js';
 import type {Change, Node} from './namespace.js';
+import type {AccessHandle, StorageDirectory, StorageFile} from './files.js';
+import {Journal} from './journal.js';
 
 // This module runs only on the dedicated I/O owner. Calls are serialized there;
 // it never enters PostgreSQL or waits for a kernel lock.
 const utf8 = new TextEncoder();
 const error = (name: string, message: string) => new DOMException(message, name);
 export class Store {
-  private root: any;
-  private journal: any;
+  private root!: StorageDirectory;
+  private journal: Journal | undefined;
   private namespace = new Namespace();
-  private bytes = 0;
   private poisoned = false;
-  private handles = new Map<number, any>();
-  private files = new Map<number, any>();
+  private handles = new Map<number, AccessHandle>();
+  private files = new Map<number, StorageFile>();
   // The exclusive I/O owner observes every mutation. Sizes remain valid across
   // handle eviction; querying the browser on every fstat is an IPC roundtrip.
   private sizes = new Map<number, number>();
@@ -25,30 +26,24 @@ export class Store {
   private fault: {operation: string; path: string; action: string; remaining: number} | undefined;
   private resume: (() => void) | undefined;
   metrics = {reads: 0, writes: 0, flushes: 0, directoryFlushes: 0, namespaceCommits: 0,
-    peakHandles: 0, discardedJournalBytes: 0, collectedOrphans: 0};
+    peakHandles: 0, discardedJournalBytes: 0, collectedOrphans: 0,
+    compactions: 0, journalBytes: 0, peakJournalBytes: 0, journalGeneration: 0};
   async mount(name: string, testChannel: string) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) throw error('TypeError', 'Invalid database name');
-    const origin = await navigator.storage.getDirectory();
+    const origin = await navigator.storage.getDirectory() as unknown as StorageDirectory;
     const databases = await origin.getDirectoryHandle('postgamma', {create: true});
     this.root = await databases.getDirectoryHandle(name, {create: true});
     try {
-      let journal;
-      try {journal = await this.root.getFileHandle('namespace-v1');}
-      catch (cause) {
-        if ((cause as DOMException).name !== 'NotFoundError') throw cause;
-        for await (const _entry of this.root.entries())
-          throw error('NotFoundError', 'Namespace journal is missing from nonempty database storage');
-        journal = await this.root.getFileHandle('namespace-v1', {create: true});
-      }
-      this.journal = await journal.createSyncAccessHandle();
-      const length = this.journal.getSize();
-      if (length > journalLimit) throw error('QuotaExceededError', 'Namespace journal exceeds its limit');
-      const bytes = new Uint8Array(length);
-      if (this.journal.read(bytes, {at: 0}) !== length) throw error('UnknownError', 'Short namespace read');
-      const replay = Namespace.replay(bytes);
-      this.namespace = replay.namespace; this.bytes = replay.validBytes;
-      this.metrics.discardedJournalBytes = replay.discardedBytes;
-      if (replay.discardedBytes) {this.journal.truncate(this.bytes); this.journal.flush();}
+      this.journal = await Journal.open(this.root, {
+        point: (operation, path) => this.point(operation, 0, path),
+        partial: async bytes => {
+          this.channel!.postMessage({gate: 'namespace-partial', path: 'journal', bytes});
+          await new Promise<void>(resolve => {this.resume = resolve;});
+          throw error('UnknownError', 'Interrupted namespace tail requires recovery');
+        },
+      });
+      this.namespace = this.journal.namespace;
+      this.journalMetrics();
       // A published namespace must never silently create a missing data object.
       for (const node of this.namespace.nodes.values()) if (node.kind === 1)
         this.files.set(node.id, await this.root.getFileHandle('file-' + node.id));
@@ -62,11 +57,30 @@ export class Store {
         this.channel.onmessage = ({data}) => {
           if (data.command === 'arm') {this.fault = data.fault; this.channel!.postMessage({armed: true, request: data.request});}
           if (data.command === 'release') {this.resume?.(); this.resume = undefined;}
-          if (data.command === 'metrics') this.channel!.postMessage({metrics: this.metrics, request: data.request});
+          if (data.command === 'metrics') {
+            this.journalMetrics();
+            this.channel!.postMessage({metrics: this.metrics, request: data.request});
+          }
+          if (data.command === 'checkpoint') {
+            // Test-channel work obeys the same serialization as native I/O.
+            const work = this.tail.then(async () => {
+              if (this.poisoned) throw error('UnknownError', 'OPFS namespace requires recovery');
+              await this.journal!.checkpoint();
+              this.journalMetrics();
+              this.channel!.postMessage({checkpoint: true, request: data.request, metrics: this.metrics});
+            });
+            this.tail = work.catch(cause => {
+              this.poisoned = true;
+              this.channel!.postMessage({checkpoint: false, request: data.request, error: String(cause)});
+            });
+          }
         };
         this.channel.postMessage({mounted: true, metrics: this.metrics});
       }
     } catch (cause) {this.journal?.close(); this.journal = undefined; throw cause;}
+  }
+  private journalMetrics() {
+    if (this.journal) Object.assign(this.metrics, this.journal.metrics);
   }
   private path(id: number): string {
     const parts = [];
@@ -84,13 +98,15 @@ export class Store {
     return f.action;
   }
   private reserveHandle() {
-    if (this.handles.size >= 64) {
+    // Two metadata handles plus 63 data handles retain the total 65-handle
+    // ceiling, including while a checkpoint replaces the previous log.
+    if (this.handles.size >= 63) {
       const [old, access] = this.handles.entries().next().value!;
       if (this.dirty.has(old)) access.flush();
       access.close(); this.handles.delete(old); this.dirty.delete(old);
     }
   }
-  private keepHandle(id: number, h: any, size: number) {
+  private keepHandle(id: number, h: AccessHandle, size: number) {
     this.sizes.set(id, size);
     this.handles.set(id, h); this.metrics.peakHandles = Math.max(this.metrics.peakHandles, this.handles.size);
   }
@@ -123,29 +139,9 @@ export class Store {
     catch { /* A failed deletion remains an orphan for the next owned mount. */ }
   }
   private async commit(change: Change) {
-    const record = encode(change, this.namespace.sequence + 1);
-    if (this.bytes + record.length > journalLimit) throw error('QuotaExceededError', 'Namespace journal is full');
     try {
-      const action = await this.point('namespace-before', 0, change.op);
-      if (action === 'partial') {
-        const partial = record.subarray(0, Math.floor(record.length / 2));
-        if (this.journal.write(partial, {at: this.bytes}) !== partial.length)
-          throw error('UnknownError', 'Short injected journal tail');
-        this.journal.flush();
-        this.channel!.postMessage({gate: 'namespace-partial', path: change.op, bytes: partial.length});
-        await new Promise<void>(resolve => {this.resume = resolve;});
-        throw error('UnknownError', 'Interrupted namespace tail requires recovery');
-      }
-      let offset = 0;
-      while (offset < record.length) {
-        const n = this.journal.write(record.subarray(offset), {at: this.bytes + offset});
-        if (n <= 0) throw error('UnknownError', 'Namespace write made no progress');
-        offset += n;
-      }
-      await this.point('namespace-written', 0, change.op);
-      this.journal.flush();
-      await this.point('namespace-flushed', 0, change.op);
-      this.namespace.apply(change); this.namespace.sequence++; this.bytes += record.length;
+      await this.journal!.append(change);
+      this.journalMetrics();
       this.metrics.namespaceCommits++;
     } catch (cause) {this.poisoned = true; throw cause;}
   }
@@ -159,7 +155,8 @@ export class Store {
     const putNode = (node: Node) => {const v = view(); v.setUint32(0, node.id, true); v.setUint32(4, node.kind, true); v.setUint32(8, node.mode, true);};
     if (op === 1) {const node = this.namespace.lookup(id, name); if (!node) return 0; putNode(node); return node.id;}
     if (op === 2 || op === 3) {
-      if (this.namespace.nodes.size >= nodeLimit) throw error('QuotaExceededError', 'Namespace node limit reached');
+      if (this.namespace.nodes.size >= nodeLimit || this.namespace.nextId >= 0x80000000)
+        throw error('QuotaExceededError', 'Namespace node or identity limit reached');
       const node = {id: this.namespace.nextId, parent: id, name, kind: op === 2 ? 1 : 2, mode};
       await this.point('create', id, this.path(id) + '/' + name);
       if (node.kind === 1) {
@@ -209,8 +206,9 @@ export class Store {
         try {h.close();} catch (cause) {failure ??= cause;}
       }
       this.handles.clear(); this.files.clear(); this.sizes.clear(); this.dirty.clear();
-      try {if (!this.poisoned) this.journal.flush();} catch (cause) {failure ??= cause;}
-      try {this.journal.close();} catch (cause) {failure ??= cause;}
+      this.journalMetrics();
+      try {if (!this.poisoned) this.journal!.flush();} catch (cause) {failure ??= cause;}
+      try {this.journal!.close();} catch (cause) {failure ??= cause;}
       this.journal = undefined;
       this.channel?.postMessage({closed: true, metrics: this.metrics, handles: this.handles.size, virtualOpens: this.opens.size,
         failed: failure !== undefined});
@@ -218,7 +216,7 @@ export class Store {
       if (failure) throw failure;
       return 0;
     }
-    if (op === 13) {await this.point('directory-flush', id); this.journal.flush(); this.metrics.directoryFlushes++; return 0;}
+    if (op === 13) {await this.point('directory-flush', id); this.journal!.flush(); this.metrics.directoryFlushes++; return 0;}
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
     if (op === 14 && this.sizes.has(id)) return this.sizes.get(id)!;
     const h = await this.handle(id);

@@ -54,6 +54,10 @@ async function arm(id: string, boundary: string) {
     await connection.query(`INSERT INTO ledger VALUES('${id}_pending',1),('${id}_pending',2)`);
     operation = boundary === 'wal-before' ? 'flush-before' : 'flush-after'; path = '/pg_wal/';
     work = () => connection.query('COMMIT');
+  } else if (boundary.startsWith('compact-')) {
+    operation = 'checkpoint-' + boundary.slice('compact-'.length);
+    path = 'snapshot';
+    work = () => control.checkpoint();
   } else if (boundary === 'checkpoint') {
     await connection.query("UPDATE payload SET value = repeat('b',4000)");
     operation = 'write'; path = '/' + scalar(await connection.query("SELECT pg_relation_filepath('payload')"));
@@ -99,7 +103,7 @@ async function close() {
 async function terminate() {
   const before = ticks;
   (db as any).transport.fail(new Error('Injected owner Worker termination'));
-  await pending; control.close();
+  control.close(); await pending;
   return {method: 'Worker.terminate', pendingSettled: true, pageAlive: ticks >= before};
 }
 async function startupGate(name: string) {

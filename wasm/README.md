@@ -9,7 +9,7 @@ matching initialization resources. The private C/TypeScript startup bridge runs
 initdb and SQL in Chromium. The source TypeScript API supports independent
 sessions, request cancellation, bounded results and COPY. The OPFS suite covers
 ownership, orderly reopen, WAL barriers, storage errors and interrupted recovery.
-All four storage groups, including the 18-case Worker/browser recovery matrix,
+All four storage groups, including the 32-case Worker/browser recovery matrix,
 have passed in debug and release Chromium.
 `make wasm-package-check` builds and validates the versioned browser consumer
 tarball. The source package manifest remains private and contains development
@@ -427,9 +427,16 @@ await reopened.close();
 Names contain 1-64 ASCII letters, digits, underscores or hyphens. A second owner
 of the same database is rejected before initialization/recovery. Ownership lasts
 through native shutdown and I/O drain. The provider uses a dedicated 2 MiB-stack
-I/O thread, at most 64 cached physical access handles, and stable file identities
-behind a checksummed namespace journal. The initial journal is bounded to 16 MiB
-and the namespace to 16,384 live entries. The profile does not provide symlinks
+I/O thread, at most 63 cached data access handles plus two metadata handles, and
+stable file identities behind a checksummed namespace journal. Checkpoints
+alternate between two 8 MiB slots: the new snapshot is flushed before the old
+slot is retired, and no later mutation is acknowledged until retirement finishes.
+Snapshots retain live file IDs and the next-ID watermark; replay resets only the
+per-generation record sequence. The two slots fit within 16 MiB and the namespace
+allows 16,384 live entries. Migrating the previous append-only format temporarily
+needs room for one additional snapshot of at most 5 MiB; the previous log remains
+authoritative until it is retired. Older clients reject the upgraded format.
+The profile does not provide symlinks
 or external tablespaces. It requires OPFS and Web Locks and never falls back to
 an ephemeral database when persistent storage cannot be opened.
 
@@ -445,7 +452,7 @@ COMMIT and that uncertain namespace writes require a fresh module. Recovery must
 retain acknowledged commits and transaction atomicity; a transaction whose reply
 was lost may already be committed. The OPFS resource checks include the measured
 2 MiB I/O stack, existing 13-Worker pool, 512 MiB linear memory maximum, bounded
-queues, 64 data access handles plus one journal handle, and healthy shutdown drain.
+queues, 63 data access handles plus two metadata handles, and healthy shutdown drain.
 Browser VM/RSS and hardware power-loss durability are not measured.
 
 The recovery group uses one origin and persistent browser profile. Each of
@@ -454,7 +461,9 @@ injected before/after WAL flush, during checkpoint data writes, file creation,
 relation extension, before/after namespace rename flush, and after flushing a
 partial namespace record. Both also interrupt target initdb. The runner verifies
 PostgreSQL automatic recovery, acknowledged transaction pairs, DDL/extension
-rollback, file identity and actual journal-tail replay. Its complete 18-case
+rollback, file identity and actual journal-tail replay. Seven checkpoint boundaries
+also interrupt snapshot preparation, partial and complete writes, flush, retirement
+and publication. Its complete 32-case
 matrix has a 600-second watchdog and a 90-second limit per recovery operation;
 each receipt retains gates, interruption method, browser process identity,
 recovered SQL, logs and resource measurements. Progress is saved periodically

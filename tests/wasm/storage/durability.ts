@@ -3,6 +3,7 @@ import {Database} from '../src/api/database.js';
 import {assert, scalar, errorState} from '../tests/helpers.js';
 import {waitLock} from '../tests/concurrency.js';
 import {Control} from './control.js';
+import {legacyFixture} from './migration.js';
 
 async function probe(db: Database, phase: number) {
   const reply = await (db as any).transport.call(65534, undefined, (w: any) => w.u32(phase));
@@ -53,6 +54,11 @@ export async function durability(checks: string[], metrics: unknown[]) {
   assert(scalar(await a.query('SELECT 19')) === '19', 'Session reuses after SQL quota error');
   checks.push('short-write-count', 'create-enospc', 'fsync-eio', 'fdatasync-eio', 'truncate-eio', 'directory-fsync-eio',
     'sql-quota-sqlstate-and-reuse');
+  const previous = await control.metrics();
+  const compacted = await control.checkpoint();
+  assert(compacted.compactions === previous.compactions + 1, 'An actual namespace checkpoint completed');
+  assert(scalar(await a.query('SELECT value FROM durable_values')) === '12', 'Live descriptors survive namespace compaction');
+  checks.push('namespace-checkpoint', 'open-files-after-checkpoint');
   metrics.push(await db.close());
   const closed = await control.wait(event => event.closed);
   assert(closed.handles === 0 && closed.virtualOpens === 0 && !closed.failed, 'Storage drains all handles');
@@ -60,6 +66,13 @@ export async function durability(checks: string[], metrics: unknown[]) {
 
   // A missing journal must preserve data for diagnosis, never recycle it as orphans.
   const root = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('postgamma')).getDirectoryHandle(name);
+  await legacyFixture(root);
+  db = await Database.open({...options, create: false});
+  const migrated = await db.connect();
+  assert(scalar(await migrated.query('SELECT value FROM durable_values')) === '12', 'Legacy namespace migration preserves PostgreSQL files');
+  metrics.push(await db.close());
+  await control.wait(event => event.closed);
+  checks.push('legacy-namespace-migration');
   const journal = await (await root.getFileHandle('namespace-v1')).getFile();
   const backup = await journal.arrayBuffer();
   const entries = async () => {const names: string[] = []; for await (const key of (root as any).keys()) names.push(key); return names.sort();};
