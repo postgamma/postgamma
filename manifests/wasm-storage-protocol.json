@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "operations": {
+    "mount": 0,
+    "lookup": 1,
+    "createFile": 2,
+    "createDirectory": 3,
+    "move": 4,
+    "remove": 5,
+    "list": 6,
+    "open": 7,
+    "close": 8,
+    "read": 9,
+    "write": 10,
+    "flush": 11,
+    "shutdown": 12,
+    "flushDirectory": 13,
+    "size": 14,
+    "truncate": 15
+  },
+  "errno": {"EACCES": 2, "EBUSY": 10, "EINVAL": 28, "EIO": 29, "ENOENT": 44, "ENOSPC": 51, "ENOTSUP": 138},
+  "dom_errors": {
+    "QuotaExceededError": "ENOSPC",
+    "NotFoundError": "ENOENT",
+    "NoModificationAllowedError": "EBUSY",
+    "InvalidStateError": "EBUSY",
+    "NotAllowedError": "EACCES",
+    "TypeError": "EINVAL",
+    "NotSupportedError": "ENOTSUP"
+  }
+}

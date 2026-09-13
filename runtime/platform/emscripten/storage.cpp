@@ -1,5 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 #include "postgamma/wasm_storage.h"
+#include "postgamma/wasm_storage_protocol.h"
 #include "backend.h"
 #include "wasmfs.h"
 #include <emscripten.h>
@@ -22,27 +23,29 @@ EM_JS(void, postgamma_storage_dispatch,
        unsigned char *data, size_t length, double offset, int mode,
        double *result, int *error), {
     (async () => {
-      let value = 0, code = 0;
+      let adapter;
       try {
+        if (!globalThis.postgammaStorageModule)
+          globalThis.postgammaStorageModule = await import(new URL('src/storage/opfs.js', import.meta.url));
+        adapter = globalThis.postgammaStorageModule;
         const text = name ? UTF8ToString(name) : "";
-        if (op === 0) {
-          const {Store} = await import(new URL('src/storage/opfs.js', import.meta.url));
-          globalThis.postgammaStore = new Store();
+        let value = 0;
+        if (op === adapter.StorageOp.mount) {
+          globalThis.postgammaStore = new adapter.Store();
           await globalThis.postgammaStore.mount(text, data ? UTF8ToString(data) : "");
         } else {
-          value = await globalThis.postgammaStore.call(op, id, parent, text,
-            new Uint8Array(wasmMemory.buffer, data, length), offset, mode);
+          value = await globalThis.postgammaStore.call(op, {id, parent, name: text,
+            data: new Uint8Array(wasmMemory.buffer, data, length), offset, mode});
         }
+        new DataView(wasmMemory.buffer).setFloat64(result, value, true);
+        new DataView(wasmMemory.buffer).setInt32(error, 0, true);
       } catch (cause) {
-        const codes = {QuotaExceededError: 51, NotFoundError: 44,
-          NoModificationAllowedError: 10, InvalidStateError: 10,
-          NotAllowedError: 2, TypeError: 28, NotSupportedError: 58};
-        code = codes[cause.name] || 29;
+        // C initializes EIO so even an adapter import failure has a status.
+        if (adapter) new DataView(wasmMemory.buffer).setInt32(error, adapter.storageErrorCode(cause), true);
         err('OPFS: ' + String(cause));
+      } finally {
+        _postgamma_storage_finish(context);
       }
-      new DataView(wasmMemory.buffer).setFloat64(result, value, true);
-      new DataView(wasmMemory.buffer).setInt32(error, code, true);
-      _postgamma_storage_finish(context);
     })();
 });
 
@@ -91,6 +94,17 @@ std::atomic<unsigned> pending_writes;
 class Storage;
 Storage *active;
 
+struct StorageRequest {
+    PostgammaStorageOperation operation;
+    int id = 0;
+    int parent = 0;
+    const char *name = nullptr;
+    void *data = nullptr;
+    size_t length = 0;
+    double offset = 0;
+    int mode = 0;
+};
+
 // Register direct delivery before publishing readiness. SDK mailbox events may
 // arrive later and harmlessly observe an already drained proxying queue.
 class Owner {
@@ -116,18 +130,28 @@ public:
                 pthread_attr_destroy(&observed);
             }
             postgamma_storage_listen(self->channel, self->queue.queue);
-            {std::lock_guard<std::mutex> lock(self->mutex); self->ready = true;}
+            {
+                std::lock_guard<std::mutex> lock(self->mutex);
+                self->ready = true;
+            }
             self->started.notify_one();
             emscripten_exit_with_live_runtime();
             return nullptr;
         }, this);
         pthread_attr_destroy(&attributes);
-        if (!error) {std::unique_lock<std::mutex> lock(mutex); started.wait(lock, [&] {return ready;});}
+        if (!error) {
+            std::unique_lock<std::mutex> lock(mutex);
+            started.wait(lock, [&] {return ready;});
+        }
     }
     ~Owner() {
         if (!error) {
-            call([](Completion *completion) {postgamma_storage_unlisten(); completion->finish();});
-            pthread_cancel(thread); pthread_join(thread, nullptr);
+            call([](Completion *completion) {
+                postgamma_storage_unlisten();
+                completion->finish();
+            });
+            pthread_cancel(thread);
+            pthread_join(thread, nullptr);
         }
     }
     template<typename Function> bool call(Function function) {
@@ -144,20 +168,20 @@ class Storage : public wasmfs::Backend {
 public:
     std::unique_ptr<Owner> worker;
     Storage() : worker(std::make_unique<Owner>()) {}
-    double call(int op, int id = 0, int parent = 0, const char *name = nullptr,
-                void *data = nullptr, size_t length = 0, double offset = 0, int mode = 0) {
+    double call(const StorageRequest &request) {
         if (!worker) return -EIO;
         if (worker->error) return -worker->error;
         double result = 0;
-        int error = 0;
-        if (op == 10) pending_writes.fetch_add(1, std::memory_order_release);
+        int error = EIO;
+        if (request.operation == PGW_STORAGE_WRITE) pending_writes.fetch_add(1, std::memory_order_release);
         bool dispatched = worker->call([&](Completion *completion) {
-            postgamma_storage_dispatch(completion, op, id, parent, name,
-                static_cast<unsigned char *>(data), length, offset, mode, &result, &error);
+            postgamma_storage_dispatch(completion, request.operation, request.id, request.parent, request.name,
+                static_cast<unsigned char *>(request.data), request.length, request.offset, request.mode, &result, &error);
         });
-        if (op == 10) pending_writes.fetch_sub(1, std::memory_order_release);
+        if (request.operation == PGW_STORAGE_WRITE) pending_writes.fetch_sub(1, std::memory_order_release);
         return !dispatched ? -EIO : error ? -error : result;
     }
+    double call(PostgammaStorageOperation operation, int id = 0) {return call(StorageRequest{operation, id});}
     std::shared_ptr<File> node(const uint32_t *info);
     std::shared_ptr<DataFile> createFile(mode_t) override {return nullptr;}
     std::shared_ptr<Directory> createDirectory(mode_t mode) override;
@@ -169,17 +193,25 @@ public:
     Storage &storage;
     int id;
     Data(Storage &storage, int id, mode_t mode) : DataFile(mode, &storage), storage(storage), id(id) {}
-    off_t getSize() override {return storage.call(14, id);}
-    int setSize(off_t size) override {return storage.call(15, id, 0, nullptr, nullptr, 0, size);}
-    int open(oflags_t) override {return storage.call(7, id);}
-    int close() override {return storage.call(8, id);}
+    off_t getSize() override {return storage.call(PGW_STORAGE_SIZE, id);}
+    int setSize(off_t size) override {
+        StorageRequest request{PGW_STORAGE_TRUNCATE, id};
+        request.offset = size;
+        return storage.call(request);
+    }
+    int open(oflags_t) override {return storage.call(PGW_STORAGE_OPEN, id);}
+    int close() override {return storage.call(PGW_STORAGE_CLOSE, id);}
     ssize_t read(uint8_t *buffer, size_t length, off_t offset) override {
-        return storage.call(9, id, 0, nullptr, buffer, length, offset);
+        StorageRequest request{PGW_STORAGE_READ, id};
+        request.data = buffer; request.length = length; request.offset = offset;
+        return storage.call(request);
     }
     ssize_t write(const uint8_t *buffer, size_t length, off_t offset) override {
-        return storage.call(10, id, 0, nullptr, const_cast<uint8_t *>(buffer), length, offset);
+        StorageRequest request{PGW_STORAGE_WRITE, id};
+        request.data = const_cast<uint8_t *>(buffer); request.length = length; request.offset = offset;
+        return storage.call(request);
     }
-    int flush() override {return storage.call(11, id);}
+    int flush() override {return storage.call(PGW_STORAGE_FLUSH, id);}
 };
 
 class Dir : public Directory {
@@ -189,35 +221,47 @@ public:
     Dir(Storage &storage, int id, mode_t mode) : Directory(mode, &storage), storage(storage), id(id) {}
     std::shared_ptr<File> getChild(const std::string &name) override {
         uint32_t info[3];
-        double result = storage.call(1, id, 0, name.c_str(), info, sizeof(info));
+        StorageRequest request{PGW_STORAGE_LOOKUP, id};
+        request.name = name.c_str(); request.data = info; request.length = sizeof(info);
+        double result = storage.call(request);
         if (result < 0) creation_error = -result;
         return result > 0 ? storage.node(info) : nullptr;
     }
-    std::shared_ptr<File> insert(int op, const std::string &name, mode_t mode) {
+    std::shared_ptr<File> insert(PostgammaStorageOperation op, const std::string &name, mode_t mode) {
         uint32_t info[3];
-        double result = storage.call(op, id, 0, name.c_str(), info, sizeof(info), 0, mode);
+        StorageRequest request{op, id};
+        request.name = name.c_str(); request.data = info; request.length = sizeof(info); request.mode = mode;
+        double result = storage.call(request);
         if (result < 0) {creation_error = -result; return nullptr;}
         return storage.node(info);
     }
     std::shared_ptr<DataFile> insertDataFile(const std::string &name, mode_t mode) override {
-        return std::static_pointer_cast<DataFile>(insert(2, name, mode));
+        return std::static_pointer_cast<DataFile>(insert(PGW_STORAGE_CREATE_FILE, name, mode));
     }
     std::shared_ptr<Directory> insertDirectory(const std::string &name, mode_t mode) override {
-        return std::static_pointer_cast<Directory>(insert(3, name, mode));
+        return std::static_pointer_cast<Directory>(insert(PGW_STORAGE_CREATE_DIRECTORY, name, mode));
     }
     std::shared_ptr<Symlink> insertSymlink(const std::string &, const std::string &) override {return nullptr;}
     int insertMove(const std::string &name, std::shared_ptr<File> file) override {
         if (file->getBackend() != &storage) return -EXDEV;
         int source = file->is<DataFile>() ? static_cast<Data *>(file.get())->id : static_cast<Dir *>(file.get())->id;
-        return storage.call(4, source, id, name.c_str());
+        StorageRequest request{PGW_STORAGE_MOVE, source};
+        request.parent = id; request.name = name.c_str();
+        return storage.call(request);
     }
-    int removeChild(const std::string &name) override {return storage.call(5, 0, id, name.c_str());}
+    int removeChild(const std::string &name) override {
+        StorageRequest request{PGW_STORAGE_REMOVE};
+        request.parent = id; request.name = name.c_str();
+        return storage.call(request);
+    }
     MaybeEntries getEntries() override {
-        int size = storage.call(6, id);
+        int size = storage.call(PGW_STORAGE_LIST, id);
         if (size < 0) return {size};
         if (size > 4 * 1024 * 1024) return {-ENOMEM};
         std::vector<uint8_t> buffer(size);
-        int result = size ? storage.call(6, id, 0, nullptr, buffer.data(), buffer.size()) : 0;
+        StorageRequest request{PGW_STORAGE_LIST, id};
+        request.data = buffer.data(); request.length = buffer.size();
+        int result = size ? storage.call(request) : 0;
         if (result < 0) return {result};
         std::vector<Entry> entries;
         size_t at = 0;
@@ -253,7 +297,9 @@ extern "C" int postgamma_wasm_storage_mount(const char *name, const char *test_c
     auto storage = std::make_unique<Storage>();
     if (!storage->worker->error && storage->worker->stack_bytes != 2 * 1024 * 1024) return EIO;
     fprintf(stderr, "POSTGAMMA_STORAGE io_stack_bytes=%zu\n", storage->worker->stack_bytes);
-    int status = storage->call(0, 0, 0, name, const_cast<char *>(test_channel));
+    StorageRequest request{PGW_STORAGE_MOUNT};
+    request.name = name; request.data = const_cast<char *>(test_channel);
+    int status = storage->call(request);
     if (status < 0) return -status;
     active = storage.get();
     auto backend = wasmfs::wasmFS.addBackend(std::move(storage));
@@ -266,9 +312,10 @@ extern "C" unsigned postgamma_wasm_storage_pending_writes(void) {
 }
 extern "C" int postgamma_wasm_storage_close(void) {
     if (!active) return 0;
-    int status = active->call(12);
+    int status = active->call(PGW_STORAGE_SHUTDOWN);
     if (status < 0) return -status;
-    active->worker.reset(); active = nullptr;
+    active->worker.reset();
+    active = nullptr;
     return 0;
 }
 
@@ -280,7 +327,7 @@ extern "C" __wasi_errno_t __wrap___wasi_fd_sync(__wasi_fd_t fd) {
     if (entry) {
         auto file = entry->locked().getFile();
         if (active && file->getBackend() == active && file->is<wasmfs::Directory>())
-            return -active->call(13, static_cast<Dir *>(file.get())->id);
+            return -active->call(PGW_STORAGE_FLUSH_DIRECTORY, static_cast<Dir *>(file.get())->id);
     }
     return __real___wasi_fd_sync(fd);
 }

@@ -3,6 +3,8 @@
 // can stop making progress during WebKit kernel startup. Leaving waiting_async
 // clear selects the SDK's event delivery, including cancellation and Worker reuse.
 // Owned I/O uses a separate direct channel when the control relay is occupied.
+// Doctor and kernel linking verify the reviewed SDK files recorded in
+// manifests/profiles/wasm-sdk-contract.json before accepting this override.
 addToLibrary({
   _emscripten_thread_mailbox_await: (pthread) => {},
 });

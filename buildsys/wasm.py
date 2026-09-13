@@ -121,6 +121,10 @@ def doctor(config: Configuration) -> tuple[dict, dict, Path]:
     try:
         tools, env = sdk_tools(config)
         report["tools"] = tools
+        from check_wasm_sdk_contract import check as sdk_contract
+        from wasm_storage_protocol import check as storage_contract
+        report["sdk_adapter_contract"] = sdk_contract(config.root, config.sdk, config.profile["emsdk"]["version"])
+        report["storage_protocol"] = storage_contract(config.root)
         if not package_ready(config, tools, env):
             raise WasmError("locked browser dependencies are missing or changed; run make wasm-setup")
         description = browser_description(config, tools, env)

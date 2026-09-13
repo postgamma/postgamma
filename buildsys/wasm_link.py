@@ -41,6 +41,10 @@ class Builder:
             raise WasmError("unsupported Wasm extension selection")
         self.longjmp = longjmp
         self.directory, self.inputs, self.tools, self.env = prepare(config, longjmp)
+        from check_wasm_sdk_contract import check as check_sdk_contract
+        from wasm_storage_protocol import check as check_storage_contract
+        sdk_contract = check_sdk_contract(self.root, config.sdk, config.profile["emsdk"]["version"])
+        storage_contract = check_storage_contract(self.root)
         self.capture_source = source_tree(config, self.directory, self.inputs)
         self.raw = self.directory / "configure"
         self.source = self.directory / "generated/postgres"
@@ -74,6 +78,8 @@ class Builder:
         self.report = {"kind": "postgamma.wasm-kernel-link", "status": "failed",
                        "inputs": self.inputs, "kernel_linked": False, "sql_validated": False}
         self.report["extensions"] = list(self.extensions)
+        self.report["sdk_adapter_contract"] = sdk_contract
+        self.report["storage_protocol"] = storage_contract
         receipt = read_json(self.directory / "reports/generate.json")
         generated = read_json(Path(receipt["run_report"]))
         if receipt["status"] != "passed" or generated["status"] != "passed":

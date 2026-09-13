@@ -82,6 +82,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][journal_test] = digest(config.root / journal_test)
             run([builder.tools["node"], str(config.root / journal_test), str(site / "src/storage")],
                 builder.current / "journal.log", builder.env, config.root)
+            storage_protocol_test = "tests/wasm/storage/protocol.mjs"
+            report["harness_sources"][storage_protocol_test] = digest(config.root / storage_protocol_test)
+            run([builder.tools["node"], str(config.root / storage_protocol_test), str(site / "src/storage/protocol.js")],
+                builder.current / "storage-protocol.log", builder.env, config.root)
             scenarios = SCENARIOS if scenario == "all" else ("storage", "durability", "storage-errors", "recovery") if scenario == "storage-all" else (scenario,)
             if scenario == "vector-all":
                 scenarios = ("abi", "vector-load", "vector-query", "vector-storage", "vector-example")

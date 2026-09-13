@@ -544,6 +544,25 @@ Follow the [consumer guide](PACKAGE_README.md) to copy the complete asset tree,
 set HTTP headers and use `assetBase` with a bundler. Runtime browser support and
 performance must be reported for the actual tested profile.
 
+## Storage and SDK adapter contracts
+
+`manifests/wasm-storage-protocol.json` defines storage operation numbers and
+Emscripten errno mappings. Its C enum and TypeScript constants are checked in
+and verified by `doctor-wasm` and kernel linking. After an intentional contract
+change, regenerate both with
+`python3 buildsys/wasm_storage_protocol.py --root . --write`. C compilation also
+checks the error numbers against the target libc. Requests use named fields;
+JavaScript receives scalars and byte views, never native structure offsets.
+
+`manifests/profiles/wasm-sdk-contract.json` records the reviewed mailbox/proxy
+source hashes for SDK 6.0.9. The adapter uses the SDK's postMessage path with
+`waiting_async` clear, its C proxy queue, and the C++ queue handle needed for
+direct I/O delivery. Doctor and kernel linking reject a changed SDK contract
+before compiling kernel objects. An SDK upgrade requires reviewing these
+sources and rerunning platform/runtime probes, blocked-control-worker I/O,
+close/cancellation/reuse, storage recovery and all six package profiles before
+updating the recorded contract. The source SDK itself is left intact.
+
 ## Continuous validation
 
 After `make source-init wasm-setup`, `make wasm-ci JOBS=2` runs the same

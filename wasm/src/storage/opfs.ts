@@ -3,6 +3,18 @@ import {Namespace, nodeLimit} from './namespace.js';
 import type {Change, Node} from './namespace.js';
 import type {AccessHandle, StorageDirectory, StorageFile} from './files.js';
 import {Journal} from './journal.js';
+import {StorageOp} from './protocol.js';
+import type {StorageOperation} from './protocol.js';
+export {StorageOp, storageErrorCode} from './protocol.js';
+
+export interface StorageRequest {
+  id: number;
+  parent: number;
+  name: string;
+  data: Uint8Array;
+  offset: number;
+  mode: number;
+}
 
 // This module runs only on the dedicated I/O owner. Calls are serialized there;
 // it never enters PostgreSQL or waits for a kernel lock.
@@ -77,7 +89,11 @@ export class Store {
         };
         this.channel.postMessage({mounted: true, metrics: this.metrics});
       }
-    } catch (cause) {this.journal?.close(); this.journal = undefined; throw cause;}
+    } catch (cause) {
+      try {this.journal?.close();} catch { /* Preserve the mount failure. */ }
+      this.journal = undefined;
+      throw cause;
+    }
   }
   private journalMetrics() {
     if (this.journal) Object.assign(this.metrics, this.journal.metrics);
@@ -145,19 +161,55 @@ export class Store {
       this.metrics.namespaceCommits++;
     } catch (cause) {this.poisoned = true; throw cause;}
   }
-  call(op: number, id: number, parent: number, name: string, data: Uint8Array, offset: number, mode: number): Promise<number> {
-    const work = this.tail.then(() => this.execute(op, id, parent, name, data, offset, mode));
+  private async shutdown(): Promise<number> {
+    if (this.opens.size) throw error('InvalidStateError', 'Virtual files remain open');
+    let failure: unknown;
+    try {await this.point('close-flush', 1);} catch (cause) {failure = cause;}
+    // Preserve the first failure and still release every physical handle.
+    // A poisoned journal is recovered on the next mount, without a new flush.
+    for (const [id, h] of this.handles) {
+      try {
+        if (!this.poisoned && this.dirty.has(id)) h.flush();
+      } catch (cause) {failure ??= cause;}
+      try {
+        h.close();
+      } catch (cause) {failure ??= cause;}
+    }
+    this.handles.clear();
+    this.files.clear();
+    this.sizes.clear();
+    this.dirty.clear();
+    this.journalMetrics();
+    try {
+      if (!this.poisoned) this.journal!.flush();
+    } catch (cause) {failure ??= cause;}
+    try {this.journal!.close();} catch (cause) {failure ??= cause;}
+    this.journal = undefined;
+    this.channel?.postMessage({closed: true, metrics: this.metrics, handles: this.handles.size, virtualOpens: this.opens.size,
+      failed: failure !== undefined});
+    this.channel?.close();
+    if (failure) throw failure;
+    return 0;
+  }
+  call(op: StorageOperation, request: StorageRequest): Promise<number> {
+    const work = this.tail.then(() => this.execute(op, request));
     this.tail = work.then(() => {}, () => {}); return work;
   }
-  private async execute(op: number, id: number, parent: number, name: string, data: Uint8Array, offset: number, mode: number): Promise<number> {
-    if (this.poisoned && op !== 12) throw error('UnknownError', 'OPFS namespace requires recovery');
+  private async execute(op: StorageOperation, request: StorageRequest): Promise<number> {
+    const {id, parent, name, data, offset, mode} = request;
+    if (this.poisoned && op !== StorageOp.shutdown) throw error('UnknownError', 'OPFS namespace requires recovery');
     const view = () => new DataView(data.buffer, data.byteOffset, data.byteLength);
-    const putNode = (node: Node) => {const v = view(); v.setUint32(0, node.id, true); v.setUint32(4, node.kind, true); v.setUint32(8, node.mode, true);};
-    if (op === 1) {const node = this.namespace.lookup(id, name); if (!node) return 0; putNode(node); return node.id;}
-    if (op === 2 || op === 3) {
+    const putNode = (node: Node) => {
+      const v = view();
+      v.setUint32(0, node.id, true);
+      v.setUint32(4, node.kind, true);
+      v.setUint32(8, node.mode, true);
+    };
+    if (op === StorageOp.lookup) {const node = this.namespace.lookup(id, name); if (!node) return 0; putNode(node); return node.id;}
+    if (op === StorageOp.createFile || op === StorageOp.createDirectory) {
       if (this.namespace.nodes.size >= nodeLimit || this.namespace.nextId >= 0x80000000)
         throw error('QuotaExceededError', 'Namespace node or identity limit reached');
-      const node = {id: this.namespace.nextId, parent: id, name, kind: op === 2 ? 1 : 2, mode};
+      const node = {id: this.namespace.nextId, parent: id, name, kind: op === StorageOp.createFile ? 1 : 2, mode};
       await this.point('create', id, this.path(id) + '/' + name);
       if (node.kind === 1) {
         this.reserveHandle();
@@ -167,13 +219,13 @@ export class Store {
       }
       await this.commit({op: 'create', node}); putNode(node); return node.id;
     }
-    if (op === 4 || op === 5) {
+    if (op === StorageOp.move || op === StorageOp.remove) {
       const old = this.namespace.lookup(parent, name);
-      await this.commit(op === 4 ? {op: 'move', id, parent, name} : {op: 'remove', parent, name});
+      await this.commit(op === StorageOp.move ? {op: 'move', id, parent, name} : {op: 'remove', parent, name});
       if (old?.kind === 1) {this.removed.add(old.id); await this.collect(old.id);}
       return 0;
     }
-    if (op === 6) {
+    if (op === StorageOp.list) {
       const children = this.namespace.children(id);
       const size = children.reduce((n, child) => n + 16 + utf8.encode(child.name).length, 0);
       if (!data.length) return size;
@@ -188,40 +240,22 @@ export class Store {
     }
     // A virtual open pins identity. Acquire the bounded physical handle only
     // when data I/O needs it; mount/create have already validated the object.
-    if (op === 7) {
+    if (op === StorageOp.open) {
       if (!this.files.has(id)) throw error('NotFoundError', 'Unknown data object');
       this.opens.set(id, (this.opens.get(id) ?? 0) + 1); return 0;
     }
-    if (op === 8) {
+    if (op === StorageOp.close) {
       const n = this.opens.get(id); if (!n) throw error('UnknownError', 'Unbalanced file close');
       if (n === 1) this.opens.delete(id); else this.opens.set(id, n - 1);
       await this.collect(id); return 0;
     }
-    if (op === 12) {
-      if (this.opens.size) throw error('InvalidStateError', 'Virtual files remain open');
-      let failure: unknown;
-      try {await this.point('close-flush', 1);} catch (cause) {failure = cause;}
-      for (const [id, h] of this.handles) {
-        try {if (!this.poisoned && this.dirty.has(id)) h.flush();} catch (cause) {failure ??= cause;}
-        try {h.close();} catch (cause) {failure ??= cause;}
-      }
-      this.handles.clear(); this.files.clear(); this.sizes.clear(); this.dirty.clear();
-      this.journalMetrics();
-      try {if (!this.poisoned) this.journal!.flush();} catch (cause) {failure ??= cause;}
-      try {this.journal!.close();} catch (cause) {failure ??= cause;}
-      this.journal = undefined;
-      this.channel?.postMessage({closed: true, metrics: this.metrics, handles: this.handles.size, virtualOpens: this.opens.size,
-        failed: failure !== undefined});
-      this.channel?.close();
-      if (failure) throw failure;
-      return 0;
-    }
-    if (op === 13) {await this.point('directory-flush', id); this.journal!.flush(); this.metrics.directoryFlushes++; return 0;}
+    if (op === StorageOp.shutdown) return this.shutdown();
+    if (op === StorageOp.flushDirectory) {await this.point('directory-flush', id); this.journal!.flush(); this.metrics.directoryFlushes++; return 0;}
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
-    if (op === 14 && this.sizes.has(id)) return this.sizes.get(id)!;
+    if (op === StorageOp.size && this.sizes.has(id)) return this.sizes.get(id)!;
     const h = await this.handle(id);
-    if (op === 9) {this.metrics.reads++; return h.read(data, {at: offset});}
-    if (op === 10) {
+    if (op === StorageOp.read) {this.metrics.reads++; return h.read(data, {at: offset});}
+    if (op === StorageOp.write) {
       const action = await this.point('write', id); this.metrics.writes++;
       let n: number;
       try {n = h.write(action === 'short' ? data.subarray(0, Math.min(7, data.length)) : data, {at: offset});}
@@ -229,9 +263,16 @@ export class Store {
       if (n > 0) {this.sizes.set(id, Math.max(this.sizes.get(id)!, offset + n)); this.dirty.add(id);}
       await this.point('written', id); return n;
     }
-    if (op === 11) {await this.point('flush-before', id); h.flush(); this.dirty.delete(id); this.metrics.flushes++; await this.point('flush-after', id); return 0;}
-    if (op === 14) return this.sizes.get(id)!;
-    if (op === 15) {
+    if (op === StorageOp.flush) {
+      await this.point('flush-before', id);
+      h.flush();
+      this.dirty.delete(id);
+      this.metrics.flushes++;
+      await this.point('flush-after', id);
+      return 0;
+    }
+    if (op === StorageOp.size) return this.sizes.get(id)!;
+    if (op === StorageOp.truncate) {
       await this.point('truncate', id);
       try {h.truncate(offset); this.sizes.set(id, offset);}
       catch (cause) {this.sizes.delete(id); throw cause;}

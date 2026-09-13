@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "emscripten_version": "6.0.9",
+  "files": {
+    "system/lib/pthread/thread_mailbox.c": "f38adb258e51e5ca91ced4e87d804676e0a59870665491a82c00fbfdc4bb4957",
+    "src/lib/libpthread.js": "9b762d32a9473f720fe75f64a5bd56108a91654b9833cc8842553c631288d6a9",
+    "system/include/emscripten/proxying.h": "a96305ebc27f9df0904f2fd113ef8cec22873e9c61bac4ddba7d65f5f37d86d7",
+    "system/lib/pthread/proxying.c": "5f34e8638fa4b38a26437e5d0663c856282d7ee9829e077ee0d0c661022146f4"
+  },
+  "invariants": [
+    "A clear waiting_async flag selects SDK postMessage mailbox delivery, including pthread cancellation and reuse.",
+    "ProxyingQueue.queue identifies the public C queue executed by emscripten_proxy_execute_queue on its target thread.",
+    "Async proxy submission publishes work before notifying; duplicate notifications can observe an empty queue.",
+    "The SQL control Worker stays live until replies are delivered; the I/O owner drains independently through its direct channel."
+  ]
+}
