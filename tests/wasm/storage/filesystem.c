@@ -7,8 +7,9 @@ static _Atomic int storage_relay_result;
 
 /* Model a short synchronous SDK call on the control Worker. The I/O owner
  * must drain its own queue even while that Worker cannot relay JS messages. */
-static void storage_relay_parent_wait(void)
+static void storage_relay_parent_wait(void *unused)
 {
+    (void)unused;
     if (atomic_load(&storage_relay_probe) == 1) {
         double deadline = emscripten_get_now() + 1000;
         atomic_store(&storage_relay_probe, 2);
@@ -38,6 +39,7 @@ static int storage_filesystem_probe(unsigned phase)
         STORAGE_CHECK(a >= 0);
         atomic_store(&storage_relay_result, 0);
         atomic_store(&storage_relay_probe, 1);
+        notify_control(storage_relay_parent_wait, NULL);
         double deadline = emscripten_get_now() + 5000;
         while (atomic_load(&storage_relay_probe) == 1 && emscripten_get_now() < deadline) usleep(1000);
         STORAGE_CHECK(atomic_load(&storage_relay_probe) == 2 && fsync(a) == 0);

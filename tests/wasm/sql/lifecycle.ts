@@ -4,6 +4,19 @@ import type {Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 import {waitLock} from './concurrency.js';
 export async function lifecycle(db: Database, checks: string[]) {
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  await db.telemetry();
+  const baseline = db.sample()!, begin = performance.now();
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  await db.telemetry();
+  const observed = db.sample()!, elapsedMs = performance.now() - begin;
+  const driverWakes = (observed.driverWakeCount - baseline.driverWakeCount) >>> 0;
+  assert(observed.periodicSamples === 0, 'Default control Worker has no periodic sampler');
+  assert(driverWakes / (elapsedMs / 1000) < 100, 'Idle host driver waits for notifications');
+  (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'idle-control',
+    elapsedMs, driverWakes, periodicSamples: observed.periodicSamples, visibility: document.visibilityState,
+    scope: 'host driver wakeups only; browser CPU and power are not measured'});
+  checks.push('idle-notification-wait', 'sampling-disabled-by-default');
   const a = await db.connect('close-holder'), b = await db.connect('close-waiter'), c = await db.connect('close-observer');
   await a.query('CREATE TABLE close_test(id int PRIMARY KEY)'); await a.query('INSERT INTO close_test VALUES (1)');
   await a.query('BEGIN'); await a.query('SELECT * FROM close_test FOR UPDATE');
@@ -31,7 +44,7 @@ export async function lifecycle(db: Database, checks: string[]) {
   }
   assert(rejected === 4, 'Closed descendants reject new operations');
   checks.push('close-blocked-query', 'idempotent-close', 'close-full-result-and-copy', 'closed-descendants');
-  const fresh = await Database.open(), connection = await fresh.connect();
+  const fresh = await Database.open({diagnostics: {sampleIntervalMs: 10}}), connection = await fresh.connect();
   assert(scalar(await connection.query('SELECT 7')) === '7', 'New module starts after full close');
   // Close while a query is being submitted, before its request handle arrives.
   const connecting = fresh.connect('close-during-connect');
@@ -39,6 +52,7 @@ export async function lifecycle(db: Database, checks: string[]) {
     try {await request.next();} finally {await request.close();}
   }).then(() => 'done', error => error);
   await fresh.close(); await starting;
+  assert((fresh.diagnostics() as {periodicSamples: number}).periodicSamples > 0, 'Explicit diagnostic sampling remains available');
   const late = await connecting;
   let lateRejected = false; try {await late.query('SELECT 1');} catch {lateRejected = true;}
   assert(lateRejected, 'Connection created during close is also retired');

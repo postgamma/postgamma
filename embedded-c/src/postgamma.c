@@ -852,6 +852,9 @@ pgm_connection_open(
 	created->callback_user_data = options->user_data;
 	atomic_init(&created->event_pending_next, NULL);
 	atomic_init(&created->event_ready_pending, false);
+#ifdef __EMSCRIPTEN__
+	atomic_init(&created->wasm_ready_sequence, 0);
+#endif
 	status = postgamma_mutex_create(&created->mutex);
 	if (status != 0)
 		goto fail_locked;

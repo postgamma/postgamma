@@ -6,6 +6,10 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "postgamma/private/public_runtime.h"
+#ifdef __EMSCRIPTEN__
+#include "postgamma/private/wasm_events.h"
+#include "postgamma/io_platform.h"
+#endif
 
 #include <errno.h>
 #include <limits.h>
@@ -387,6 +391,13 @@ postgamma_public_event_notify_connection(
 	if (!connection_is_valid(connection) ||
 		connection->instance->event_router == NULL)
 		return;
+#ifdef __EMSCRIPTEN__
+	/* An instance waitable can stay readable for a different connection.
+	 * Preserve this connection's edge even when its wake pipe is already full. */
+	atomic_fetch_add_explicit(
+		&connection->wasm_ready_sequence, 1, memory_order_release);
+	postgamma_platform_notify();
+#endif
 	router = connection->instance->event_router;
 	if (!atomic_exchange_explicit(
 			&connection->event_ready_pending, true, memory_order_acq_rel))
@@ -403,6 +414,15 @@ postgamma_public_event_notify_connection(
 	}
 	(void) postgamma_wake_target_wake(router->wake_target);
 }
+
+#ifdef __EMSCRIPTEN__
+uint64_t
+postgamma_public_request_ready_sequence(pgm_request *request)
+{
+	return atomic_load_explicit(
+		&request->connection->wasm_ready_sequence, memory_order_acquire);
+}
+#endif
 
 
 int

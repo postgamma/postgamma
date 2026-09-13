@@ -53,6 +53,11 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 and the COPY stream for bulk data. Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+Diagnostics sample on commands and lifecycle transitions by default.
+For temporary profiling, pass `diagnostics: {sampleIntervalMs: 10}` to
+`Database.open()`; `0` disables periodic samples. Sampling may miss transient
+peaks. Idle command and result waits use notifications.
+
 The default package includes pgvector 0.8.6. Run `CREATE EXTENSION vector` once
 per database to enable it. Arbitrary native extensions and multiple live
 instances are outside the initial supported profile. Memory is bounded by the

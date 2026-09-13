@@ -7,22 +7,25 @@ export {DatabaseError} from '../protocol/wire.js';
 export type {Result, Column} from '../codecs/results.js';
 import {limits} from '../protocol/limits.js';
 import {assets, verifiedAsset} from '../loader/assets.js';
+import {Readiness} from '../protocol/readiness.js';
 export interface OpenOptions {
   create?: boolean; path?: string; workers?: number;
   storage?: {type: 'opfs'; name: string};
   /** URL of the complete matching asset directory, ending with a slash. */
   assetBase?: string | URL;
+  /** Optional periodic diagnostics, 1..60000 ms; default 0 samples on commands only. */
+  diagnostics?: {sampleIntervalMs?: number};
 }
 export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
-const delay = () => new Promise<void>(resolve => setTimeout(resolve, 1));
 class Transport {
+  readonly readiness = new Readiness();
   private sequence = 0;
   private pending = new Map<number, {bytes: number; resolve(value: ArrayBuffer): void; reject(error: Error): void}>();
   private failure: Error | null = null;
   private pendingBytes = 0;
-  sample: {memory: number; threads: number; queuedBytes: number} | undefined;
+  sample: {memory: number; threads: number; queuedBytes: number; periodicSamples: number; driverWakeCount: number} | undefined;
   metrics: unknown;
   peakHostQueuedBytes = 0;
   hostQueuedBytes = 0;
@@ -32,6 +35,7 @@ class Transport {
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
       if (data.fatal) {this.fail(new Error(data.fatal)); return;}
+      if (data.ready) {this.readiness.notify(data.ready); return;}
       const waiter = this.pending.get(data.sequence);
       if (!waiter) return; // Retired sequence: never deliver it to a later request.
       this.pending.delete(data.sequence); this.pendingBytes -= waiter.bytes;
@@ -45,6 +49,7 @@ class Transport {
   private fail(error: Error) {
     if (this.failure) return;
     this.failure = error;
+    this.readiness.fail(error);
     for (const waiter of this.pending.values()) waiter.reject(error);
     this.pending.clear(); this.pendingBytes = 0; this.worker.terminate();
   }
@@ -75,6 +80,9 @@ export class Database {
   private closeWork: Promise<unknown> | undefined;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
   static async open(options: OpenOptions = {}): Promise<Database> {
+    const interval = options.diagnostics?.sampleIntervalMs ?? 0;
+    if (!Number.isInteger(interval) || interval < 0 || interval > 60000)
+      throw new RangeError('sampleIntervalMs must be an integer from 0 to 60000');
     const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', import.meta.url);
     if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
     const manifest = await assets(base);
@@ -85,7 +93,7 @@ export class Database {
       const r = await transport.call(Op.open, undefined, w => w.u32(options.create === false ? 0 : 1)
         .u32(options.workers ?? 4).text(options.path ?? '/database')
         .u32(options.storage ? 1 : 0).text(options.storage?.name ?? '')
-        .text((options as {storageTestChannel?: string}).storageTestChannel ?? ''));
+        .text((options as {storageTestChannel?: string}).storageTestChannel ?? '').u32(interval));
       const handle = r.handle(); r.end(); return new Database(transport, handle);
     } catch (error) {transport.terminate(); throw error;}
   }
@@ -198,6 +206,9 @@ export class Connection {
 }
 export class Request {
   private reading = false;
+  private readDone?: Promise<void>;
+  private finishRead?: () => void;
+  private stopped = new AbortController();
   private copy: CopyStream | undefined;
   private transport: Transport;
   private handle: Handle;
@@ -206,15 +217,20 @@ export class Request {
   private onClosed: () => void;
   constructor(transport: Transport, handle: Handle, onClosed: () => void) {
     this.transport = transport; this.handle = handle; this.onClosed = onClosed;
+    this.transport.readiness.track(handle);
   }
   async next(): Promise<Result | null> {
     if (this.reading) throw new Error('Only one result consumer is allowed');
     this.reading = true;
+    this.readDone = new Promise(resolve => {this.finishRead = resolve;});
     try {
       for (;;) {
         if (this.closing) throw new ClosedError();
+        const version = this.transport.readiness.version(this.handle);
         const r = await this.transport.call(Op.next, this.handle), availability = r.u32();
-        if (availability === 1) {r.end(); await delay(); continue;}
+        if (availability === 1) {
+          r.end(); await this.transport.readiness.wait(this.handle, version, this.stopped.signal); continue;
+        }
         const batch = availability === 2 ? null : result(r);
         if (batch && (batch.kind === 2 || batch.kind === 3)) {
           this.copy = new CopyStream(this.transport, r.handle(), batch.kind === 2 ? 'in' : 'out');
@@ -222,7 +238,7 @@ export class Request {
         }
         r.end(); return batch;
       }
-    } finally {this.reading = false;}
+    } finally {this.reading = false; this.finishRead?.();}
   }
   async cancel(): Promise<void> {(await this.transport.call(Op.cancel, this.handle)).end();}
   async *[Symbol.asyncIterator](): AsyncGenerator<Result> {
@@ -232,10 +248,12 @@ export class Request {
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
+    this.stopped.abort(new ClosedError());
     this.closeWork = (async () => {
-      while (this.reading) await delay();
+      await this.readDone;
       if (this.copy) await this.copy.close();
-      (await this.transport.call(Op.release, this.handle)).end(); this.onClosed();
+      (await this.transport.call(Op.release, this.handle)).end();
+      this.transport.readiness.retire(this.handle); this.onClosed();
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }
@@ -246,15 +264,20 @@ export class CopyStream {
   private handle: Handle;
   readonly direction: 'in' | 'out';
   private busy = false;
+  private idle?: Promise<void>;
+  private finishOperation?: () => void;
+  private stopped = new AbortController();
   private closed = false;
   private closeWork: Promise<void> | undefined;
   private ended = false;
   constructor(transport: Transport, handle: Handle, direction: 'in' | 'out') {
     this.transport = transport; this.handle = handle; this.direction = direction;
+    this.transport.readiness.track(handle);
   }
   private enter(direction: 'in' | 'out') {
     if (this.closed || this.busy || this.direction !== direction) throw new Error('COPY operation conflicts with stream state');
     this.busy = true;
+    this.idle = new Promise(resolve => {this.finishOperation = resolve;});
   }
   async read(capacity = limits.copyChunkBytes): Promise<Uint8Array | null> {
     this.enter('out');
@@ -262,13 +285,15 @@ export class CopyStream {
       if (this.ended) return null;
       for (;;) {
         if (this.closed) throw new ClosedError();
+        const version = this.transport.readiness.version(this.handle);
         const r = await this.transport.call(Op.copyRead, this.handle, w => w.u32(capacity));
         const state = r.u32(), bytes = r.blob(); r.end();
         if (state === 2) {this.ended = true; return null;}
         if (bytes?.length) return bytes;
-        await delay();
+        if (state === 1) await this.transport.readiness.wait(this.handle, version, this.stopped.signal);
+        else throw new Error('COPY read made no progress');
       }
-    } finally {this.busy = false;}
+    } finally {this.busy = false; this.finishOperation?.();}
   }
   async write(bytes: Uint8Array): Promise<void> {
     this.enter('in');
@@ -277,15 +302,18 @@ export class CopyStream {
       let offset = 0;
       while (offset < bytes.length) {
         if (this.closed) throw new ClosedError();
+        const version = this.transport.readiness.version(this.handle);
         const piece = bytes.subarray(offset, offset + limits.copyChunkBytes);
         const r = await this.transport.call(Op.copyWrite, this.handle, w => w.blob(piece));
         const state = r.u32(), consumed = r.u32(); r.end();
         if (consumed > piece.length) throw new Error('Invalid COPY consumption count');
         offset += consumed;
         if (state === 2 && offset < bytes.length) throw new Error('COPY ended before all input was consumed');
-        if (state === 1 || !consumed) await delay();
+        if (state === 1 && offset < bytes.length)
+          await this.transport.readiness.wait(this.handle, version, this.stopped.signal);
+        else if (!consumed) throw new Error('COPY write made no progress');
       }
-    } finally {this.busy = false;}
+    } finally {this.busy = false; this.finishOperation?.();}
   }
   async finish(): Promise<void> {
     this.enter('in');
@@ -293,19 +321,22 @@ export class CopyStream {
       if (this.ended) return;
       for (;;) {
         if (this.closed) throw new ClosedError();
+        const version = this.transport.readiness.version(this.handle);
         const r = await this.transport.call(Op.copyFinish, this.handle), state = r.u32(); r.end();
         if (state === 2) {this.ended = true; return;}
-        await delay();
+        if (state === 1) await this.transport.readiness.wait(this.handle, version, this.stopped.signal);
       }
-    } finally {this.busy = false;}
+    } finally {this.busy = false; this.finishOperation?.();}
   }
   async abort(): Promise<void> {(await this.transport.call(Op.copyAbort, this.handle)).end();}
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closed = true;
+    this.stopped.abort(new ClosedError());
     this.closeWork = (async () => {
-      while (this.busy) await delay();
+      await this.idle;
       (await this.transport.call(Op.copyClose, this.handle)).end();
+      this.transport.readiness.retire(this.handle);
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }

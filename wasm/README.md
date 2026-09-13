@@ -387,9 +387,17 @@ native result buffers, 128 KiB values, 16 KiB COPY fragments, 2 MiB pending
 query bytes per connection, and 8 MiB queued Worker messages. `budget` checks
 all four carriers and admission/queue limits. The full run writes
 `sql-resource-budget.json` beside its `sql.json`; the latter includes all
-scenario results and source/asset identities. Startup samples run at 1 ms;
-the 13-slot SDK pool supplies the hard pthread bound. Caller-retained results
+scenario results and source/asset identities. Diagnostics sample on commands
+and lifecycle transitions by default. To sample during long commands or initdb,
+pass `diagnostics: {sampleIntervalMs: 10}` to `Database.open()`; `0` disables
+periodic sampling. Sampling can miss transient peaks; the 13-slot SDK pool
+supplies the hard pthread bound. Caller-retained results
 and the browser's VM/code memory are outside managed queue accounting.
+
+The host driver sleeps on notifications between commands. Replies and
+per-connection result/COPY readiness use events, including cancellation and
+close; no periodic readiness timer is required. The lifecycle gate records
+idle driver wakeups separately from browser CPU or power consumption.
 
 A minimal source-API call, from a page serving the generated assets with
 COOP/COEP headers, is:

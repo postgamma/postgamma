@@ -42,7 +42,7 @@ def summarize(policy: dict, layout: dict, browsers: dict, mode: str) -> dict:
     healthy, fatal, stacks, roles = [], [], [], []
     for module in modules:
         if module.get('samples', 0) < 2 or not 1 <= module['peakThreads'] <= pool:
-            raise WasmError('missing transient startup/thread measurements')
+            raise WasmError('missing lifecycle/thread measurements')
         if module['peakMemory'] > policy['maximum_memory_bytes']:
             raise WasmError('linear memory exceeds the profile')
         if module['peakQueuedBytes'] > policy['sql_limits']['workerQueueBytes'] or module['peakPending'] > policy['sql_limits']['maxPendingCommands']:
@@ -100,5 +100,5 @@ def summarize(policy: dict, layout: dict, browsers: dict, mode: str) -> dict:
             'normal_native_resources_released': True, 'fatal_worker_termination_requested': True,
             'synchronous_fatal_vm_reclamation_verified': False,
             'outside_linear_vm_rss_measured': False,
-            'sampling_note': '1 ms control-Worker samples include initdb; scheduling can coalesce samples. The fixed SDK pool is the hard thread bound.',
+            'sampling_note': 'Lifecycle and command samples; periodic diagnostics are opt-in and can coalesce. Transient peaks may be missed. The fixed SDK pool is the hard thread bound.',
             'sql_limits': policy['sql_limits']}

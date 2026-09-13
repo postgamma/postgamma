@@ -195,6 +195,9 @@ struct pgm_connection
 	struct pgm_connection *event_ready_next;
 	_Atomic(struct pgm_connection *) event_pending_next;
 	_Atomic bool event_ready_pending;
+#ifdef __EMSCRIPTEN__
+	_Atomic uint64_t wasm_ready_sequence;
+#endif
 	unsigned int event_pump_references;
 	bool		event_ready_queued;
 	bool		event_registered;

@@ -16,14 +16,14 @@ let ownership: (() => Promise<void>) | undefined;
 const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
-let samples = 0;
+let samples = 0, periodicSamples = 0, samplingIntervalMs = 0;
 function sample() {
   if (!loaded) return;
   samples++;
   peakMemory = Math.max(peakMemory, loaded.wasmMemory.buffer.byteLength);
   peakThreads = Math.max(peakThreads, Object.keys(loaded.PThread.pthreads).length);
 }
-const sampler = setInterval(sample, 1);
+let sampler: ReturnType<typeof setInterval> | undefined;
 function fail(error: unknown) {
   if (failed) return;
   sample(); clearInterval(sampler);
@@ -44,6 +44,12 @@ function startKernel() {return loadKernel({print: record, printErr: text => {
 }, onAbort: fail}).then(value => {
   const module = value as SqlModule;
   loaded = module;
+  module.postgammaBridgeEvent = (kind, id, generation) => {
+    if (kind === 0) module.postgammaBridgeReply?.();
+    else postMessage({ready: {kind, id, generation}});
+  };
+  sample();
+  if (samplingIntervalMs) sampler = setInterval(() => {periodicSamples++; sample();}, samplingIntervalMs);
   const status = module._postgamma_wasm_start();
   if (status) throw new Error(`Host driver failed: ${status}`);
   return module;
@@ -60,7 +66,8 @@ async function dispose(module: SqlModule) {
   sample(); clearInterval(sampler);
   module.PThread.terminateAllThreads();
   await ownership?.(); ownership = undefined;
-  return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, droppedLogs, returnedWorkers,
+  return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, periodicSamples, samplingIntervalMs,
+    driverWakeCount: module._postgamma_wasm_wake_count(), droppedLogs, returnedWorkers,
     runningWorkers: Object.keys(module.PThread.pthreads).length, output};
 }
 let queue = Promise.resolve();
@@ -79,7 +86,9 @@ self.onmessage = ({data}) => {
     if (!kernel) {
       if (op !== Op.open) throw new Error('Instance must be opened first');
       request.u32(); request.u32(); request.text();
-      const storage = request.u32(), name = request.text(); request.text(); request.end();
+      const storage = request.u32(), name = request.text(); request.text();
+      samplingIntervalMs = request.u32(); request.end();
+      if (samplingIntervalMs > 60000) throw new Error('Invalid diagnostic sampling interval');
       if (storage === 1) ownership = await acquire(name!);
       kernel = startKernel();
     }
@@ -100,6 +109,7 @@ self.onmessage = ({data}) => {
       throw new Error('Storage teardown failed; the instance has been discarded');
     }
     postMessage({sequence, reply, sample: {memory: module.wasmMemory.buffer.byteLength,
-      threads: Object.keys(module.PThread.pthreads).length, queuedBytes}}, [reply]);
+      threads: Object.keys(module.PThread.pthreads).length, queuedBytes, periodicSamples,
+      driverWakeCount: module._postgamma_wasm_wake_count()}}, [reply]);
   }).catch(fail).finally(() => {pending--; queuedBytes -= data.byteLength;});
 };

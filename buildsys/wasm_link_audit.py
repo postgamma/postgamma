@@ -11,6 +11,7 @@ from wasm_toolchain import WasmError, digest, write_json
 
 
 PROVIDERS = {
+    "sql-readiness": "postgamma_bridge_event",
     "opfs-owner": "postgamma_storage_dispatch postgamma_storage_listen postgamma_storage_notify "
         "postgamma_storage_unlisten emscripten_unwind_to_js_event_loop",
     "shared-memory": "memory emscripten_get_heap_max emscripten_resize_heap",

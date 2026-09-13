@@ -2,11 +2,14 @@
 #include "postgamma/postgamma.h"
 #include "wasm-sql-policy.h"
 #include "postgamma/private/data_directory_lock.h"
+#include "postgamma/private/wasm_events.h"
 #include "postgamma/shmem_platform.h"
 #include "postgamma/dsm_platform.h"
 #include "postgamma/io_platform.h"
 #include "postgamma/wasm_storage.h"
 #include <emscripten.h>
+#include <emscripten/proxying.h>
+#include <emscripten/threading.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -24,10 +27,15 @@ enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
-#define WIRE_VERSION 2
+#define WIRE_VERSION 3
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
-typedef struct Handle { uint32_t kind, generation, parent; void *pointer; } Handle;
+typedef struct Handle {
+    uint32_t kind, generation, parent;
+    void *pointer;
+    uint64_t ready_sequence;
+    bool watching;
+} Handle;
 typedef struct Reader { const unsigned char *data; size_t size, offset; bool failed; } Reader;
 typedef struct Writer { unsigned char *data; size_t size, capacity; bool failed; } Writer;
 static Handle handles[SLOT_COUNT];
@@ -37,6 +45,51 @@ static bool started;
 static unsigned char *input;
 static size_t input_size;
 static Writer reply;
+static em_proxying_queue *notifications;
+static _Atomic uint32_t wake_count;
+
+EM_JS(void, postgamma_bridge_event, (unsigned kind, unsigned id, unsigned generation), {
+    Module['postgammaBridgeEvent'](kind, id, generation);
+});
+
+typedef struct ReadyEvent { uint32_t kind, id, generation; } ReadyEvent;
+static void deliver_event(void *argument)
+{
+    ReadyEvent *event = argument;
+    if (event) {
+        postgamma_bridge_event(event->kind, event->id, event->generation);
+        free(event);
+    } else postgamma_bridge_event(0, 0, 0);
+}
+static void notify_control(void (*callback)(void *), void *argument)
+{
+    if (!emscripten_proxy_async(notifications, emscripten_main_runtime_thread_id(), callback, argument))
+        abort();
+}
+static uint64_t ready_sequence(Handle *h)
+{
+    Handle *request = h->kind == STREAM ? &handles[h->parent - 1] : h;
+    return postgamma_public_request_ready_sequence(request->pointer);
+}
+static void watch_begin(Handle *h)
+{
+    h->watching = false;
+    // Capture before consuming: an edge between AGAIN and arming is retained.
+    h->ready_sequence = ready_sequence(h);
+}
+static void notify_ready(void)
+{
+    for (unsigned i = 0; i < SLOT_COUNT; i++) {
+        Handle *h = &handles[i];
+        if (!h->watching || ready_sequence(h) == h->ready_sequence) continue;
+        ReadyEvent *event = malloc(sizeof(*event));
+        if (!event) abort();
+        *event = (ReadyEvent){h->kind, i + 1, h->generation};
+        // One notification per armed handle; the next consuming call rearms.
+        h->watching = false;
+        notify_control(deliver_event, event);
+    }
+}
 
 static uint32_t get(Reader *r)
 {
@@ -112,7 +165,7 @@ static bool children(Handle *h)
         if (handles[i].kind && handles[i].parent == (uint32_t)(h - handles + 1)) return true;
     return false;
 }
-static void retire(Handle *h) { h->kind = 0; h->parent = 0; h->pointer = NULL; }
+static void retire(Handle *h) { h->watching = false; h->kind = 0; h->parent = 0; h->pointer = NULL; }
 static void log_record(void *unused, const pgm_log_record *record)
 {
     (void)unused;
@@ -186,6 +239,7 @@ static bool command(void)
         char *path = string(&r);
         uint32_t storage = get(&r);
         char *name = string(&r), *test_channel = string(&r);
+        uint32_t sampling_interval = get(&r);
         pgm_instance_options o = PGM_INSTANCE_OPTIONS_INIT;
         const pgm_setting settings[] = {
             {"shared_buffers", "24MB"}, {"max_connections", "16"},
@@ -194,7 +248,8 @@ static bool command(void)
             {"max_logical_replication_workers", "0"}, {"wal_level", "minimal"}
         };
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == INSTANCE) status = PGM_STATUS_BUSY;
-        if (!r.failed && !status && create <= 1 && storage <= 1 && workers >= 2 && workers <= 4 && r.offset == r.size) {
+        if (!r.failed && !status && create <= 1 && storage <= 1 && workers >= 2 && workers <= 4 &&
+            sampling_interval <= 60000 && r.offset == r.size) {
             pgm_instance *instance = NULL;
             if (storage) {
 #ifndef POSTGAMMA_WASM_TESTING
@@ -276,8 +331,10 @@ static bool command(void)
         if (r.offset != r.size) { r.failed = true; break; }
         pgm_result *result = NULL;
         pgm_availability availability = PGM_AVAILABILITY_AGAIN;
+        watch_begin(h);
         status = pgm_request_next_result(h->pointer, 0, &result, &availability, &error);
         if (!status && error) status = pgm_error_status(error);
+        h->watching = !status && availability == PGM_AVAILABILITY_AGAIN;
         put(&payload, availability);
         if (!status && result) status = marshal_result(&payload, result, &error);
         if (!status && result && (pgm_result_kind(result) == PGM_RESULT_COPY_IN ||
@@ -327,7 +384,9 @@ static bool command(void)
         size_t produced = 0;
         pgm_io_state progress = PGM_IO_AGAIN;
         if (r.offset != r.size || capacity == 0 || capacity > sizeof(buffer)) { r.failed = true; break; }
+        watch_begin(h);
         status = pgm_copy_read(h->pointer, buffer, capacity, &produced, &progress, &error);
+        h->watching = !status && progress == PGM_IO_AGAIN;
         put(&payload, progress); value(&payload, buffer, produced, false); break;
     }
     case COPY_WRITE: {
@@ -335,13 +394,17 @@ static bool command(void)
         const void *data = blob(&r, &size);
         pgm_io_state progress = PGM_IO_AGAIN;
         if (r.failed || r.offset != r.size || size == 0 || size > PGW_COPY_CHUNK_BYTES) { r.failed = true; break; }
+        watch_begin(h);
         status = pgm_copy_write(h->pointer, data, size, &consumed, &progress, &error);
+        h->watching = !status && progress == PGM_IO_AGAIN;
         put(&payload, progress); put(&payload, consumed); break;
     }
     case COPY_FINISH: {
         pgm_io_state progress = PGM_IO_AGAIN;
         if (r.offset != r.size) { r.failed = true; break; }
+        watch_begin(h);
         status = pgm_copy_finish(h->pointer, NULL, 0, &progress, &error);
+        h->watching = !status && progress == PGM_IO_AGAIN;
         put(&payload, progress); break;
     }
     case COPY_CLOSE:
@@ -385,10 +448,18 @@ static void *run(void *unused)
 {
     (void)unused;
     for (;;) {
-        if (atomic_load_explicit(&state, memory_order_acquire) != 1) { usleep(1000); continue; }
+        uint32_t expected = postgamma_platform_notification_sequence();
+        atomic_fetch_add_explicit(&wake_count, 1, memory_order_relaxed);
+        notify_ready();
+        if (atomic_load_explicit(&state, memory_order_acquire) != 1) {
+            if (postgamma_platform_notification_wait(expected, __builtin_inf()) < 0) abort();
+            continue;
+        }
         bool stop = command();
-        atomic_store_explicit(&state, reply.failed ? -1 : 2, memory_order_release);
-        if (stop || reply.failed) return NULL;
+        bool failed = reply.failed;
+        atomic_store_explicit(&state, failed ? -1 : 2, memory_order_release);
+        notify_control(deliver_event, NULL);
+        if (stop || failed) return NULL;
     }
 }
 EMSCRIPTEN_KEEPALIVE void *postgamma_wasm_alloc(unsigned size) { return size <= WIRE_LIMIT ? malloc(size) : NULL; }
@@ -396,8 +467,11 @@ EMSCRIPTEN_KEEPALIVE void postgamma_wasm_free(void *p) { free(p); }
 EMSCRIPTEN_KEEPALIVE int postgamma_wasm_start(void)
 {
     if (started) return EALREADY;
+    notifications = em_proxying_queue_create();
+    if (!notifications) return ENOMEM;
     int result = pthread_create(&driver, NULL, run, NULL);
     if (!result) started = true;
+    else { em_proxying_queue_destroy(notifications); notifications = NULL; }
     return result;
 }
 EMSCRIPTEN_KEEPALIVE int postgamma_wasm_submit(void *data, unsigned size)
@@ -406,14 +480,13 @@ EMSCRIPTEN_KEEPALIVE int postgamma_wasm_submit(void *data, unsigned size)
     if (!data || size < 12 || size > WIRE_LIMIT) return EINVAL;
     input = data; input_size = size;
     atomic_store_explicit(&state, 1, memory_order_release);
+    postgamma_platform_notify();
     return 0;
 }
 EMSCRIPTEN_KEEPALIVE int postgamma_wasm_poll(void) {
-#ifdef POSTGAMMA_WASM_TESTING
-    storage_relay_parent_wait();
-#endif
     return atomic_load_explicit(&state, memory_order_acquire);
 }
+EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_wake_count(void) { return atomic_load(&wake_count); }
 EMSCRIPTEN_KEEPALIVE void *postgamma_wasm_reply(void) { return reply.data; }
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_reply_size(void) { return reply.size; }
 EMSCRIPTEN_KEEPALIVE void postgamma_wasm_ack(void)
@@ -424,6 +497,11 @@ EMSCRIPTEN_KEEPALIVE void postgamma_wasm_ack(void)
 EMSCRIPTEN_KEEPALIVE int postgamma_wasm_join(void)
 {
     int result = pthread_tryjoin_np(driver, NULL);
-    if (!result) { started = false; atomic_store(&state, 3); }
+    if (!result) {
+        started = false;
+        atomic_store(&state, 3);
+        em_proxying_queue_destroy(notifications);
+        notifications = NULL;
+    }
     return result;
 }

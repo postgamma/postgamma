@@ -40,9 +40,18 @@ try {
     catch (e) {assert(e instanceof DatabaseError && e.sqlstate === '22012', 'SQLSTATE propagation');}
     assert(scalar(await a.query('SELECT 9')) === '9', 'SQL error reuse');
     stage('cancel');
-    const request = await a.execute('SELECT pg_sleep(10)'); await request.cancel();
-    try {await request.next(); throw new Error('Expected cancellation');}
-    catch (e) {assert(e instanceof DatabaseError && e.sqlstate === '57014', 'Cancellation');}
+    const request = await a.execute('SELECT pg_sleep(10)');
+    const waiting = request.next().catch(error => error);
+    const pid = (await a.status()).pid, cancelDeadline = performance.now() + 5000;
+    let sleeping = false;
+    while (!sleeping && performance.now() < cancelDeadline)
+      sleeping = scalar(await b.query(`SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = ${pid} AND wait_event = 'PgSleep')::text`)) === 'true';
+    assert(sleeping, 'Cancellation targets a running PostgreSQL sleep');
+    const cancelStart = performance.now();
+    await request.cancel();
+    const canceled = await waiting;
+    timings.cancelMs = performance.now() - cancelStart;
+    assert(canceled instanceof DatabaseError && canceled.sqlstate === '57014', 'Cancellation');
     await request.close(); checks.push('sql-error-and-cancel-reuse');
     if (manifest.extensions.pgvector) {
       stage('vector');
@@ -65,6 +74,24 @@ try {
       const begin = performance.now(); assert(scalar(await a.query('SELECT sum(i) FROM generate_series(1,10000) i')) === '50005000', 'Representative query');
       timings.queryMs.push(performance.now() - begin);
     }
+    timings.selectOneMs = [];
+    for (let i = 0; i < 20; i++) {
+      const begin = performance.now();
+      assert(scalar(await a.query('SELECT 1')) === '1', 'Small query');
+      timings.selectOneMs.push(performance.now() - begin);
+    }
+    stage('idle');
+    await db.telemetry();
+    const idleStart = performance.now(), idleBefore = db.sample();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await db.telemetry();
+    const idleAfter = db.sample();
+    timings.idle = {elapsedMs: performance.now() - idleStart,
+      driverWakes: (idleAfter.driverWakeCount - idleBefore.driverWakeCount) >>> 0,
+      periodicSamples: idleAfter.periodicSamples, visibility: document.visibilityState};
+    assert(timings.idle.periodicSamples === 0 && timings.idle.driverWakes / (timings.idle.elapsedMs / 1000) < 100,
+      'Default installed package waits for notifications while idle');
+    checks.push('idle-notification-wait', 'running-query-cancel');
     stage('close');
     await Promise.all(connections.map(c => c.close())); metrics.push(await db.close());
     const reopen = performance.now();
