@@ -24,7 +24,8 @@ export function vectorBudget(modules: any[], parallel: boolean) {
       stack += Number(row.peak_reservation_bytes); classes++;
       if (row.class === 'parallel') parallelObservations += Number(row.observations);
     }
-    if (m.output.includes('POSTGAMMA_STORAGE io_stack_bytes=2097152')) stack += 2097152;
+    assert(m.ioStackBytes === 0 || m.ioStackBytes === 2097152, 'Measured optional I/O stack');
+    stack += m.ioStackBytes;
     assert(classes === 3 && stack <= 77594624, 'Vector stacks fit the existing role reservations');
   }
   if (parallel) assert(workersLaunched === 2 && parallelThreadsStarted === 2 && parallelObservations === 2, 'Both index builds actually launched and reclaimed a parallel worker');

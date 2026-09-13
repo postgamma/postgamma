@@ -91,6 +91,7 @@ struct Completion {
 };
 thread_local int creation_error;
 std::atomic<unsigned> pending_writes;
+std::atomic<unsigned> observed_io_stack_bytes;
 class Storage;
 Storage *active;
 
@@ -116,17 +117,19 @@ class Owner {
     bool ready = false;
 public:
     int error = 0;
-    size_t stack_bytes = 0;
     Owner() {
         postgamma_storage_channel_name(channel);
         pthread_attr_t attributes;
-        pthread_attr_init(&attributes);
-        pthread_attr_setstacksize(&attributes, 2 * 1024 * 1024);
-        error = pthread_create(&thread, &attributes, [](void *argument) -> void * {
+        error = pthread_attr_init(&attributes);
+        if (error) return;
+        error = pthread_attr_setstacksize(&attributes, POSTGAMMA_WASM_IO_STACK_BYTES);
+        if (!error) error = pthread_create(&thread, &attributes, [](void *argument) -> void * {
             auto self = static_cast<Owner *>(argument);
             pthread_attr_t observed;
             if (pthread_getattr_np(pthread_self(), &observed) == 0) {
-                pthread_attr_getstacksize(&observed, &self->stack_bytes);
+                size_t bytes = 0;
+                if (pthread_attr_getstacksize(&observed, &bytes) == 0)
+                    observed_io_stack_bytes.store(bytes, std::memory_order_release);
                 pthread_attr_destroy(&observed);
             }
             postgamma_storage_listen(self->channel, self->queue.queue);
@@ -294,9 +297,8 @@ extern "C" void postgamma_storage_finish(void *context) {
 
 extern "C" int postgamma_wasm_storage_mount(const char *name, const char *test_channel) {
     if (active) return EBUSY;
+    observed_io_stack_bytes.store(0, std::memory_order_release);
     auto storage = std::make_unique<Storage>();
-    if (!storage->worker->error && storage->worker->stack_bytes != 2 * 1024 * 1024) return EIO;
-    fprintf(stderr, "POSTGAMMA_STORAGE io_stack_bytes=%zu\n", storage->worker->stack_bytes);
     StorageRequest request{PGW_STORAGE_MOUNT};
     request.name = name; request.data = const_cast<char *>(test_channel);
     int status = storage->call(request);
@@ -309,6 +311,9 @@ extern "C" int postgamma_wasm_storage_mount(const char *name, const char *test_c
 }
 extern "C" unsigned postgamma_wasm_storage_pending_writes(void) {
     return pending_writes.load(std::memory_order_acquire);
+}
+extern "C" EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_storage_stack_bytes(void) {
+    return observed_io_stack_bytes.load(std::memory_order_acquire);
 }
 extern "C" int postgamma_wasm_storage_close(void) {
     if (!active) return 0;

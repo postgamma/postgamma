@@ -8,6 +8,7 @@ export const journalNames = ['namespace-v1', 'namespace-v2'] as const;
 export interface JournalHooks {
   point(operation: string, path: string): Promise<string>;
   partial(bytes: number): Promise<never>;
+  writeCheckpoint?(bytes: Uint8Array, write: (bytes: Uint8Array, at: number) => void, flush: () => void): Promise<void>;
 }
 const noHooks: JournalHooks = {
   point: async () => '',
@@ -148,11 +149,9 @@ export class Journal {
     // The inactive slot is never needed for recovery of acknowledged writes.
     // Invalidate its old checksum before writing another generation.
     await this.retire(target, 'checkpoint-prepared');
-    const middle = Math.floor(bytes.length / 2);
-    this.write(target, bytes.subarray(0, middle), 0);
-    this.handles[target].flush();
-    await this.hooks.point('checkpoint-partial', 'snapshot');
-    this.write(target, bytes.subarray(middle), middle);
+    if (this.hooks.writeCheckpoint)
+      await this.hooks.writeCheckpoint(bytes, (part, at) => this.write(target, part, at), () => this.handles[target].flush());
+    else this.write(target, bytes, 0);
     await this.hooks.point('checkpoint-written', 'snapshot');
     this.handles[target].flush();
     await this.hooks.point('checkpoint-flushed', 'snapshot');

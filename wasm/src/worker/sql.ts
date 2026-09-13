@@ -33,6 +33,7 @@ function fail(error: unknown) {
   void ownership?.(); ownership = undefined;
   postMessage({fatal: String(error), output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
+    ioStackBytes: loaded?._postgamma_wasm_storage_stack_bytes() ?? 0,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
   self.close();
 }
@@ -67,6 +68,7 @@ async function dispose(module: SqlModule) {
   module.PThread.terminateAllThreads();
   await ownership?.(); ownership = undefined;
   return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, periodicSamples, samplingIntervalMs,
+    ioStackBytes: module._postgamma_wasm_storage_stack_bytes(),
     driverWakeCount: module._postgamma_wasm_wake_count(), droppedLogs, returnedWorkers,
     runningWorkers: Object.keys(module.PThread.pthreads).length, output};
 }

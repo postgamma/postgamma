@@ -8,6 +8,7 @@ const callback = 'kernel: DEBUG: using 1 parallel workers';
 const base = {
   samples: 2, peakThreads: 13, peakMemory: 134217728, returnedWorkers: 13,
   runningWorkers: 0, droppedLogs: 0, resources: {locks: 0, shmem: 0, dsm: 0, pipes: 0},
+  ioStackBytes: 0,
   peakQueuedBytes: 0, peakPending: 0, peakHostQueuedBytes: 0,
 };
 const telemetry = ['POSTGAMMA_RUNTIME parallel_threads_started=2',

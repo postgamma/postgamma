@@ -12,6 +12,8 @@ extern "C" {
 int postgamma_wasm_storage_mount(const char *name, const char *test_channel);
 int postgamma_wasm_storage_close(void);
 unsigned postgamma_wasm_storage_pending_writes(void);
+/* Last observed I/O stack size, retained for diagnostics after shutdown. */
+unsigned postgamma_wasm_storage_stack_bytes(void);
 #ifdef __cplusplus
 }
 #endif

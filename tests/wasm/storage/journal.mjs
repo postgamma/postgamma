@@ -6,6 +6,14 @@ const source = name => pathToFileURL(resolve(process.argv[2], name + '.js'));
 const {Journal, journalNames} = await import(source('journal'));
 const {Namespace, encode, journalLimit} = await import(source('namespace'));
 const {snapshot, restore, slotLimit} = await import(source('checkpoint'));
+const {Store} = await import(source('opfs'));
+
+// Ordinary I/O and unrelated injection points must not walk parent paths.
+const store = new Store();
+store.path = () => {throw new Error('Unexpected namespace path traversal');};
+assert.equal(await store.point('write', 2), '');
+store.fault = {operation: 'flush-before', path: '/data', action: 'pause', remaining: 1};
+assert.equal(await store.point('write', 2), '');
 
 // Writes and flushes are distinct. A crash drops every unflushed change and
 // releases handles without executing product close/flush code.
@@ -69,9 +77,13 @@ class File {
 class Directory {
   files = new Map();
   operations = 0;
+  trace = null;
   failAt = Infinity;
   writeSize = Infinity;
-  operation() {if (++this.operations === this.failAt) throw new DOMException('injected I/O failure', 'UnknownError');}
+  operation(kind) {
+    this.trace?.push(kind);
+    if (++this.operations === this.failAt) throw new DOMException('injected I/O failure', 'UnknownError');
+  }
   async getFileHandle(name, {create = false} = {}) {
     if (!this.files.has(name)) {
       if (!create) throw new DOMException('missing', 'NotFoundError');
@@ -108,7 +120,12 @@ assert.equal(restore(largest).namespace.nodes.size, 16384);
 for (let length = 0; length < checkpoint.length; length++) assert.throws(() => restore(checkpoint.subarray(0, length)));
 const corrupt = checkpoint.slice(); corrupt[corrupt.length - 1] ^= 1;
 assert.throws(() => restore(corrupt), /Corrupt/);
-await journal.checkpoint(); journal.close();
+root.trace = [];
+await journal.checkpoint();
+assert.equal(root.trace.filter(op => op === 'write').length, 3, 'One snapshot write plus two retirement markers');
+assert.equal(root.trace.filter(op => op === 'flush').length, 5, 'Only snapshot and retirement durability barriers');
+root.trace = null;
+journal.close();
 journal = await Journal.open(root);
 assert.deepEqual(state(journal), before);
 await create(journal, 'next');
@@ -134,10 +151,16 @@ const points = ['checkpoint-before', 'checkpoint-prepared', 'checkpoint-partial'
   'checkpoint-written', 'checkpoint-flushed', 'checkpoint-retired', 'checkpoint-published'];
 for (const point of points) {
   root = new Directory(); let armed = false;
-  journal = await Journal.open(root, hooks(async operation => {
+  const injection = hooks(async operation => {
     if (armed && operation === point) throw new Error('interrupted ' + point);
     return '';
-  }));
+  });
+  if (point === 'checkpoint-partial') injection.writeCheckpoint = async (bytes, write, flush) => {
+    if (!armed) {write(bytes, 0); return;}
+    write(bytes.subarray(0, Math.floor(bytes.length / 2)), 0); flush();
+    throw new Error('interrupted checkpoint-partial');
+  };
+  journal = await Journal.open(root, injection);
   await create(journal, 'kept'); await create(journal, 'deleted'); await remove(journal, 'deleted');
   const expected = state(journal); armed = true;
   await assert.rejects(journal.checkpoint(), /interrupted/);

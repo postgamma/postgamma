@@ -53,6 +53,13 @@ export class Store {
           await new Promise<void>(resolve => {this.resume = resolve;});
           throw error('UnknownError', 'Interrupted namespace tail requires recovery');
         },
+        writeCheckpoint: testChannel ? async (bytes, write, flush) => {
+          if (this.fault?.operation !== 'checkpoint-partial') {write(bytes, 0); return;}
+          const middle = Math.floor(bytes.length / 2);
+          write(bytes.subarray(0, middle), 0); flush();
+          await this.point('checkpoint-partial', 0, 'snapshot');
+          write(bytes.subarray(middle), middle);
+        } : undefined,
       });
       this.namespace = this.journal.namespace;
       this.journalMetrics();
@@ -103,9 +110,11 @@ export class Store {
     for (let n = this.namespace.nodes.get(id); n && n.id !== 1; n = this.namespace.nodes.get(n.parent)) parts.push(n.name);
     return '/' + parts.reverse().join('/');
   }
-  private async point(operation: string, id: number, path = this.path(id)): Promise<string> {
+  private async point(operation: string, id: number, path?: string): Promise<string> {
     const f = this.fault;
-    if (!f || f.operation !== operation || !path.includes(f.path) || --f.remaining > 0) return '';
+    if (!f || f.operation !== operation) return '';
+    path ??= this.path(id);
+    if (!path.includes(f.path) || --f.remaining > 0) return '';
     this.fault = undefined;
     this.channel?.postMessage({gate: operation, path, action: f.action});
     if (f.action === 'pause') await new Promise<void>(resolve => {this.resume = resolve;});

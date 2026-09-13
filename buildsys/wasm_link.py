@@ -393,6 +393,8 @@ class Builder:
             self.namespace_group(name, jobs, mapping=mapping)
 
     def product(self):
+        policy = read_json(self.root / "manifests/profiles/wasm-resource-budget.json")
+        io_stack = next(role["stack_bytes"] for role in policy["thread_roles"] if role["role"] == "io_owner")
         excluded = {"bootstrap_probe.c", "libpq_memory_adapter.c", "postgres_initdb_host.c",
                     "postgres_logical_tool_host.c", "postgamma_logical_management.c"}
         jobs = []
@@ -408,6 +410,8 @@ class Builder:
         for source in sorted((self.root / "runtime/platform/emscripten").glob("*")):
             if source.suffix not in (".c", ".cpp"): continue
             extra = ["-isystem", str(self.config.sdk / "upstream/emscripten/system/lib/wasmfs")] if source.suffix == ".cpp" else []
+            if source.name == "storage.cpp":
+                extra += [f"-DPOSTGAMMA_WASM_IO_STACK_BYTES={io_stack}"]
             jobs.append((source, "platform/" + source.stem, extra))
         self.compile_group(jobs)
 

@@ -10,7 +10,7 @@ export function storageBudget(modules: any[], events: any[]) {
     assert(Object.values(m.resources).every(n => n === 0), 'OPFS native resource release');
     assert(m.peakQueuedBytes <= limits.workerQueueBytes && m.peakPending <= limits.maxPendingCommands &&
       m.peakHostQueuedBytes <= limits.connectionQueueBytes * limits.maxConnections, 'OPFS bridge queue bounds');
-    assert(m.output.includes('POSTGAMMA_STORAGE io_stack_bytes=2097152'), 'Measured dedicated I/O stack');
+    assert(m.ioStackBytes === 2097152, 'Measured dedicated I/O stack');
     let classes = 0;
     for (const line of m.output) if (line.includes('POSTGAMMA_STACK ')) {
       const row = Object.fromEntries(line.split('POSTGAMMA_STACK ')[1].split(' ').map((s: string) => s.split('=')));
