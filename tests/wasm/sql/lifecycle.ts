@@ -3,6 +3,41 @@ import {Database, ClosedError, DatabaseError} from '../src/api/database.js';
 import type {Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 import {waitLock} from './concurrency.js';
+import {Op, Reader, Writer as WireWriter} from '../src/protocol/wire.js';
+import type {Handle} from '../src/protocol/wire.js';
+
+async function closeAuditFailure(checks: string[]) {
+  const name = 'close-audit-' + crypto.randomUUID();
+  const db = await Database.open({storage: {type: 'opfs', name}});
+  await (await db.connect()).query('CREATE TABLE close_audit(value int)');
+  const transport = (db as unknown as {transport: {
+    call(op: number, handle?: Handle): Promise<Reader>;
+  }}).transport;
+  const call = transport.call.bind(transport);
+  let closes = 0, stops = 0;
+  // Change only the audit reply after the real kernel frees the instance.
+  // STOP still joins actual threads and releases the OPFS ownership lock.
+  transport.call = async (op, handle) => {
+    const reply = await call(op, handle);
+    if (op === Op.stop) stops++;
+    if (op !== Op.close) return reply;
+    closes++;
+    for (let i = 0; i < 4; i++) assert(reply.u32() === 0, 'Native close has no real resource leaks');
+    reply.end();
+    return new Reader(new WireWriter().u32(1).u32(0).u32(0).u32(0).finish());
+  };
+  const closed = db.close();
+  const error = await closed.then(() => null, error => error);
+  assert(error instanceof Error && error.message === 'Native resources remain after close', 'Audit error reaches the caller');
+  assert(db.close() === closed && closes === 1 && stops === 1, 'Audit failure never retries the retired native handle');
+  const reopened = await Database.open({storage: {type: 'opfs', name}, create: false});
+  assert(scalar(await (await reopened.connect()).query('SELECT count(*) FROM close_audit')) === '0', 'OPFS reopens immediately after failed audit');
+  await reopened.close();
+  const origin = await navigator.storage.getDirectory();
+  await (await origin.getDirectoryHandle('postgamma')).removeEntry(name, {recursive: true});
+  checks.push('close-audit-cleanup', 'close-audit-opfs-reopen');
+}
+
 export async function lifecycle(db: Database, checks: string[]) {
   await new Promise(resolve => setTimeout(resolve, 1000));
   await db.telemetry();
@@ -59,6 +94,7 @@ export async function lifecycle(db: Database, checks: string[]) {
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'lifecycle', metrics,
     recreated: fresh.diagnostics(), settlements});
   checks.push('close-during-submission', 'recreate-after-close');
+  await closeAuditFailure(checks);
 }
 export async function fatal(db: Database, checks: string[], fault: number) {
   const a = await db.connect('fatal-a'), b = await db.connect('fatal-b');

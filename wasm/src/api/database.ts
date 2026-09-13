@@ -69,7 +69,7 @@ class Transport {
       throw error;
     }
   }
-  terminate() {this.worker.terminate();}
+  terminate() {this.fail(new ClosedError());}
 }
 export class Database {
   private transport: Transport;
@@ -77,6 +77,7 @@ export class Database {
   private connections = new Set<Connection>();
   private starting = new Set<Promise<Connection>>();
   private closing = false;
+  private nativeClosed = false;
   private closeWork: Promise<unknown> | undefined;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
   static async open(options: OpenOptions = {}): Promise<Database> {
@@ -121,13 +122,24 @@ export class Database {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.connections].map(connection => connection.close()));
       const r = await this.transport.call(Op.close, this.handle);
-      const resources = {locks: r.u32(), shmem: r.u32(), dsm: r.u32(), pipes: r.u32()}; r.end();
-      if (Object.values(resources).some(count => count !== 0)) throw new Error('Native resources remain after close');
-      (await this.transport.call(Op.stop)).end(); this.transport.terminate();
+      // A successful native close frees the instance. Its handle cannot be
+      // retried, even if resource auditing or Worker teardown subsequently fails.
+      this.nativeClosed = true;
+      const failures: unknown[] = [];
+      let resources: Record<string, number> | undefined;
+      try {
+        resources = {locks: r.u32(), shmem: r.u32(), dsm: r.u32(), pipes: r.u32()}; r.end();
+        if (Object.values(resources).some(count => count !== 0)) throw new Error('Native resources remain after close');
+      } catch (error) {failures.push(error);}
+      try {(await this.transport.call(Op.stop)).end();}
+      catch (error) {failures.push(error);}
+      finally {this.transport.terminate();}
       this.transport.metrics = {...this.transport.metrics as object, resources,
         peakHostQueuedBytes: this.transport.peakHostQueuedBytes};
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, 'Database close and teardown failed');
       return this.transport.metrics;
-    })().catch(error => {this.closeWork = undefined; throw error;});
+    })().catch(error => {if (!this.nativeClosed) this.closeWork = undefined; throw error;});
     return this.closeWork;
   }
 }

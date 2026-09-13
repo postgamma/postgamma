@@ -76,6 +76,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][readiness_test] = digest(config.root / readiness_test)
             run([builder.tools["node"], str(config.root / readiness_test), str(site / "src/protocol/readiness.js")],
                 builder.current / "readiness.log", builder.env, config.root)
+            close_test = "tests/wasm/sql/close.mjs"
+            report["harness_sources"][close_test] = digest(config.root / close_test)
+            run([builder.tools["node"], str(config.root / close_test), str(site / "src/api/database.js")],
+                builder.current / "close.log", builder.env, config.root)
             run([builder.tools["node"], str(config.root / "tests/wasm/storage/namespace.mjs"),
                  str(site / "src/storage/namespace.js")], builder.current / "namespace.log", builder.env, config.root)
             journal_test = "tests/wasm/storage/journal.mjs"
