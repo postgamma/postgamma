@@ -24,7 +24,8 @@ def candidate_marker() -> str:
     return (
         "POSTGAMMA_API_ORDERED_RESULTS postgres=19 connections=2 "
         "ordered_results=6 prepared_executions=3 text_binary=true "
-        "sql_length=true ownership=true transaction_pin=true advisory_pin=true "
+        "sql_length=true parameter_length=true ownership=true "
+        "transaction_pin=true advisory_pin=true "
         "reuse_after_error=true cancel=true reuse_after_cancel=true "
         "prepared_capability=true phase=closed\n"
     )

@@ -284,6 +284,11 @@ typedef struct pgm_bundled_extension_info
 	{sizeof(pgm_bundled_extension_info), UINT32_C(0), UINT32_C(0), \
 	 UINT32_C(0), UINT64_C(0), NULL, NULL, NULL}
 
+/*
+ * size counts payload bytes, excluding any terminator. Text payloads containing
+ * a NUL byte are rejected with PGM_STATUS_INVALID_ARGUMENT. Binary payloads may
+ * contain NUL bytes, subject to the PostgreSQL type's binary input rules.
+ */
 typedef struct pgm_parameter
 {
 	uint32_t	struct_size;

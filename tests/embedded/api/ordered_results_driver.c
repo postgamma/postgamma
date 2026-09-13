@@ -140,12 +140,29 @@ main(int argument_count, char **arguments)
 	{
 		pgm_parameter parameter = PGM_PARAMETER_INIT;
 		const char *sql = "SELECT $1::text AS payload";
+		const char text_with_nul[] = {'a', '\0', 'b'};
 
 		parameter.type_oid = UINT32_C(25);
-		parameter.data = "alpha";
-		parameter.size = 5;
 		execute_options.parameters = &parameter;
 		execute_options.parameter_count = 1;
+		for (size_t index = 0; index < 3; index++)
+		{
+			/* Exercise a NUL at the start, middle, and end of the payload. */
+			parameter.data = text_with_nul + (index == 0 ? 1 : 0);
+			parameter.size = index == 1 ? 3 : 2;
+			status = pgm_execute_async_ex(
+				connection, sql, strlen(sql), &execute_options, &request, &error);
+			if (status != PGM_STATUS_INVALID_ARGUMENT || request != NULL ||
+				error == NULL || pgm_error_status(error) != status)
+			{
+				fprintf(stderr, "text parameter length allowed an embedded NUL\n");
+				goto fail;
+			}
+			pgm_error_free(error);
+			error = NULL;
+		}
+		parameter.data = "alpha";
+		parameter.size = 5;
 		status = pgm_execute_async_ex(
 			connection, sql, strlen(sql), &execute_options, &request, &error);
 		if (status != PGM_STATUS_OK)
@@ -435,6 +452,7 @@ main(int argument_count, char **arguments)
 		{
 			const uint32_t explicit_type = UINT32_C(23);
 			pgm_parameter parameter = PGM_PARAMETER_INIT;
+			const char text_with_nul[] = {'7', '\0', '9'};
 
 			prepare_options.parameter_type_oids = &explicit_type;
 			prepare_options.parameter_count = 1;
@@ -461,10 +479,22 @@ main(int argument_count, char **arguments)
 			emit_description_case(
 				"prepared_explicit", parameter_types, 1, &column);
 			parameter.type_oid = explicit_type;
-			parameter.data = "7";
-			parameter.size = 1;
+			parameter.data = text_with_nul;
+			parameter.size = sizeof(text_with_nul);
 			execute_options.parameters = &parameter;
 			execute_options.parameter_count = 1;
+			status = pgm_statement_execute_async(
+				statement, &execute_options, &request, &error);
+			if (status != PGM_STATUS_INVALID_ARGUMENT || request != NULL ||
+				error == NULL || pgm_error_status(error) != status)
+			{
+				fprintf(stderr, "prepared text parameter allowed an embedded NUL\n");
+				goto fail;
+			}
+			pgm_error_free(error);
+			error = NULL;
+			/* The same buffer is valid when the NUL is outside its size. */
+			parameter.size = 1;
 			status = pgm_statement_execute_async(
 				statement, &execute_options, &request, &error);
 			if (status != PGM_STATUS_OK)
@@ -626,7 +656,7 @@ fail:
 	printf(
 		"POSTGAMMA_API_ORDERED_RESULTS postgres=19 connections=2 "
 		"ordered_results=%zu prepared_executions=%zu "
-		"text_binary=true sql_length=true ownership=true "
+		"text_binary=true sql_length=true parameter_length=true ownership=true "
 		"transaction_pin=true advisory_pin=true reuse_after_error=true "
 		"cancel=true reuse_after_cancel=true prepared_capability=true "
 		"phase=closed\n",

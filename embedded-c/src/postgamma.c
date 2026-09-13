@@ -2721,6 +2721,13 @@ copy_request_parameters(
 		}
 		if (source->is_null == 0)
 		{
+			/* libpq uses strlen for text parameters, ignoring their length. */
+			if (source->format == PGM_FORMAT_TEXT &&
+				memchr(source->data, '\0', source->size) != NULL)
+			{
+				free_request_parameters(created, parameter_count);
+				return EINVAL;
+			}
 			data = malloc(source->size + 1);
 			if (data == NULL)
 			{
