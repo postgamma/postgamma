@@ -9,10 +9,14 @@ import time
 from wasm_toolchain import WasmError, configuration, capture, digest, read_json, run, run_id, write_json
 
 
-def stages(profile):
+def stages(profile, platform_checks=False):
     result = [('tools', ['doctor-ast', 'doctor-wasm']), ('unit', []), ('generation', ['wasm-kernel-generate']),
-              ('oracle-build', ['reference-build']), ('oracle-install', []),
-              ('sql', ['wasm-sql-check'])]
+              ('runtime', ['wasm-runtime-check'])]
+    if profile == 'weekly' or platform_checks:
+        result += [('platform', ['wasm-platform-check']), ('wait', ['wasm-wait-check']),
+                   ('recovery', ['wasm-recovery-check'])]
+    result += [('oracle-build', ['reference-build']), ('oracle-install', []),
+               ('sql', ['wasm-sql-check'])]
     if profile == 'weekly':
         result += [('vector', ['wasm-vector-check']), ('storage', ['wasm-storage-check'])]
     result += [('package', ['wasm-package-check'])]
@@ -20,10 +24,11 @@ def stages(profile):
     return result
 
 
-def run_suite(config, profile, longjmp, candidate=False):
+def run_suite(config, profile, longjmp, candidate=False, platform_checks=False):
     current = config.build/'wasm/ci'/run_id(); current.mkdir(parents=True)
     report = {'kind':'postgamma.wasm-ci','status':'failed','profile':profile,
               'target':config.target,'mode':config.mode,'candidate':candidate,'stages':[],
+              'platform_checks':profile == 'weekly' or platform_checks,
               'source_commit':capture(['git','-C',str(config.root),'rev-parse','HEAD']),
               'driver_sha256':digest(config.root/'buildsys/wasm_ci.py'),
               'scope':'Wasm evidence is independent of native product acceptance.'}
@@ -41,7 +46,7 @@ def run_suite(config, profile, longjmp, candidate=False):
     if config.browser_override: assignments.append('WASM_BROWSER_EXECUTABLE='+config.browser_override)
     started = time.monotonic()
     try:
-        for name, targets in stages(profile):
+        for name, targets in stages(profile, platform_checks):
             row = {'name':name,'status':'failed','freeBytesBefore':shutil.disk_usage(config.build).free}
             report['stages'].append(row); begin = time.monotonic()
             command = ['make','-C',str(config.root),*targets,*assignments]
@@ -87,8 +92,10 @@ def main():
     parser.add_argument('--longjmp',default='emscripten');parser.add_argument('--jobs',type=int,default=2)
     parser.add_argument('--suite',choices=('basic','weekly'),default='basic')
     parser.add_argument('--candidate-probe',action='store_true')
+    parser.add_argument('--platform-checks',action='store_true')
     args=parser.parse_args()
-    try: run_suite(configuration(args),args.suite,args.longjmp,candidate=args.candidate_probe)
+    try: run_suite(configuration(args),args.suite,args.longjmp,candidate=args.candidate_probe,
+                   platform_checks=args.platform_checks)
     except Exception as error: parser.exit(2,'wasm CI: '+str(error).splitlines()[0]+'\n')
 
 if __name__=='__main__':main()

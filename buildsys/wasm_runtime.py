@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 import shutil
 
@@ -13,10 +12,10 @@ from wasm_toolchain import (WasmError, configuration, digest, fingerprint, run,
 
 
 def target_layouts(config, longjmp):
-    # The ABI is common to both optimization modes. Use the verified debug target
-    # layouts; never substitute host layouts or objects into the browser harness.
+    # Use this suite's verified target layouts. A release-only checkout must not
+    # depend on a prior debug build or accept its stale generation receipt.
     from wasm_kernel import prepare
-    directory, _, _, _ = prepare(replace(config, mode="debug"), longjmp)
+    directory, _, _, _ = prepare(config, longjmp)
     receipt = directory / "reports/generate.json"
     if not receipt.is_file():
         raise WasmError("run make wasm-kernel-generate before the filesystem runtime check")

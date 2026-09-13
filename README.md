@@ -545,12 +545,16 @@ SQL, pgvector, OPFS recovery and three-engine acceptance suite. It reuses the
 installed toolchain and keeps release artifacts separate from debug builds.
 
 `make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
-The Browser kernel workflow uses these debug gates for relevant pull requests.
+Every run includes shared runtime regression. The Browser kernel workflow uses
+these debug gates for relevant pull requests and adds ABI, wait/notify and
+longjmp probes for platform or SDK changes. Use
+`make wasm-ci WASM_PLATFORM_CHECKS=1 JOBS=2` to include those probes locally.
 Relevant pushes to `main` or `feature/wasm`, and manual dispatch, run
 `make wasm-release JOBS=2`. Shared kernel changes select native regression
 separately.
 
-After `make wasm-browser-setup`, `make wasm-check-full JOBS=2` adds vector,
+After `make wasm-browser-setup`, `make wasm-check-full JOBS=2` adds all platform
+probes, vector,
 OPFS recovery and the browser matrix against the pinned PostgreSQL source.
 `make wasm-weekly JOBS=2` runs that suite against current PostgreSQL master in
 an isolated checkout. Use `PG_BRANCH=REL_19_STABLE`, `PG_REF=<commit>` or

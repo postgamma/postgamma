@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'buildsys'))
-from plan_wasm_ci import plan, shared_input
+from plan_wasm_ci import plan, shared_input, platform_input
 from collect_wasm_evidence import selected
 from wasm_ci import run_suite, stages
 from wasm_toolchain import WasmError
@@ -41,9 +41,54 @@ class WasmCITests(unittest.TestCase):
 
     def test_basic_suite_runs_oracle_sql_and_installed_package(self):
         names = [name for name, _ in stages('basic')]
+        self.assertLess(names.index('generation'), names.index('runtime'))
+        self.assertLess(names.index('runtime'), names.index('sql'))
         self.assertLess(names.index('oracle-build'), names.index('oracle-install'))
         self.assertLess(names.index('oracle-install'), names.index('sql'))
         self.assertEqual(names[-1], 'package')
+
+    def test_platform_changes_select_probes_and_full_suite_always_runs_them(self):
+        for path in ('runtime/platform/emscripten/io.c', 'wasm/bridge/sql.c',
+                     'tests/runtime/test_path_runtime.c', 'tests/wasm/probes/recovery.c',
+                     'manifests/profiles/wasm-emscripten.json', 'wasm/package-lock.json',
+                     '.github/actions/wasm-setup/action.yml'):
+            self.assertTrue(platform_input(path), path)
+        for path in ('wasm/src/api/database.ts', 'docs/getting-started/browser.md',
+                     'tests/wasm/sql/concurrency.ts'):
+            self.assertFalse(platform_input(path), path)
+        self.assertTrue(plan(ROOT, '')['platform'])
+        with patch('plan_wasm_ci.subprocess.check_output', return_value=b'wasm/package-lock.json\0'):
+            result = plan(ROOT, 'a'*40)
+            self.assertTrue(result['platform'])
+            self.assertFalse(result['native'])
+        for profile, explicit in [('weekly', False), ('weekly', True), ('basic', True)]:
+            names = [name for name, _ in stages(profile, explicit)]
+            for gate in ('runtime', 'platform', 'wait', 'recovery'):
+                self.assertLess(names.index(gate), names.index('sql'))
+                self.assertEqual(names.count(gate), 1)
+        self.assertNotIn('platform', dict(stages('basic')))
+
+    def test_failed_platform_probe_stops_sql_and_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'buildsys').mkdir()
+            (root/'buildsys/wasm_ci.py').write_text('driver')
+            config = SimpleNamespace(root=root, build=root/'build', deps=root/'.deps',
+                profile_path=root/'profile.json', target='wasm32-emscripten-pthreads',
+                mode='release', jobs=2, node_override='', browser_override='', external_sdk=False)
+            commands = []
+            def execute(command, log, *args, **kwargs):
+                commands.append(command)
+                if Path(log).stem == 'wait':
+                    raise WasmError('injected lost wakeup')
+            with patch('wasm_ci.capture', return_value='a'*40), patch('wasm_ci.run', side_effect=execute):
+                with self.assertRaisesRegex(WasmError, 'injected lost wakeup'):
+                    run_suite(config, 'weekly', 'emscripten')
+            report = json.loads(next((root/'build/wasm/ci').glob('*/report.json')).read_text())
+            self.assertTrue(report['platform_checks'])
+            self.assertEqual(report['stages'][-1]['name'], 'wait')
+            self.assertEqual(report['stages'][-1]['status'], 'failed')
+            self.assertFalse(any('wasm-sql-check' in c or 'wasm-package-check' in c for c in commands))
 
     def test_oracle_is_isolated_and_failed_sql_stops_publication(self):
         with tempfile.TemporaryDirectory() as temporary:

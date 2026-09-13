@@ -9,6 +9,7 @@ WASM_PROFILE ?= $(ROOT)/manifests/profiles/wasm-emscripten.json
 WASM_EMSDK_DIR ?=
 WASM_NODE ?=
 WASM_BROWSER_EXECUTABLE ?=
+WASM_PLATFORM_CHECKS ?= 0
 
 POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 	--deps-dir "$(WASM_DEPS_DIR)" --profile "$(WASM_PROFILE)" \
@@ -133,7 +134,7 @@ wasm-matrix-check:
 
 .PHONY: wasm-ci
 wasm-ci:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic $(VERIFY_UPSTREAM_PROBE_ARG)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite basic $(VERIFY_UPSTREAM_PROBE_ARG) $(if $(filter 1 true,$(WASM_PLATFORM_CHECKS)),--platform-checks)
 
 .PHONY: wasm-weekly wasm-upstream-canary
 wasm-weekly:

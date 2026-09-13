@@ -76,9 +76,9 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
-| `make wasm-ci` | Run tool/unit/generation/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
+| `make wasm-ci` | Run tool/unit/generation/shared-runtime/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
 | `make wasm-release` | Build an optimized package and run all SQL, vector, storage, package and browser gates. |
-| `make wasm-check-full` | Run the pinned source through SQL, vector, OPFS recovery, installed package and browser matrix gates. |
+| `make wasm-check-full` | Run the pinned source through platform and shared-runtime probes, SQL, vector, OPFS recovery, installed package and browser matrix gates. |
 | `make wasm-weekly` | Run the full suite against current PostgreSQL master in an isolated candidate checkout; `PG_BRANCH` and `PG_REPOSITORY` are configurable. |
 | `make wasm-matrix-check` | Validate and measure the last package on Chromium, Firefox and Linux WebKit; every engine must pass. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
@@ -545,6 +545,13 @@ manual dispatch, run `make wasm-release JOBS=2`, including all browser engines.
 The workflow has no scheduled trigger. Changes to shared runtime, compiler,
 C API and common build inputs also select a separate native fast-regression job.
 
+Every CI run includes `wasm-runtime-check`. Pull requests that change platform,
+SDK, bridge or shared kernel inputs also run `wasm-platform-check`,
+`wasm-wait-check` and `wasm-recovery-check`. Use
+`make wasm-ci WASM_PLATFORM_CHECKS=1 JOBS=2` to include these probes locally.
+The full and weekly suites always include all four gates, before SQL and
+package checks; a failed probe stops the suite.
+
 The Wasm job uses Ubuntu 24.04, matching LLVM/Clang 22 host AST tools and the
 pinned SDK/browser package. It retains stage logs, source/tool identities and
 failure reports separately from native evidence; successful runs also retain
@@ -578,7 +585,8 @@ make wasm-upstream-canary PG_REF=<commit> CANARY_PROFILE=weekly JOBS=2
 
 These commands reuse installed SDK/browser tools. Candidate source and build
 trees remain for diagnosis, so repeated candidates need additional disk space.
-The full suite includes all eight SQL groups, vector queries and index plans,
+The full suite includes ABI/pthread/TLS/libc, wait/notify, longjmp and shared
+runtime probes, all eight SQL groups, vector queries and index plans,
 OPFS ownership/failure/recovery checks, an independently installed package, and
 Chromium/Firefox/Linux WebKit package checks and measurements. Every engine must
 pass both ephemeral and OPFS profiles. OPFS uses normal persistent browser

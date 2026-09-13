@@ -16,6 +16,7 @@ on:
       - 'wasm/**'
       - 'tests/wasm/**'
       - 'tests/embedded/**'
+      - 'tests/runtime/**'
       - 'tests/buildsys/**'
       - 'LICENSE'
       - 'NOTICE'
@@ -45,6 +46,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       native: ${{ steps.changes.outputs.native }}
+      platform: ${{ steps.changes.outputs.platform }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,6 +57,7 @@ jobs:
         run: python3 buildsys/plan_wasm_ci.py --root . --base "$BASE_SHA"
 
   wasm:
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -66,6 +69,8 @@ jobs:
           matrix: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
       - name: Validate the debug Chromium package
         if: github.event_name == 'pull_request'
+        env:
+          WASM_PLATFORM_CHECKS: ${{ needs.plan.outputs.platform }}
         run: make wasm-ci JOBS=2
       - name: Validate the optimized package and all browser engines
         if: github.event_name != 'pull_request'
