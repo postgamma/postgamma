@@ -66,7 +66,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm` | Build the private C/TypeScript startup fixture and Worker assets. Requires `make wasm-kernel-generate`. |
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
-| `make wasm-sql-check` | Run all eight SQL, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-sql-check` | Run all nine SQL, binding, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
@@ -355,7 +355,7 @@ are rejected, including symlinked paths. Both `make wasm-clean` and the root
 therefore does not require downloading the toolchain again.
 
 `make wasm-sql-check JOBS=2` builds the asynchronous SQL bridge once and runs
-all eight stage-2 browser scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
+all nine browser SQL scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
 parameters, exact text values, NULL, binary data, diagnostics and stale handles.
 Results are recorded in `reports/sql.json`. The source API is
 under `src/api/`, exported by `src/index.ts` in the consumer package. Result
@@ -369,6 +369,15 @@ installation). Iterator/COPY delivery grants one batch of credit at a time.
 Collected queries are limited to 4 MiB; larger results use async iteration.
 Exact text values stay strings, binary values stay owned byte buffers, and
 SQL errors expose SQLSTATE plus the native diagnostic fields.
+
+`make wasm-sql-check WASM_SQL_SCENARIO=bindings WASM_MODE=release JOBS=2`
+runs twelve binding and request-lifetime regressions adapted from scenarios in
+PGlite, DuckDB-Wasm, SQLite Wasm, and chDB-Wasm. They cover arrays and JSONB,
+binary subviews, text NUL rejection, empty-result metadata, mixed-type batches,
+iterator cleanup, byte-fragmented CSV COPY, active computation cancellation,
+and PostgreSQL message-context reclamation. Source references are recorded in
+`tests/wasm/sql/bindings.ts`; the tests use postgamma's public API and require no
+upstream engine package. This group also runs in the default SQL suite and CI.
 
 The setup follows the [Emscripten SDK instructions](https://emscripten.org/docs/getting_started/downloads.html),
 and the harness uses the [Playwright library](https://playwright.dev/docs/library).
@@ -613,7 +622,7 @@ make wasm-upstream-canary PG_REF=<commit> CANARY_PROFILE=weekly JOBS=2
 These commands reuse installed SDK/browser tools. Candidate source and build
 trees remain for diagnosis, so repeated candidates need additional disk space.
 The full suite includes ABI/pthread/TLS/libc, wait/notify, longjmp and shared
-runtime probes, all eight SQL groups, vector queries and index plans,
+runtime probes, all nine SQL groups, vector queries and index plans,
 OPFS ownership/failure/recovery checks, an independently installed package, and
 Chromium/Firefox/Linux WebKit package checks and measurements. Every engine must
 pass both ephemeral and OPFS profiles. OPFS uses normal persistent browser

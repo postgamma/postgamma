@@ -7,6 +7,7 @@ import {errors} from './errors.js';
 import {results} from './results.js';
 import {lifecycle, fatal} from './lifecycle.js';
 import {budget} from './budget.js';
+import {bindings} from './bindings.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
@@ -63,6 +64,7 @@ try {
   else {
   const db = await Database.open();
   if (scenario === 'abi') await abi(db);
+  else if (scenario === 'bindings') await bindings(db, checks);
   else if (scenario === 'vector-load') await loadVector(db, checks);
   else if (scenario === 'vector-query') await vectorQueries(db, checks);
   else if (scenario === 'concurrency') await concurrency(db, checks);

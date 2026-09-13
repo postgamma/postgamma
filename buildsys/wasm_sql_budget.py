@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from wasm_toolchain import WasmError, write_json
 
-SCENARIOS = ('abi', 'concurrency', 'errors', 'results', 'lifecycle', 'fatal-trap', 'fatal-abort', 'budget')
+SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'fatal-trap', 'fatal-abort', 'budget')
 
 
 def generate_policy(root: Path, output: Path, policy: dict) -> None:
