@@ -1,7 +1,8 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {createRequire} from 'node:module';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync, mkdtempSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
 import {parseArgs} from 'node:util';
 import assert from 'node:assert/strict';
 const {values} = parseArgs({options: {root: {type:'string'},url: {type:'string'},output: {type:'string'},
@@ -10,10 +11,9 @@ const require = createRequire(resolve(values.root, 'wasm/package.json'));
 const playwright = require('playwright');
 const report = {status:'failed',engine:values.engine,playwright:require('playwright/package.json').version,cases:[]};
 let browser;
+const launchOptions = {headless:true,timeout:15000,
+  ...(values.executable ? {executablePath:values.executable} : values.engine==='chromium' ? {channel:'chromium'} : {})};
 try {
-  browser = await playwright[values.engine].launch({headless:true,timeout:15000,
-    ...(values.executable ? {executablePath:values.executable} : values.engine==='chromium' ? {channel:'chromium'} : {})});
-  report.browserVersion = browser.version();
   assert(['all','opfs','ephemeral'].includes(values.storage));
   const profiles = values.storage === 'all' ? ['ephemeral','opfs'] : [values.storage];
   const cases = [...profiles.map(storage => ({name:'consumer-' + storage,storage})), ...(values['no-faults'] ? [] : [
@@ -25,10 +25,21 @@ try {
     {name:'isolation',expected:/cross-origin isolation/},
   ])];
   for (const scenario of cases) {
-    const context = await browser.newContext();
-    const row = {name:scenario.name,storage:scenario.storage,status:'failed',pageErrors:[],failedRequests:[],httpErrors:[],console:[]}; report.cases.push(row);
+    // OPFS acceptance uses ordinary browser storage. Nonpersistent WebKit
+    // contexts disable getDirectory(), even though a disk profile supports it.
+    const profile = scenario.storage === 'opfs' ? mkdtempSync(resolve(tmpdir(), 'pgm-opfs-')) : undefined;
+    let context;
+    const row = {name:scenario.name,storage:scenario.storage,context:profile?'persistent':'nonpersistent',status:'failed',pageErrors:[],failedRequests:[],httpErrors:[],console:[]}; report.cases.push(row);
     try {
-      const page = await context.newPage();
+      if (profile) {
+        await browser?.close(); browser = undefined;
+        context = await playwright[values.engine].launchPersistentContext(profile, launchOptions);
+      } else {
+        browser ??= await playwright[values.engine].launch(launchOptions);
+        context = await browser.newContext();
+      }
+      report.browserVersion = context.browser().version();
+      const page = context.pages()[0] || await context.newPage();
       page.on('pageerror', error => row.pageErrors.push(String(error)));
       page.on('console', message => row.console.push({type:message.type(),text:message.text()}));
       page.on('response', response => {if(response.status() >= 400) row.httpErrors.push({url:response.url(),status:response.status()});});
@@ -56,7 +67,7 @@ try {
       }
       assert.deepEqual(row.pageErrors,[]); row.status='passed';
     } catch (error) {row.error=String(error.stack||error);}
-    finally {await context.close(); writeFileSync(values.output,JSON.stringify(report,null,2)+'\n');}
+    finally {await context?.close(); if (profile) rmSync(profile,{recursive:true,force:true}); writeFileSync(values.output,JSON.stringify(report,null,2)+'\n');}
   }
   assert(report.cases.every(row=>row.status==='passed'), 'One or more package cases failed');
   report.status='passed';

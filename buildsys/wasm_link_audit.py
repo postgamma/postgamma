@@ -11,7 +11,8 @@ from wasm_toolchain import WasmError, digest, write_json
 
 
 PROVIDERS = {
-    "opfs-owner": "postgamma_storage_dispatch emscripten_unwind_to_js_event_loop",
+    "opfs-owner": "postgamma_storage_dispatch postgamma_storage_listen postgamma_storage_notify "
+        "postgamma_storage_unlisten emscripten_unwind_to_js_event_loop",
     "shared-memory": "memory emscripten_get_heap_max emscripten_resize_heap",
     "recovery-and-fatal-diagnostics": "exit proc_exit __assert_fail __cxa_throw _abort_js "
         "_emscripten_throw_longjmp __handle_stack_overflow emscripten_err emscripten_out",
@@ -28,7 +29,7 @@ PROVIDERS = {
         "_wasmfs_get_preloaded_path_name _wasmfs_get_preloaded_file_mode "
         "_wasmfs_jsimpl_alloc_file _wasmfs_jsimpl_get_size _wasmfs_jsimpl_read "
         "_wasmfs_jsimpl_write _wasmfs_jsimpl_set_size _wasmfs_jsimpl_free_file",
-    "web-crypto": "random_get",
+    "web-crypto": "random_get postgamma_storage_channel_name",
     # HBA/libpq retain network address formatting and resolution branches. The
     # private memory connection entry does not expose host/port/socket options.
     "retained-address-compatibility": "getaddrinfo getnameinfo",

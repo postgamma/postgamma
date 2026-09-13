@@ -13,6 +13,11 @@ export class Store {
   private bytes = 0;
   private poisoned = false;
   private handles = new Map<number, any>();
+  private files = new Map<number, any>();
+  // The exclusive I/O owner observes every mutation. Sizes remain valid across
+  // handle eviction; querying the browser on every fstat is an IPC roundtrip.
+  private sizes = new Map<number, number>();
+  private dirty = new Set<number>();
   private opens = new Map<number, number>();
   private removed = new Set<number>();
   private tail: Promise<unknown> = Promise.resolve();
@@ -46,7 +51,7 @@ export class Store {
       if (replay.discardedBytes) {this.journal.truncate(this.bytes); this.journal.flush();}
       // A published namespace must never silently create a missing data object.
       for (const node of this.namespace.nodes.values()) if (node.kind === 1)
-        await this.root.getFileHandle('file-' + node.id);
+        this.files.set(node.id, await this.root.getFileHandle('file-' + node.id));
       for await (const [entry] of this.root.entries()) {
         if (/^file-[0-9]+$/.test(entry) && !this.namespace.nodes.has(Number(entry.slice(5)))) {
           await this.root.removeEntry(entry); this.metrics.collectedOrphans++;
@@ -78,21 +83,42 @@ export class Store {
     if (f.action === 'error') throw error('UnknownError', 'Injected OPFS failure');
     return f.action;
   }
-  private async handle(id: number) {
-    let h = this.handles.get(id);
-    if (h) {this.handles.delete(id); this.handles.set(id, h); return h;}
+  private reserveHandle() {
     if (this.handles.size >= 64) {
       const [old, access] = this.handles.entries().next().value!;
-      access.flush(); access.close(); this.handles.delete(old);
+      if (this.dirty.has(old)) access.flush();
+      access.close(); this.handles.delete(old); this.dirty.delete(old);
     }
-    h = await (await this.root.getFileHandle('file-' + id)).createSyncAccessHandle();
+  }
+  private keepHandle(id: number, h: any, size: number) {
+    this.sizes.set(id, size);
     this.handles.set(id, h); this.metrics.peakHandles = Math.max(this.metrics.peakHandles, this.handles.size);
+  }
+  private async file(id: number, create = false) {
+    let file = this.files.get(id);
+    if (!file) {
+      file = await this.root.getFileHandle('file-' + id, {create});
+      this.files.set(id, file);
+    }
+    return file;
+  }
+  private async handle(id: number) {
+    let h = this.handles.get(id);
+    if (h) {
+      if (!this.sizes.has(id)) this.sizes.set(id, h.getSize());
+      this.handles.delete(id); this.handles.set(id, h); return h;
+    }
+    this.reserveHandle();
+    h = await (await this.file(id)).createSyncAccessHandle();
+    try {this.keepHandle(id, h, this.sizes.get(id) ?? h.getSize());}
+    catch (cause) {h.close(); throw cause;}
     return h;
   }
   private async collect(id: number) {
     if (!this.removed.has(id) || this.opens.has(id)) return;
     const h = this.handles.get(id);
-    if (h) {h.close(); this.handles.delete(id);}
+    if (h) {h.close(); this.handles.delete(id); this.dirty.delete(id);}
+    this.sizes.delete(id); this.files.delete(id);
     try {await this.root.removeEntry('file-' + id); this.removed.delete(id);}
     catch { /* A failed deletion remains an orphan for the next owned mount. */ }
   }
@@ -137,8 +163,10 @@ export class Store {
       const node = {id: this.namespace.nextId, parent: id, name, kind: op === 2 ? 1 : 2, mode};
       await this.point('create', id, this.path(id) + '/' + name);
       if (node.kind === 1) {
-        const h = await (await this.root.getFileHandle('file-' + node.id, {create: true})).createSyncAccessHandle();
-        try {h.truncate(0); h.flush();} finally {h.close();}
+        this.reserveHandle();
+        const h = await (await this.file(node.id, true)).createSyncAccessHandle();
+        try {h.truncate(0); h.flush(); this.keepHandle(node.id, h, 0);}
+        catch (cause) {h.close(); throw cause;}
       }
       await this.commit({op: 'create', node}); putNode(node); return node.id;
     }
@@ -161,7 +189,12 @@ export class Store {
       }
       return size;
     }
-    if (op === 7) {await this.handle(id); this.opens.set(id, (this.opens.get(id) ?? 0) + 1); return 0;}
+    // A virtual open pins identity. Acquire the bounded physical handle only
+    // when data I/O needs it; mount/create have already validated the object.
+    if (op === 7) {
+      if (!this.files.has(id)) throw error('NotFoundError', 'Unknown data object');
+      this.opens.set(id, (this.opens.get(id) ?? 0) + 1); return 0;
+    }
     if (op === 8) {
       const n = this.opens.get(id); if (!n) throw error('UnknownError', 'Unbalanced file close');
       if (n === 1) this.opens.delete(id); else this.opens.set(id, n - 1);
@@ -171,11 +204,11 @@ export class Store {
       if (this.opens.size) throw error('InvalidStateError', 'Virtual files remain open');
       let failure: unknown;
       try {await this.point('close-flush', 1);} catch (cause) {failure = cause;}
-      for (const h of this.handles.values()) {
-        try {if (!this.poisoned) h.flush();} catch (cause) {failure ??= cause;}
+      for (const [id, h] of this.handles) {
+        try {if (!this.poisoned && this.dirty.has(id)) h.flush();} catch (cause) {failure ??= cause;}
         try {h.close();} catch (cause) {failure ??= cause;}
       }
-      this.handles.clear();
+      this.handles.clear(); this.files.clear(); this.sizes.clear(); this.dirty.clear();
       try {if (!this.poisoned) this.journal.flush();} catch (cause) {failure ??= cause;}
       try {this.journal.close();} catch (cause) {failure ??= cause;}
       this.journal = undefined;
@@ -187,16 +220,26 @@ export class Store {
     }
     if (op === 13) {await this.point('directory-flush', id); this.journal.flush(); this.metrics.directoryFlushes++; return 0;}
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
+    if (op === 14 && this.sizes.has(id)) return this.sizes.get(id)!;
     const h = await this.handle(id);
     if (op === 9) {this.metrics.reads++; return h.read(data, {at: offset});}
     if (op === 10) {
       const action = await this.point('write', id); this.metrics.writes++;
-      const n = h.write(action === 'short' ? data.subarray(0, Math.min(7, data.length)) : data, {at: offset});
+      let n: number;
+      try {n = h.write(action === 'short' ? data.subarray(0, Math.min(7, data.length)) : data, {at: offset});}
+      catch (cause) {this.sizes.delete(id); this.dirty.add(id); throw cause;}
+      if (n > 0) {this.sizes.set(id, Math.max(this.sizes.get(id)!, offset + n)); this.dirty.add(id);}
       await this.point('written', id); return n;
     }
-    if (op === 11) {await this.point('flush-before', id); h.flush(); this.metrics.flushes++; await this.point('flush-after', id); return 0;}
-    if (op === 14) return h.getSize();
-    if (op === 15) {await this.point('truncate', id); h.truncate(offset); return 0;}
+    if (op === 11) {await this.point('flush-before', id); h.flush(); this.dirty.delete(id); this.metrics.flushes++; await this.point('flush-after', id); return 0;}
+    if (op === 14) return this.sizes.get(id)!;
+    if (op === 15) {
+      await this.point('truncate', id);
+      try {h.truncate(offset); this.sizes.set(id, offset);}
+      catch (cause) {this.sizes.delete(id); throw cause;}
+      finally {this.dirty.add(id);}
+      return 0;
+    }
     throw error('NotSupportedError', 'Unknown storage operation');
   }
 }

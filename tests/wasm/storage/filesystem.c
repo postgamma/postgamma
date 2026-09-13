@@ -136,11 +136,29 @@ static int storage_filesystem_probe(unsigned phase)
     STORAGE_CHECK(a >= 0 && write(a, "persist-extra", 13) == 13 && close(a) == 0);
     a = openat(directory, "kept", O_RDONLY);
     STORAGE_CHECK(a >= 0 && truncate("/persistent/storage-test-a/kept", 7) == 0);
+    STORAGE_CHECK(fstat(a, &current) == 0 && current.st_size == 7);
     STORAGE_CHECK(fsync(a) == 0 && fdatasync(a) == 0);
     STORAGE_CHECK(rename("/persistent/storage-test-a", "/persistent/storage-test-b") == 0);
     STORAGE_CHECK(open("/persistent/storage-test-a", O_RDONLY) < 0 && errno == ENOENT);
     b = openat(directory, "kept", O_RDONLY);
     STORAGE_CHECK(b >= 0 && read(b, buffer, 16) == 7 && memcmp(buffer, "persist", 7) == 0);
+    {
+        int i;
+        /* Evict the cached size and access handle while the descriptor lives. */
+        for (i = 0; i < 80; ++i) {
+            char name[32];
+            int fd;
+            snprintf(name, sizeof(name), "cache-%d", i);
+            fd = openat(directory, name, O_CREAT | O_RDWR, 0600);
+            STORAGE_CHECK(fd >= 0 && pwrite(fd, "tail", 4, 16) == 4 && close(fd) == 0);
+        }
+        STORAGE_CHECK(fstat(a, &current) == 0 && current.st_size == 7);
+        replacement = openat(directory, "cache-0", O_RDWR);
+        STORAGE_CHECK(replacement >= 0 && fstat(replacement, &current) == 0 && current.st_size == 20);
+        STORAGE_CHECK(pread(replacement, buffer, 4, 16) == 4 && memcmp(buffer, "tail", 4) == 0);
+        STORAGE_CHECK(ftruncate(replacement, 2) == 0 && fstat(replacement, &current) == 0 && current.st_size == 2);
+        STORAGE_CHECK(close(replacement) == 0);
+    }
     STORAGE_CHECK(fsync(directory) == 0 && fdatasync(directory) == 0);
     STORAGE_CHECK(close(a) == 0 && close(b) == 0 && close(directory) == 0);
     return checks;

@@ -15,7 +15,7 @@
 #include <pthread.h>
 
 // JS receives explicit scalar arguments and byte buffers, never C++ layouts.
-// The buffer belongs to a synchronously waiting caller until proxy_finish.
+// The buffer belongs to a synchronously waiting caller until storage_finish.
 EM_JS_DEPS(postgamma_storage_deps, "$UTF8ToString");
 EM_JS(void, postgamma_storage_dispatch,
       (void *context, int op, int id, int parent, const char *name,
@@ -42,23 +42,61 @@ EM_JS(void, postgamma_storage_dispatch,
       }
       new DataView(wasmMemory.buffer).setFloat64(result, value, true);
       new DataView(wasmMemory.buffer).setInt32(error, code, true);
-      _emscripten_proxy_finish(context);
+      _postgamma_storage_finish(context);
     })();
+});
+
+// A direct channel keeps I/O independent of synchronous control-Worker calls.
+// Only a queued request sends a notification; idle owners have no polling timer.
+EM_JS(void, postgamma_storage_channel_name, (char *name), {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const text = Array.from(bytes, n => n.toString(16).padStart(2, "0")).join("");
+    for (let i = 0; i < text.length; i++) HEAPU8[name + i] = text.charCodeAt(i);
+    HEAPU8[name + text.length] = 0;
+});
+EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
+    const channel = new BroadcastChannel('postgamma-io-' + UTF8ToString(name));
+    channel.onmessage = () => _emscripten_proxy_execute_queue(queue);
+    globalThis.postgammaIOListener = channel;
+});
+EM_JS(void, postgamma_storage_notify, (const char *name), {
+    const key = 'postgamma-io-' + UTF8ToString(name);
+    if (globalThis.postgammaIOSender?.name !== key) {
+      globalThis.postgammaIOSender?.close();
+      globalThis.postgammaIOSender = new BroadcastChannel(key);
+    }
+    globalThis.postgammaIOSender.postMessage(0);
+});
+EM_JS(void, postgamma_storage_unlisten, (), {
+    globalThis.postgammaIOListener.close();
+    delete globalThis.postgammaIOListener;
 });
 
 namespace {
 using namespace wasmfs;
+struct Completion {
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool done = false;
+    void finish() {
+        std::lock_guard<std::mutex> lock(mutex);
+        done = true;
+        // Notify before unlocking: the caller can destroy this object as soon
+        // as it observes completion and acquires the mutex.
+        condition.notify_one();
+    }
+};
 thread_local int creation_error;
 std::atomic<unsigned> pending_writes;
 class Storage;
 Storage *active;
 
-// The control Worker always remains asynchronous, so proxy messages can make
-// progress without a polling heartbeat. A timer surviving pthread cancellation
-// would otherwise run on an idle or reused SDK Worker after close.
+// Register direct delivery before publishing readiness. SDK mailbox events may
+// arrive later and harmlessly observe an already drained proxying queue.
 class Owner {
     emscripten::ProxyingQueue queue;
     pthread_t thread{};
+    char channel[33]{};
     std::mutex mutex;
     std::condition_variable started;
     bool ready = false;
@@ -66,6 +104,7 @@ public:
     int error = 0;
     size_t stack_bytes = 0;
     Owner() {
+        postgamma_storage_channel_name(channel);
         pthread_attr_t attributes;
         pthread_attr_init(&attributes);
         pthread_attr_setstacksize(&attributes, 2 * 1024 * 1024);
@@ -76,6 +115,7 @@ public:
                 pthread_attr_getstacksize(&observed, &self->stack_bytes);
                 pthread_attr_destroy(&observed);
             }
+            postgamma_storage_listen(self->channel, self->queue.queue);
             {std::lock_guard<std::mutex> lock(self->mutex); self->ready = true;}
             self->started.notify_one();
             emscripten_exit_with_live_runtime();
@@ -85,10 +125,18 @@ public:
         if (!error) {std::unique_lock<std::mutex> lock(mutex); started.wait(lock, [&] {return ready;});}
     }
     ~Owner() {
-        if (!error) {pthread_cancel(thread); pthread_join(thread, nullptr);}
+        if (!error) {
+            call([](Completion *completion) {postgamma_storage_unlisten(); completion->finish();});
+            pthread_cancel(thread); pthread_join(thread, nullptr);
+        }
     }
-    template<typename Function> void call(Function function) {
-        queue.proxySyncWithCtx(thread, function);
+    template<typename Function> bool call(Function function) {
+        Completion completion;
+        if (!queue.proxyAsync(thread, [function, &completion] {function(&completion);})) return false;
+        postgamma_storage_notify(channel);
+        std::unique_lock<std::mutex> lock(completion.mutex);
+        completion.condition.wait(lock, [&] {return completion.done;});
+        return true;
     }
 };
 
@@ -103,12 +151,12 @@ public:
         double result = 0;
         int error = 0;
         if (op == 10) pending_writes.fetch_add(1, std::memory_order_release);
-        worker->call([&](auto context) {
-            postgamma_storage_dispatch(context.ctx, op, id, parent, name,
+        bool dispatched = worker->call([&](Completion *completion) {
+            postgamma_storage_dispatch(completion, op, id, parent, name,
                 static_cast<unsigned char *>(data), length, offset, mode, &result, &error);
         });
         if (op == 10) pending_writes.fetch_sub(1, std::memory_order_release);
-        return error ? -error : result;
+        return !dispatched ? -EIO : error ? -error : result;
     }
     std::shared_ptr<File> node(const uint32_t *info);
     std::shared_ptr<DataFile> createFile(mode_t) override {return nullptr;}
@@ -194,6 +242,10 @@ std::shared_ptr<File> Storage::node(const uint32_t *info) {
     return std::make_shared<Dir>(*this, info[0], info[2]);
 }
 std::shared_ptr<Directory> Storage::createDirectory(mode_t mode) {return std::make_shared<Dir>(*this, 1, mode);}
+}
+
+extern "C" void postgamma_storage_finish(void *context) {
+    static_cast<Completion *>(context)->finish();
 }
 
 extern "C" int postgamma_wasm_storage_mount(const char *name, const char *test_channel) {

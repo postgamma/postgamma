@@ -79,7 +79,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-ci` | Run tool/unit/generation/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
 | `make wasm-check-full` | Run the pinned source through SQL, vector, OPFS recovery, installed package and browser matrix gates. |
 | `make wasm-weekly` | Run the full suite against current PostgreSQL master in an isolated candidate checkout; `PG_BRANCH` and `PG_REPOSITORY` are configurable. |
-| `make wasm-matrix-check` | Measure the last validated package on Chromium, Firefox and Linux WebKit, retaining exploratory failures. |
+| `make wasm-matrix-check` | Validate and measure the last package on Chromium, Firefox and Linux WebKit; every engine must pass. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
@@ -569,9 +569,11 @@ These commands reuse installed SDK/browser tools. Candidate source and build
 trees remain for diagnosis, so repeated candidates need additional disk space.
 The full suite includes all eight SQL groups, vector queries and index plans,
 OPFS ownership/failure/recovery checks, an independently installed package, and
-Chromium/Firefox/Linux WebKit measurements. Chromium remains the required
-browser profile; exploratory failures remain visible in the matrix and suite
-reports. Release-mode SQL and Safari acceptance are separate work.
+Chromium/Firefox/Linux WebKit package checks and measurements. Every engine must
+pass both ephemeral and OPFS profiles. OPFS uses normal persistent browser
+contexts; private browsing can disable the storage API. The full storage fault
+and crash-recovery suite is validated in Chromium. Release-mode SQL and actual
+Safari acceptance are separate work.
 
 The existing **PostgreSQL upstream canary** workflow runs every Sunday at 02:17
 UTC and supports **Run workflow** with `weekly` or shorter `daily` profiles.

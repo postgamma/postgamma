@@ -1,8 +1,8 @@
 # Browser preview
 
 The browser package runs the PostgreSQL kernel in Workers, with four independent
-SQL sessions and static pgvector. The initial supported profile is debug
-wasm32 with pthreads in Chromium. This package is a source-built preview; an npm
+SQL sessions and static pgvector. The accepted package profile is debug wasm32
+with pthreads in Chromium, Firefox and Linux WebKit. This package is a source-built preview; an npm
 registry release has not been published.
 
 ## Build and install
@@ -105,9 +105,9 @@ source checkout with `make wasm-vector-serve`.
 and measures the previously validated package. Reports are under
 `build/wasm/matrix/`; each engine runs SQL, four concurrent sessions,
 transactions, cancellation, vector indexes and separate ephemeral/OPFS reopen
-cases. Chromium is the required gate. Firefox and Linux WebKit remain
-exploratory until their complete profile is accepted; their failures are
-retained in the report, rather than counted as passing checks.
+cases. All three engines are required gates. OPFS is tested with normal
+persistent browser profiles; private browsing can disable its storage APIs.
+The complete storage error and crash-recovery suite remains a Chromium gate.
 
 The shared linear-memory ceiling is 512 MiB with a fixed 13-slot pthread pool.
 JS heap, compilation memory and browser VM/RSS are additional and are not
@@ -116,33 +116,32 @@ performance guarantees. Safari on macOS/iOS, mobile browsers, release-mode SQL,
 Node.js and WASI execution have not been accepted. Multiple live instances and
 arbitrary native extension loading are outside the initial profile.
 
-Measured on Linux x86-64 on 2026-09-12, with Playwright 1.63.0 and the
+Measured on Linux x86-64 on 2026-09-13, with Playwright 1.63.0 and the
 `0.1.0-alpha.1` package built from PostgreSQL 19beta3 and pgvector 0.8.6:
 
 | Engine | Ephemeral package profile | OPFS package profile |
 | --- | --- | --- |
 | Chromium 153.0.8010.12 | Passed | Passed |
-| Firefox 155.0 | Passed | Failed: instance initialization timed out |
-| Linux WebKit 26.6 | Passed | Failed: OPFS returned `UnknownError` |
+| Firefox 155.0 | Passed | Passed |
+| Linux WebKit 26.6 | Passed | Passed |
 
-The Firefox and WebKit errors are observed failures, not evidence that their
-storage APIs are categorically absent. OPFS support is currently limited to the
-accepted Chromium profile.
-
-The npm archive was 6,005,370 bytes (5.73 MiB), with 20,297,090 unpacked bytes
+The npm archive was 6,007,505 bytes (5.73 MiB), with 20,305,097 unpacked bytes
 (19.36 MiB), including notices and declarations. The representative query was
 `SELECT sum(i) FROM generate_series(1,10000) i`, sampled 20 times after startup.
 
 | Engine / storage | Create | Reopen | Query median / p95 | Peak shared linear memory |
 | --- | --- | --- | --- | --- |
-| Chromium / ephemeral | 10.00 s | 9.40 s | 36.98 / 43.86 ms | 184.38 MiB |
-| Chromium / OPFS | 32.13 s | 4.07 s | 39.27 / 57.82 ms | 128.00 MiB |
-| Firefox / ephemeral | 11.03 s | 10.68 s | 55.67 / 81.62 ms | 184.38 MiB |
-| Linux WebKit / ephemeral | 9.17 s | 7.79 s | 33.60 / 41.34 ms | 184.38 MiB |
+| Chromium / ephemeral | 8.94 s | 9.01 s | 36.59 / 40.49 ms | 184.38 MiB |
+| Chromium / OPFS | 25.02 s | 1.56 s | 40.47 / 49.15 ms | 128.00 MiB |
+| Firefox / ephemeral | 10.15 s | 10.34 s | 43.32 / 70.46 ms | 184.38 MiB |
+| Firefox / OPFS | 45.56 s | 2.39 s | 44.14 / 72.10 ms | 128.00 MiB |
+| Linux WebKit / ephemeral | 7.43 s | 7.44 s | 42.85 / 57.98 ms | 184.38 MiB |
+| Linux WebKit / OPFS | 17.57 s | 1.71 s | 35.37 / 45.74 ms | 128.00 MiB |
 
 Ephemeral reopen initializes another fresh cluster; OPFS reopen opens existing
 files. Peaks cover the full SQL/vector workload and are not idle memory sizes.
 These are single local runs without exclusive host access; browser caches,
 host load and debug instrumentation affect timings. The complete record is
-`build/wasm/matrix/20260912T154856Z-f7d90c48/report.json`, including package and
-harness hashes, raw samples, version identities and failed cases.
+`build/wasm/matrix/20260913T015419Z-16ee7a8e/report.json`, including package and
+harness hashes, raw samples and version identities. Earlier failed rounds remain
+in their own report directories.

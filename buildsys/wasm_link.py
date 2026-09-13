@@ -464,8 +464,11 @@ class Builder:
         pool = sum(role["count"] for role in policy["thread_roles"])
         roots = ("pgm_instance_open", "pgm_instance_close", "pgm_connection_open", "pgm_connection_close",
                  "pgm_execute", "pgm_result_value", "pgm_result_free", "pgm_error_message", "pgm_error_free")
+        self.report["mailbox_notification"] = "postMessage"
+        self.report["storage_notification"] = "direct BroadcastChannel"
         command = [self.emxx, "-pthread", "-sSUPPORT_LONGJMP=" + self.longjmp,
-                   "-sEXPORTED_FUNCTIONS=" + json.dumps(["_" + name for name in (*roots, "emscripten_proxy_finish", "emscripten_proxy_execute_queue")]),
+                   "--js-library", str(self.root / "runtime/platform/emscripten/mailbox.js"),
+                   "-sEXPORTED_FUNCTIONS=" + json.dumps(["_" + name for name in (*roots, "emscripten_proxy_finish", "emscripten_proxy_execute_queue", "postgamma_storage_finish")]),
                    *("-Wl,--wrap=" + name for name in ("__wasi_fd_sync", "__syscall_fdatasync", "__syscall_openat", "__syscall_mkdirat")),
                    "-Wl,--fatal-warnings", "-Wl,-Map=" + str(self.current / "link.map"),
                    *("-Wl,--export=" + name for name in ("__tls_size", "__tls_align", "__data_end", "__heap_base")),

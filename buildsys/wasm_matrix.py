@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the installed browser package; preserve exploratory engine failures."""
+"""Validate and measure the installed package in each required browser engine."""
 from __future__ import annotations
 import argparse
 from pathlib import Path
@@ -64,7 +64,7 @@ def matrix(config, package_receipt=None):
         'package_receipt':str(package_receipt), 'package_receipt_sha256':digest(package_receipt),
         'archive':package['archive'], 'unpackedBytes':package['staged']['bytes'],
         'host':{'system':platform.system(), 'machine':platform.machine()},
-        'requiredEngines':['chromium'], 'engines':{},
+        'requiredEngines':['chromium','firefox','webkit'], 'engines':{},
         'measurementScope':'Debug preview, local HTTP with isolation headers, one create/reopen and 20 warm SQL samples per profile. Shared linear memory excludes JS heap and VM/RSS. Linux WebKit is not Safari.'}
     begin = time.monotonic()
     try:
@@ -86,7 +86,7 @@ def matrix(config, package_receipt=None):
             write_json(current/'report.json', report)
         report['observedFailures'] = [engine for engine,row in report['engines'].items() if row['status']!='passed']
         if any(report['engines'][engine]['status']!='passed' for engine in report['requiredEngines']):
-            raise WasmError('required Chromium package profile failed')
+            raise WasmError('required browser package profile failed: ' + ', '.join(report['observedFailures']))
         if any(digest(config.root/name) != checksum for name,checksum in sources.items()):
             raise WasmError('matrix harness changed during validation')
         report['status']='passed'
@@ -98,7 +98,7 @@ def matrix(config, package_receipt=None):
         write_json(current/'report.json',report)
         write_json(config.build/'wasm/reports/matrix.json',{'status':report['status'],'run_report':str(current/'report.json')})
         if report.get("observedFailures"):
-            print("wasm package matrix: failed exploratory engines: " + ", ".join(report["observedFailures"]), flush=True)
+            print("wasm package matrix: failed required engines: " + ", ".join(report["observedFailures"]), flush=True)
         print(f"wasm package matrix: required profile {report['status']}; {current/'report.json'}",flush=True)
     return current/'report.json'
 
