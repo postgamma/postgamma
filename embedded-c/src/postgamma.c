@@ -1035,6 +1035,7 @@ pgm_connection_close(
 	}
 	connection->closing = true;
 	(void) postgamma_mutex_unlock(connection->mutex);
+	/* A previous close may have released libpq before its backend timed out. */
 	if (connection->private_connection != NULL)
 	{
 		private_status = postgamma_private_libpq_set_notify(
