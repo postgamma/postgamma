@@ -25,7 +25,7 @@ on:
       - '.github/workflows/upstream-canary.yml'
       - '.github/actions/wasm-setup/**'
   push:
-    branches: [main]
+    branches: [main, feature/wasm]
     paths: *wasm_paths
   workflow_dispatch:
 
@@ -62,15 +62,21 @@ jobs:
         with:
           submodules: false
       - uses: ./.github/actions/wasm-setup
-      - name: Build and validate the Chromium package
+        with:
+          matrix: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+      - name: Validate the debug Chromium package
+        if: github.event_name == 'pull_request'
         run: make wasm-ci JOBS=2
+      - name: Validate the optimized package and all browser engines
+        if: github.event_name != 'pull_request'
+        run: make wasm-release JOBS=2
       - name: Collect diagnostics
         if: always()
         run: python3 buildsys/collect_wasm_evidence.py --build-dir build --output build/wasm-evidence
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wasm-basic-${{ github.run_id }}
+          name: wasm-${{ github.event_name == 'pull_request' && 'debug' || 'release' }}-${{ github.run_id }}
           path: build/wasm-evidence/
           retention-days: 14
       - uses: actions/upload-artifact@v4

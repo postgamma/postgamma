@@ -530,16 +530,17 @@ performance must be reported for the actual tested profile.
 ## Continuous validation
 
 After `make source-init wasm-setup`, `make wasm-ci JOBS=2` runs the same
-Chromium gates and build-system tests used by `.github/workflows/wasm.yml`. The workflow runs for
-relevant pull requests, main-branch changes and manual dispatch. It has no
-scheduled trigger. Changes to shared runtime, compiler, C API and common
-build inputs also select a separate native fast-regression job.
+debug Chromium gates and build-system tests used for pull requests by
+`.github/workflows/wasm.yml`. Relevant pushes to `main` or `feature/wasm`, and
+manual dispatch, run `make wasm-release JOBS=2`, including all browser engines.
+The workflow has no scheduled trigger. Changes to shared runtime, compiler,
+C API and common build inputs also select a separate native fast-regression job.
 
 The Wasm job uses Ubuntu 24.04, matching LLVM/Clang 22 host AST tools and the
 pinned SDK/browser package. It retains stage logs, source/tool identities and
 failure reports separately from native evidence; successful runs also retain
 the tested npm archive. Browser profiles and object/generated trees are not
-uploaded. Each basic job has a 180-minute bound and artifacts expire after 14
+uploaded. Each job has a 180-minute bound and artifacts expire after 14
 days. A local pass or workflow syntax check does not establish a hosted CI pass.
 
 For the heavier suite, install all browser engines once and use:
@@ -600,4 +601,4 @@ with `JOBS=2`, cached capture/native-oracle inputs and rebuilt Wasm core/pgvecto
 objects. Installed tools occupied about 3.2 GiB; the target tree with retained
 run history occupied 1.5 GiB, plus a 167 MiB native oracle. Candidate source and
 build trees need additional space. These observations are not a cold hosted
-runner budget; the first hosted run must retain its own timing/space evidence.
+runner budget; each hosted run retains its own timing/space evidence.
