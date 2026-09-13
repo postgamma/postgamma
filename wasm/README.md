@@ -66,7 +66,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm` | Build the private C/TypeScript startup fixture and Worker assets. Requires `make wasm-kernel-generate`. |
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
-| `make wasm-sql-check` | Run all nine SQL, binding, concurrency, error, stream, lifecycle, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
@@ -355,7 +355,7 @@ are rejected, including symlinked paths. Both `make wasm-clean` and the root
 therefore does not require downloading the toolchain again.
 
 `make wasm-sql-check JOBS=2` builds the asynchronous SQL bridge once and runs
-all nine browser SQL scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
+all browser SQL scenarios. Use `WASM_SQL_SCENARIO=abi` to select only
 parameters, exact text values, NULL, binary data, diagnostics and stale handles.
 Results are recorded in `reports/sql.json`. The source API is
 under `src/api/`, exported by `src/index.ts` in the consumer package. Result
@@ -622,7 +622,7 @@ make wasm-upstream-canary PG_REF=<commit> CANARY_PROFILE=weekly JOBS=2
 These commands reuse installed SDK/browser tools. Candidate source and build
 trees remain for diagnosis, so repeated candidates need additional disk space.
 The full suite includes ABI/pthread/TLS/libc, wait/notify, longjmp and shared
-runtime probes, all nine SQL groups, vector queries and index plans,
+runtime probes, all SQL groups, vector queries and index plans,
 OPFS ownership/failure/recovery checks, an independently installed package, and
 Chromium/Firefox/Linux WebKit package checks and measurements. Every engine must
 pass both ephemeral and OPFS profiles. OPFS uses normal persistent browser

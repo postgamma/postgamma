@@ -22,7 +22,7 @@
 
 /* This is a private, versioned byte protocol, never a native structure layout.
  * One host driver owns every pgm handle. Queries use nonblocking next-result
- * calls, so a kernel wait never occupies the control Worker or this driver. */
+ * calls; lifecycle calls below remain synchronous on that driver. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT };
@@ -252,6 +252,12 @@ static bool command(void)
             sampling_interval <= 60000 && r.offset == r.size) {
             pgm_instance *instance = NULL;
             if (storage) {
+                char *persistent_path = strdup("/persistent/database");
+                if (!persistent_path) {
+                    status = PGM_STATUS_OUT_OF_MEMORY;
+                    bridge_message = "OPFS database path allocation failed";
+                    free(path); free(name); free(test_channel); break;
+                }
 #ifndef POSTGAMMA_WASM_TESTING
                 test_channel[0] = 0;
 #endif
@@ -259,9 +265,9 @@ static bool command(void)
                 if (code) {
                     status = code == EBUSY ? PGM_STATUS_BUSY : PGM_STATUS_IO_ERROR;
                     bridge_message = "OPFS storage could not be opened";
-                    free(path); free(name); free(test_channel); break;
+                    free(persistent_path); free(path); free(name); free(test_channel); break;
                 }
-                free(path); path = strdup("/persistent/database");
+                free(path); path = persistent_path;
             }
             o.create = create; o.path = path; o.executor_worker_count = workers;
             o.executable_path = "/postgamma/bin/postgres"; o.resource_root = "/postgamma";
@@ -270,6 +276,11 @@ static bool command(void)
             o.log_callback = log_record;
             status = pgm_instance_open(&o, &instance, &error);
             if (!status) publish(&payload, slot, INSTANCE, NULL, instance);
+            else if (storage) {
+                // Roll back the mount owned by this OPEN. The control Worker
+                // still sends STOP to join the driver and release its Web Lock.
+                (void)postgamma_wasm_storage_close();
+            }
         } else if (!status) r.failed = true;
         free(path); free(name); free(test_channel); break;
     }

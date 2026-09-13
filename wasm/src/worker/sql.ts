@@ -17,6 +17,7 @@ const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
 let samples = 0, periodicSamples = 0, samplingIntervalMs = 0;
+let ioStackBytes = 0;
 function sample() {
   if (!loaded) return;
   samples++;
@@ -24,16 +25,19 @@ function sample() {
   peakThreads = Math.max(peakThreads, Object.keys(loaded.PThread.pthreads).length);
 }
 let sampler: ReturnType<typeof setInterval> | undefined;
-function fail(error: unknown) {
+async function fail(error: unknown) {
   if (failed) return;
   sample(); clearInterval(sampler);
   failed = true; stopped.abort();
   const interruptedWorkers = loaded ? Object.keys(loaded.PThread.pthreads).length : null;
   loaded?.PThread.terminateAllThreads();
-  void ownership?.(); ownership = undefined;
-  postMessage({fatal: String(error), output, metrics: {peakMemory, peakThreads, peakPending,
+  const release = ownership; ownership = undefined;
+  let failure = String(error);
+  try {await release?.();}
+  catch (cause) {failure += '; ownership release failed: ' + String(cause);}
+  postMessage({fatal: failure, output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
-    ioStackBytes: loaded?._postgamma_wasm_storage_stack_bytes() ?? 0,
+    ioStackBytes,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
   self.close();
 }
@@ -68,7 +72,7 @@ async function dispose(module: SqlModule) {
   module.PThread.terminateAllThreads();
   await ownership?.(); ownership = undefined;
   return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, periodicSamples, samplingIntervalMs,
-    ioStackBytes: module._postgamma_wasm_storage_stack_bytes(),
+    ioStackBytes,
     driverWakeCount: module._postgamma_wasm_wake_count(), droppedLogs, returnedWorkers,
     runningWorkers: Object.keys(module.PThread.pthreads).length, output};
 }
@@ -96,6 +100,7 @@ self.onmessage = ({data}) => {
     }
     const module = await kernel;
     const reply = await exchange(module, data, stopped.signal);
+    if (op === Op.open) ioStackBytes = module._postgamma_wasm_storage_stack_bytes();
     sample();
     if (op === Op.open && new DataView(reply).getUint32(12, true) !== 0) {
       const stoppedReply = await exchange(module, new Writer().u32(VERSION).u32(sequence).u32(Op.stop).finish());

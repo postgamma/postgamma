@@ -1,41 +1,64 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {Database, ClosedError, DatabaseError} from '../src/api/database.js';
-import type {Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 import {waitLock} from './concurrency.js';
-import {Op, Reader, Writer as WireWriter} from '../src/protocol/wire.js';
+import {Op, Reader, Writer} from '../src/protocol/wire.js';
 import type {Handle} from '../src/protocol/wire.js';
 
-async function closeAuditFailure(checks: string[]) {
+function recoveryFinished(scenario: string, started: number) {
+  const elapsedMs = performance.now() - started;
+  (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'recovery-timing', scenario, elapsedMs});
+  assert(elapsedMs < 30000, 'Failure cleanup and recovery complete within 30 seconds');
+}
+
+export async function closeAuditFailure(checks: string[]) {
   const name = 'close-audit-' + crypto.randomUUID();
   const db = await Database.open({storage: {type: 'opfs', name}});
   await (await db.connect()).query('CREATE TABLE close_audit(value int)');
   const transport = (db as unknown as {transport: {
-    call(op: number, handle?: Handle): Promise<Reader>;
+    call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader>;
   }}).transport;
   const call = transport.call.bind(transport);
   let closes = 0, stops = 0;
   // Change only the audit reply after the real kernel frees the instance.
   // STOP still joins actual threads and releases the OPFS ownership lock.
-  transport.call = async (op, handle) => {
-    const reply = await call(op, handle);
+  transport.call = async (op, handle, write) => {
+    const reply = await call(op, handle, write);
     if (op === Op.stop) stops++;
     if (op !== Op.close) return reply;
     closes++;
     for (let i = 0; i < 4; i++) assert(reply.u32() === 0, 'Native close has no real resource leaks');
     reply.end();
-    return new Reader(new WireWriter().u32(1).u32(0).u32(0).u32(0).finish());
+    return new Reader(new Writer().u32(1).u32(0).u32(0).u32(0).finish());
   };
-  const closed = db.close();
+  const started = performance.now(), closed = db.close();
   const error = await closed.then(() => null, error => error);
   assert(error instanceof Error && error.message === 'Native resources remain after close', 'Audit error reaches the caller');
   assert(db.close() === closed && closes === 1 && stops === 1, 'Audit failure never retries the retired native handle');
   const reopened = await Database.open({storage: {type: 'opfs', name}, create: false});
   assert(scalar(await (await reopened.connect()).query('SELECT count(*) FROM close_audit')) === '0', 'OPFS reopens immediately after failed audit');
-  await reopened.close();
+  recoveryFinished('close-audit', started);
+  const metrics = await reopened.close();
   const origin = await navigator.storage.getDirectory();
   await (await origin.getDirectoryHandle('postgamma')).removeEntry(name, {recursive: true});
   checks.push('close-audit-cleanup', 'close-audit-opfs-reopen');
+  return metrics;
+}
+
+export async function failedOpenRecovery(checks: string[]) {
+  const name = 'open-failed-' + crypto.randomUUID();
+  const options = {storage: {type: 'opfs' as const, name}};
+  const started = performance.now();
+  const failure = await Database.open({...options, create: false}).then(() => null, error => error);
+  assert(failure instanceof DatabaseError, 'Missing database fails after acquiring its storage');
+  recoveryFinished('open-failed', started);
+  const created = await Database.open(options);
+  assert(scalar(await (await created.connect()).query('SELECT 17')) === '17', 'Failed OPEN releases storage and ownership for creation');
+  const metrics = await created.close();
+  const origin = await navigator.storage.getDirectory();
+  await (await origin.getDirectoryHandle('postgamma')).removeEntry(name, {recursive: true});
+  checks.push('failed-open-opfs-recreate');
+  return metrics;
 }
 
 export async function lifecycle(db: Database, checks: string[]) {
@@ -94,10 +117,16 @@ export async function lifecycle(db: Database, checks: string[]) {
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'lifecycle', metrics,
     recreated: fresh.diagnostics(), settlements});
   checks.push('close-during-submission', 'recreate-after-close');
-  await closeAuditFailure(checks);
 }
-export async function fatal(db: Database, checks: string[], fault: number) {
+export async function fatal(db: Database, checks: string[], fault: number,
+                            storage?: {type: 'opfs'; name: string}) {
   const a = await db.connect('fatal-a'), b = await db.connect('fatal-b');
+  if (storage) {
+    await a.query('CREATE TABLE fatal_ledger(id int PRIMARY KEY)');
+    await a.query('INSERT INTO fatal_ledger VALUES (1)');
+    await a.query('BEGIN');
+    await a.query('INSERT INTO fatal_ledger VALUES (2)');
+  }
   const waiters = [a.query('SELECT pg_sleep(20)'), b.query('SELECT pg_sleep(20)'),
     a.query('SELECT 1'), b.query('SELECT 2')];
   const counts = waiters.map(() => 0);
@@ -106,6 +135,7 @@ export async function fatal(db: Database, checks: string[], fault: number) {
   // Private test opcode is compiled only for the browser check action. It
   // traps/aborts inside the real Wasm host pthread, not a fabricated JS error.
   const transport = (db as unknown as {transport: {call(op: number, handle: undefined, write: (w: Writer) => void): Promise<unknown>}}).transport;
+  const started = performance.now();
   const injected = transport.call(65535, undefined, w => w.u32(fault)).then(() => 'success', error => error);
   const outcomes = await Promise.all([...settled, injected]);
   assert(outcomes.every(value => value instanceof Error) && counts.every(count => count === 1), 'Fatal error settles every in-flight and queued Promise once');
@@ -113,10 +143,22 @@ export async function fatal(db: Database, checks: string[], fault: number) {
   assert(metrics.terminationRequested && metrics.interruptedWorkers > 0 && metrics.runningWorkers === 0, 'Fatal path requests termination of all owned SDK workers');
   let rejected = false; try {await a.query('SELECT 3');} catch {rejected = true;}
   assert(rejected, 'Failed instance rejects subsequent requests');
-  const fresh = await Database.open(), connection = await fresh.connect();
+  // Open immediately, with no sleep or retry to conceal ownership races.
+  const fresh = await Database.open(storage ? {storage, create: false} : {}), connection = await fresh.connect();
   assert(scalar(await connection.query('SELECT 8')) === '8', 'Fresh module runs after a fatal instance');
+  if (storage) {
+    assert(scalar(await connection.query('SELECT count(*) FROM fatal_ledger WHERE id = 1')) === '1', 'Acknowledged commit survives a fatal instance');
+    assert(scalar(await connection.query('SELECT count(*) FROM fatal_ledger WHERE id = 2')) === '0', 'Uncommitted transaction rolls back after fatal recovery');
+    await connection.query('INSERT INTO fatal_ledger VALUES (3)');
+    checks.push('opfs-fatal-immediate-reopen', 'opfs-fatal-commit-recovery', 'opfs-fatal-rollback');
+  }
+  recoveryFinished(storage ? 'fatal-opfs' : 'fatal', started);
   await fresh.close();
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'fatal', fault, metrics,
     recreated: fresh.diagnostics(), settlements: counts});
   checks.push(fault === 1 ? 'real-wasm-trap' : 'real-wasm-abort', 'fatal-settles-all', 'fatal-instance-rejected', 'recreate-after-fatal');
+  if (storage) {
+    const origin = await navigator.storage.getDirectory();
+    await (await origin.getDirectoryHandle('postgamma')).removeEntry(storage.name, {recursive: true});
+  }
 }

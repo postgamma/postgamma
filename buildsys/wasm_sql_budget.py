@@ -5,7 +5,8 @@ from pathlib import Path
 import re
 from wasm_toolchain import WasmError, write_json
 
-SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'fatal-trap', 'fatal-abort', 'budget')
+SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'close-audit', 'open-failed',
+             'fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort', 'budget')
 
 
 def generate_policy(root: Path, output: Path, policy: dict) -> None:
@@ -76,18 +77,21 @@ def summarize(policy: dict, layout: dict, browsers: dict, mode: str) -> dict:
                 roles.append(row)
         if len(local_stacks) != 3: raise WasmError('missing per-class stack records')
         stacks.extend(local_stacks); healthy.append(module)
-    if len(roles) != len(healthy) or len(fatal) != 2:
+    if len(roles) != len(healthy) or len(fatal) != sum(name.startswith('fatal-') for name in SCENARIOS):
         raise WasmError('incomplete healthy/fatal lifecycle evidence')
     # Class peaks need not occur at the same instant; their sum is an upper
     # bound, with the private 4 MiB host driver and 4 MiB control stack added.
     class_peaks = {name: max(int(row['peak_reservation_bytes']) for row in stacks if row['class'] == name)
                    for name in ('dedicated', 'client', 'parallel')}
-    stack_bound = sum(class_peaks.values()) + 4194304 + policy['control_stack_bytes']
+    io_stack = next(r['stack_bytes'] for r in policy['thread_roles'] if r['role'] == 'io_owner')
+    if any(m.get('ioStackBytes') not in (0, io_stack) for m in modules):
+        raise WasmError('missing or unexpected I/O stack measurement')
+    stack_bound = sum(class_peaks.values()) + 4194304 + policy['control_stack_bytes'] + max(m['ioStackBytes'] for m in modules)
     reserved = sum(r['count'] * r['stack_bytes'] for r in policy['thread_roles']) + policy['control_stack_bytes']
     if stack_bound > reserved or layout['__data_end'] > policy['static_reserve_bytes'] or layout['__tls_size'] > policy['tls_reserve_per_worker_bytes']:
         raise WasmError('measured stack/static/TLS layout exceeds reserves')
     return {'kind': 'postgamma.wasm-sql-resource-budget', 'status': 'passed',
-            'validated_scope': {'target': policy['target'], 'mode': mode, 'browser': 'chromium', 'storage': 'ephemeral-wasmfs'},
+            'validated_scope': {'target': policy['target'], 'mode': mode, 'browser': 'chromium', 'storage': ['ephemeral-wasmfs', 'opfs']},
             'kernel_resource_policy_frozen': policy['status'] == 'validated',
             'healthy_modules': len(healthy), 'fatal_modules': len(fatal),
             'peak_pthreads_sampled': max(m['peakThreads'] for m in modules), 'precreated_pthread_workers': pool,

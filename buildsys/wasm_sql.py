@@ -101,7 +101,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                         from wasm_storage_recovery import check
                         report["recovery"] = check(config, builder, url.replace("sql.html", "recovery.html"))
                         continue
-                    timeout = 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in ("storage", "durability", "storage-errors") else 30000
+                    # OPFS initialization uses the storage fixture envelope.
+                    # Failure scenarios separately bound recovery to 30 seconds.
+                    timeout = 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
+                        "storage", "durability", "storage-errors", "close-audit", "open-failed", "fatal-opfs-trap", "fatal-opfs-abort") else 30000
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
                                           url + "?scenario=" + name + ("&extension=pgvector" if builder.extensions else ""), timeout_ms=timeout)
                     report["browsers"][name] = browser

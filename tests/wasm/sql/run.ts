@@ -5,7 +5,7 @@ import {assert, scalar, errorState} from './helpers.js';
 import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
 import {results} from './results.js';
-import {lifecycle, fatal} from './lifecycle.js';
+import {lifecycle, fatal, closeAuditFailure, failedOpenRecovery} from './lifecycle.js';
 import {budget} from './budget.js';
 import {bindings} from './bindings.js';
 import {storage} from '../storage-tests/run.js';
@@ -61,8 +61,11 @@ try {
   else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
   else if (scenario === 'vector-storage') await vectorStorage(checks, metrics);
   else if (scenario === 'vector-example') await vectorExample(checks, metrics);
+  else if (scenario === 'close-audit') metrics.push(await closeAuditFailure(checks));
+  else if (scenario === 'open-failed') metrics.push(await failedOpenRecovery(checks));
   else {
-  const db = await Database.open();
+  const storage = scenario.startsWith('fatal-opfs-') ? {type: 'opfs' as const, name: 'fatal-' + crypto.randomUUID()} : undefined;
+  const db = await Database.open({storage});
   if (scenario === 'abi') await abi(db);
   else if (scenario === 'bindings') await bindings(db, checks);
   else if (scenario === 'vector-load') await loadVector(db, checks);
@@ -72,7 +75,8 @@ try {
   else if (scenario === 'results') await results(db, checks);
   else if (scenario === 'budget') await budget(db, checks);
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
-  else if (scenario === 'fatal-trap' || scenario === 'fatal-abort') await fatal(db, checks, scenario === 'fatal-trap' ? 1 : 2);
+  else if (['fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort'].includes(scenario))
+    await fatal(db, checks, scenario.endsWith('trap') ? 1 : 2, storage);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);
   metrics.push(scenario.startsWith('fatal-') ? db.diagnostics() : await db.close());
   if (scenario === 'concurrency') {

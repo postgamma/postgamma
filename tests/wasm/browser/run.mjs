@@ -11,15 +11,18 @@ const {values} = parseArgs({options: {
   output: {type: 'string'},
   describe: {type: 'boolean'},
   executable: {type: 'string'},
+  engine: {type: 'string', default: 'chromium'},
   profile: {type: 'string'},
   'timeout-ms': {type: 'string'},
 }});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
-const {chromium} = require('playwright');
+if (!['chromium', 'firefox', 'webkit'].includes(values.engine)) throw new Error('Unsupported browser engine');
+const browserType = require('playwright')[values.engine];
 const report = {
   status: values.describe ? 'not-run' : 'failed',
+  engine: values.engine,
   playwright: require('playwright/package.json').version,
-  executable: values.executable || chromium.executablePath(),
+  executable: values.executable || browserType.executablePath(),
   browserRevisions: JSON.parse(readFileSync(resolve(dirname(require.resolve('playwright-core/package.json')), 'browsers.json'))).browsers,
   console: [],
   pageErrors: [],
@@ -34,9 +37,9 @@ if (values.describe) {
 } else {
   let context, page;
   try {
-    context = await chromium.launchPersistentContext(values.profile, {
+    context = await browserType.launchPersistentContext(values.profile, {
       headless: true,
-      ...(values.executable ? {executablePath: values.executable} : {channel: 'chromium'}),
+      ...(values.executable ? {executablePath: values.executable} : values.engine === 'chromium' ? {channel: 'chromium'} : {}),
       timeout: 15000,
     });
     report.browserVersion = context.browser().version();
