@@ -11,9 +11,9 @@ const {Store} = await import(source('opfs'));
 // Ordinary I/O and unrelated injection points must not walk parent paths.
 const store = new Store();
 store.path = () => {throw new Error('Unexpected namespace path traversal');};
-assert.equal(await store.point('write', 2), '');
+assert.equal(store.point('write', 2), '', 'Unarmed probes return synchronously');
 store.fault = {operation: 'flush-before', path: '/data', action: 'pause', remaining: 1};
-assert.equal(await store.point('write', 2), '');
+assert.equal(store.point('write', 2), '', 'Unrelated probes return synchronously');
 
 // Writes and flushes are distinct. A crash drops every unflushed change and
 // releases handles without executing product close/flush code.
@@ -155,11 +155,7 @@ for (const point of points) {
     if (armed && operation === point) throw new Error('interrupted ' + point);
     return '';
   });
-  if (point === 'checkpoint-partial') injection.writeCheckpoint = async (bytes, write, flush) => {
-    if (!armed) {write(bytes, 0); return;}
-    write(bytes.subarray(0, Math.floor(bytes.length / 2)), 0); flush();
-    throw new Error('interrupted checkpoint-partial');
-  };
+  if (point === 'checkpoint-partial') injection.partialCheckpoint = () => armed;
   journal = await Journal.open(root, injection);
   await create(journal, 'kept'); await create(journal, 'deleted'); await remove(journal, 'deleted');
   const expected = state(journal); armed = true;

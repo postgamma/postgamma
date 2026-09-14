@@ -53,13 +53,7 @@ export class Store {
           await new Promise<void>(resolve => {this.resume = resolve;});
           throw error('UnknownError', 'Interrupted namespace tail requires recovery');
         },
-        writeCheckpoint: testChannel ? async (bytes, write, flush) => {
-          if (this.fault?.operation !== 'checkpoint-partial') {write(bytes, 0); return;}
-          const middle = Math.floor(bytes.length / 2);
-          write(bytes.subarray(0, middle), 0); flush();
-          await this.point('checkpoint-partial', 0, 'snapshot');
-          write(bytes.subarray(middle), middle);
-        } : undefined,
+        partialCheckpoint: testChannel ? () => this.fault?.operation === 'checkpoint-partial' : undefined,
       });
       this.namespace = this.journal.namespace;
       this.journalMetrics();
@@ -110,14 +104,14 @@ export class Store {
     for (let n = this.namespace.nodes.get(id); n && n.id !== 1; n = this.namespace.nodes.get(n.parent)) parts.push(n.name);
     return '/' + parts.reverse().join('/');
   }
-  private async point(operation: string, id: number, path?: string): Promise<string> {
+  private point(operation: string, id: number, path?: string): string | Promise<string> {
     const f = this.fault;
     if (!f || f.operation !== operation) return '';
     path ??= this.path(id);
     if (!path.includes(f.path) || --f.remaining > 0) return '';
     this.fault = undefined;
     this.channel?.postMessage({gate: operation, path, action: f.action});
-    if (f.action === 'pause') await new Promise<void>(resolve => {this.resume = resolve;});
+    if (f.action === 'pause') return new Promise<string>(resolve => {this.resume = () => resolve(f.action);});
     if (f.action === 'quota') throw error('QuotaExceededError', 'Injected OPFS quota failure');
     if (f.action === 'error') throw error('UnknownError', 'Injected OPFS failure');
     return f.action;
@@ -173,7 +167,7 @@ export class Store {
   private async shutdown(): Promise<number> {
     if (this.opens.size) throw error('InvalidStateError', 'Virtual files remain open');
     let failure: unknown;
-    try {await this.point('close-flush', 1);} catch (cause) {failure = cause;}
+    try {const gate = this.point('close-flush', 1); if (gate) await gate;} catch (cause) {failure = cause;}
     // Preserve the first failure and still release every physical handle.
     // A poisoned journal is recovered on the next mount, without a new flush.
     for (const [id, h] of this.handles) {
@@ -219,7 +213,10 @@ export class Store {
       if (this.namespace.nodes.size >= nodeLimit || this.namespace.nextId >= 0x80000000)
         throw error('QuotaExceededError', 'Namespace node or identity limit reached');
       const node = {id: this.namespace.nextId, parent: id, name, kind: op === StorageOp.createFile ? 1 : 2, mode};
-      await this.point('create', id, this.path(id) + '/' + name);
+      if (this.fault?.operation === 'create') {
+        const gate = this.point('create', id, this.path(id) + '/' + name);
+        if (gate) await gate;
+      }
       if (node.kind === 1) {
         this.reserveHandle();
         const h = await (await this.file(node.id, true)).createSyncAccessHandle();
@@ -259,30 +256,34 @@ export class Store {
       await this.collect(id); return 0;
     }
     if (op === StorageOp.shutdown) return this.shutdown();
-    if (op === StorageOp.flushDirectory) {await this.point('directory-flush', id); this.journal!.flush(); this.metrics.directoryFlushes++; return 0;}
+    if (op === StorageOp.flushDirectory) {
+      const gate = this.point('directory-flush', id); if (gate) await gate;
+      this.journal!.flush(); this.metrics.directoryFlushes++; return 0;
+    }
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
     if (op === StorageOp.size && this.sizes.has(id)) return this.sizes.get(id)!;
     const h = await this.handle(id);
     if (op === StorageOp.read) {this.metrics.reads++; return h.read(data, {at: offset});}
     if (op === StorageOp.write) {
-      const action = await this.point('write', id); this.metrics.writes++;
+      let gate = this.point('write', id);
+      const action = gate ? await gate : ''; this.metrics.writes++;
       let n: number;
       try {n = h.write(action === 'short' ? data.subarray(0, Math.min(7, data.length)) : data, {at: offset});}
       catch (cause) {this.sizes.delete(id); this.dirty.add(id); throw cause;}
       if (n > 0) {this.sizes.set(id, Math.max(this.sizes.get(id)!, offset + n)); this.dirty.add(id);}
-      await this.point('written', id); return n;
+      gate = this.point('written', id); if (gate) await gate; return n;
     }
     if (op === StorageOp.flush) {
-      await this.point('flush-before', id);
+      let gate = this.point('flush-before', id); if (gate) await gate;
       h.flush();
       this.dirty.delete(id);
       this.metrics.flushes++;
-      await this.point('flush-after', id);
+      gate = this.point('flush-after', id); if (gate) await gate;
       return 0;
     }
     if (op === StorageOp.size) return this.sizes.get(id)!;
     if (op === StorageOp.truncate) {
-      await this.point('truncate', id);
+      const gate = this.point('truncate', id); if (gate) await gate;
       try {h.truncate(offset); this.sizes.set(id, offset);}
       catch (cause) {this.sizes.delete(id); throw cause;}
       finally {this.dirty.add(id);}

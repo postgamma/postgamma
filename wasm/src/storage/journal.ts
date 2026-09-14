@@ -6,12 +6,12 @@ import type {AccessHandle, StorageDirectory} from './files.js';
 
 export const journalNames = ['namespace-v1', 'namespace-v2'] as const;
 export interface JournalHooks {
-  point(operation: string, path: string): Promise<string>;
+  point(operation: string, path: string): string | Promise<string>;
   partial(bytes: number): Promise<never>;
-  writeCheckpoint?(bytes: Uint8Array, write: (bytes: Uint8Array, at: number) => void, flush: () => void): Promise<void>;
+  partialCheckpoint?(): boolean;
 }
 const noHooks: JournalHooks = {
-  point: async () => '',
+  point: () => '',
   partial: async () => {throw new Error('Interrupted namespace tail requires recovery');},
 };
 
@@ -137,7 +137,8 @@ export class Journal {
     // database rather than interpret its data files as orphans of an empty log.
     this.write(slot, marker, 0);
     this.handles[slot].flush();
-    if (point) await this.hooks.point(point, 'snapshot');
+    const gate = point && this.hooks.point(point, 'snapshot');
+    if (gate) await gate;
     this.truncate(slot, marker.length);
     this.handles[slot].flush();
   }
@@ -145,16 +146,24 @@ export class Journal {
   async checkpoint(): Promise<void> {
     const target = 1 - this.active;
     const bytes = snapshot(this.namespace, this.generation + 1);
-    await this.hooks.point('checkpoint-before', 'snapshot');
+    let gate = this.hooks.point('checkpoint-before', 'snapshot');
+    if (gate) await gate;
     // The inactive slot is never needed for recovery of acknowledged writes.
     // Invalidate its old checksum before writing another generation.
     await this.retire(target, 'checkpoint-prepared');
-    if (this.hooks.writeCheckpoint)
-      await this.hooks.writeCheckpoint(bytes, (part, at) => this.write(target, part, at), () => this.handles[target].flush());
-    else this.write(target, bytes, 0);
-    await this.hooks.point('checkpoint-written', 'snapshot');
+    if (this.hooks.partialCheckpoint?.()) {
+      const middle = Math.floor(bytes.length / 2);
+      this.write(target, bytes.subarray(0, middle), 0);
+      this.handles[target].flush();
+      gate = this.hooks.point('checkpoint-partial', 'snapshot');
+      if (gate) await gate;
+      this.write(target, bytes.subarray(middle), middle);
+    } else this.write(target, bytes, 0);
+    gate = this.hooks.point('checkpoint-written', 'snapshot');
+    if (gate) await gate;
     this.handles[target].flush();
-    await this.hooks.point('checkpoint-flushed', 'snapshot');
+    gate = this.hooks.point('checkpoint-flushed', 'snapshot');
+    if (gate) await gate;
     // No new mutation may be acknowledged until the old slot is retired.
     // Before this point both complete generations describe the same state.
     await this.retire(this.active, 'checkpoint-retired');
@@ -163,7 +172,8 @@ export class Journal {
     this.namespace.sequence = 0;
     this.metrics.compactions++;
     this.observe();
-    await this.hooks.point('checkpoint-published', 'snapshot');
+    gate = this.hooks.point('checkpoint-published', 'snapshot');
+    if (gate) await gate;
   }
 
   async append(change: Change): Promise<void> {
@@ -175,7 +185,8 @@ export class Journal {
     if (this.sizes[this.active] + record.length > slotLimit)
       throw new DOMException('Namespace snapshot leaves no journal space', 'QuotaExceededError');
     const at = this.sizes[this.active];
-    const action = await this.hooks.point('namespace-before', change.op);
+    let gate = this.hooks.point('namespace-before', change.op);
+    const action = gate ? await gate : '';
     if (action === 'partial') {
       const partial = record.subarray(0, Math.floor(record.length / 2));
       this.write(this.active, partial, at);
@@ -183,9 +194,11 @@ export class Journal {
       await this.hooks.partial(partial.length);
     }
     this.write(this.active, record, at);
-    await this.hooks.point('namespace-written', change.op);
+    gate = this.hooks.point('namespace-written', change.op);
+    if (gate) await gate;
     this.flush();
-    await this.hooks.point('namespace-flushed', change.op);
+    gate = this.hooks.point('namespace-flushed', change.op);
+    if (gate) await gate;
     this.namespace.apply(change);
     this.namespace.sequence++;
   }

@@ -201,6 +201,7 @@ static bool command(void)
     pgm_error *error = NULL;
     pgm_status status = PGM_STATUS_OK;
     const char *bridge_message = NULL;
+    int rollback_error = 0;
     uint32_t version = get(&r), sequence = get(&r), op = get(&r);
     bool stop = false;
     Handle *h = NULL, *slot = NULL;
@@ -279,7 +280,7 @@ static bool command(void)
             else if (storage) {
                 // Roll back the mount owned by this OPEN. The control Worker
                 // still sends STOP to join the driver and release its Web Lock.
-                (void)postgamma_wasm_storage_close();
+                rollback_error = postgamma_wasm_storage_close();
             }
         } else if (!status) r.failed = true;
         free(path); free(name); free(test_channel); break;
@@ -449,8 +450,16 @@ done:
     if (r.failed) status = PGM_STATUS_INVALID_ARGUMENT;
     if (payload.failed) status = PGM_STATUS_OUT_OF_MEMORY;
     put(&reply, WIRE_VERSION); put(&reply, sequence); put(&reply, op); put(&reply, status);
-    for (unsigned i = 1; i <= 17; i++)
-        text(&reply, error ? pgm_error_field(error, i) : i == PGM_DIAG_MESSAGE ? bridge_message : NULL);
+    for (unsigned i = 1; i <= 17; i++) {
+        const char *field = error ? pgm_error_field(error, i) : i == PGM_DIAG_MESSAGE ? bridge_message : NULL;
+        if (i == PGM_DIAG_DETAIL && rollback_error) {
+            const char *prefix = "OPFS startup rollback failed: ", *cause = strerror(rollback_error);
+            size_t existing = field ? strlen(field) : 0;
+            put(&reply, existing + (existing ? 2 : 0) + strlen(prefix) + strlen(cause));
+            if (existing) {bytes(&reply, field, existing); bytes(&reply, "; ", 2);}
+            bytes(&reply, prefix, strlen(prefix)); bytes(&reply, cause, strlen(cause));
+        } else text(&reply, field);
+    }
     if (!status) bytes(&reply, payload.data, payload.size);
     free(payload.data); pgm_error_free(error);
     return stop;
