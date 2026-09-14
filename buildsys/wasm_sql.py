@@ -80,6 +80,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][close_test] = digest(config.root / close_test)
             run([builder.tools["node"], str(config.root / close_test), str(site / "src/api/database.js")],
                 builder.current / "close.log", builder.env, config.root)
+            startup_test = "tests/wasm/sql/startup.mjs"
+            report["harness_sources"][startup_test] = digest(config.root / startup_test)
+            run([builder.tools["node"], str(config.root / startup_test), str(site / "src")],
+                builder.current / "startup.log", builder.env, config.root)
             run([builder.tools["node"], str(config.root / "tests/wasm/storage/namespace.mjs"),
                  str(site / "src/storage/namespace.js")], builder.current / "namespace.log", builder.env, config.root)
             journal_test = "tests/wasm/storage/journal.mjs"

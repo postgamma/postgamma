@@ -97,5 +97,5 @@ try {
     isolated: crossOriginIsolated, worker: true, sharedMemory: true};
 } catch (error) {
   page.probeResult = {status: 'failed', scenario, checks, pageTicks,
-    error: error instanceof Error ? error.stack : String(error), isolated: crossOriginIsolated};
+    error: String(error), stack: error instanceof Error ? error.stack : undefined, isolated: crossOriginIsolated};
 } finally {clearInterval(timer);}

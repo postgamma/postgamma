@@ -2,7 +2,7 @@
 import {loadKernel} from '../loader/kernel.js';
 import {exchange, tick} from '../bindings/sql.js';
 import type {SqlModule} from '../bindings/sql.js';
-import {LIMIT, Op, Reader, VERSION, Writer} from '../protocol/wire.js';
+import {DatabaseError, LIMIT, Op, Reader, VERSION, Writer, response} from '../protocol/wire.js';
 import {limits} from '../protocol/limits.js';
 import {acquire} from '../storage/ownership.js';
 const output: string[] = [];
@@ -104,7 +104,15 @@ self.onmessage = ({data}) => {
     sample();
     if (op === Op.open && new DataView(reply).getUint32(12, true) !== 0) {
       const stoppedReply = await exchange(module, new Writer().u32(VERSION).u32(sequence).u32(Op.stop).finish());
-      if (new DataView(stoppedReply).getUint32(12, true) !== 0) throw new Error('Failed startup could not release storage');
+      try {response(stoppedReply, sequence, Op.stop).end();}
+      catch (teardownError) {
+        let openingError: unknown;
+        try {response(reply, sequence, Op.open);}
+        catch (cause) {openingError = cause;}
+        const detail = openingError instanceof DatabaseError ? openingError.diagnostics[3] : null;
+        throw new Error([String(openingError), detail, 'Startup teardown failed: ' + String(teardownError)]
+          .filter(Boolean).join('; '));
+      }
       postMessage({sequence, reply, metrics: await dispose(module)}, [reply]); return;
     }
     if (op === Op.stop) {
