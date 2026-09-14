@@ -14,6 +14,7 @@ const {values} = parseArgs({options: {
   engine: {type: 'string', default: 'chromium'},
   profile: {type: 'string'},
   'timeout-ms': {type: 'string'},
+  repetitions: {type: 'string'},
 }});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
 if (!['chromium', 'firefox', 'webkit'].includes(values.engine)) throw new Error('Unsupported browser engine');
@@ -29,9 +30,13 @@ const report = {
   pageErrorDetails: [],
   failedRequests: [],
   timeoutMs: Number(values['timeout-ms'] || 30000),
+  repetitions: Number(values.repetitions || 0),
+  completedIterations: 0,
 };
 if (!Number.isSafeInteger(report.timeoutMs) || report.timeoutMs < 1 || report.timeoutMs > 120000)
   throw new Error('Invalid browser case timeout');
+if (!Number.isSafeInteger(report.repetitions) || report.repetitions < 0 || report.repetitions > 100)
+  throw new Error('Invalid browser repetition count');
 if (values.describe) {
   console.log(JSON.stringify(report));
 } else {
@@ -60,6 +65,18 @@ if (values.describe) {
     if (values.url) {
       await page.goto(values.url, {timeout: 15000});
       const started = performance.now();
+      // Bound every round separately. Keep partial progress on disk even if
+      // a later renderer crash prevents reading the page's final evidence.
+      for (let iteration = 1; iteration <= report.repetitions; iteration++) {
+        await page.waitForFunction(n => window.probeResult !== null ||
+          (window.probeEvents || []).filter(e => e.kind === 'fatal-iteration').length >= n,
+          iteration, {timeout: report.timeoutMs});
+        const progress = await page.evaluate(() => ({done: window.probeResult !== null,
+          count: (window.probeEvents || []).filter(e => e.kind === 'fatal-iteration').length}));
+        report.completedIterations = progress.count;
+        writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
+        if (progress.done) break;
+      }
       await page.waitForFunction(() => window.probeResult !== null, undefined, {timeout: report.timeoutMs});
       report.elapsedMs = performance.now() - started;
       report.probe = await page.evaluate(() => window.probeResult);

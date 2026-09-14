@@ -5,7 +5,7 @@ import {assert, scalar, errorState} from './helpers.js';
 import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
 import {results} from './results.js';
-import {lifecycle, fatal, closeAuditFailure, failedOpenRecovery} from './lifecycle.js';
+import {lifecycle, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
 import {budget} from './budget.js';
 import {bindings} from './bindings.js';
 import {storage} from '../storage-tests/run.js';
@@ -63,6 +63,12 @@ try {
   else if (scenario === 'vector-example') await vectorExample(checks, metrics);
   else if (scenario === 'close-audit') metrics.push(await closeAuditFailure(checks));
   else if (scenario === 'open-failed') metrics.push(await failedOpenRecovery(checks));
+  else if (scenario.startsWith('fatal-opfs-') && new URL(location.href).searchParams.has('repetitions')) {
+    const repetitions = Number(new URL(location.href).searchParams.get('repetitions'));
+    assert(Number.isInteger(repetitions) && repetitions >= 1 && repetitions <= 100, 'Valid fatal repetition count');
+    assert(scenario === 'fatal-opfs-trap' || scenario === 'fatal-opfs-abort', 'Valid fatal scenario');
+    await repeatedFatal(checks, metrics, scenario.endsWith('trap') ? 1 : 2, repetitions);
+  }
   else {
   const storage = scenario.startsWith('fatal-opfs-') ? {type: 'opfs' as const, name: 'fatal-' + crypto.randomUUID()} : undefined;
   const db = await Database.open({storage});

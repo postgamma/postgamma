@@ -106,6 +106,11 @@ WASM_EXTENSIONS ?= none
 wasm-sql-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_SQL_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
 
+.PHONY: wasm-lifecycle-check
+WASM_LIFECYCLE_REPETITIONS ?= 20
+wasm-lifecycle-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_lifecycle.py" $(POSTGAMMA_WASM_ARGS) --repetitions "$(WASM_LIFECYCLE_REPETITIONS)"
+
 .PHONY: wasm-storage-check
 WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:

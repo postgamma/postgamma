@@ -119,10 +119,11 @@ export async function lifecycle(db: Database, checks: string[]) {
   checks.push('close-during-submission', 'recreate-after-close');
 }
 export async function fatal(db: Database, checks: string[], fault: number,
-                            storage?: {type: 'opfs'; name: string}) {
+                            storage?: {type: 'opfs'; name: string}, retainStorage = false) {
   const a = await db.connect('fatal-a'), b = await db.connect('fatal-b');
   if (storage) {
-    await a.query('CREATE TABLE fatal_ledger(id int PRIMARY KEY)');
+    await a.query('CREATE TABLE IF NOT EXISTS fatal_ledger(id int PRIMARY KEY)');
+    await a.query('TRUNCATE fatal_ledger');
     await a.query('INSERT INTO fatal_ledger VALUES (1)');
     await a.query('BEGIN');
     await a.query('INSERT INTO fatal_ledger VALUES (2)');
@@ -157,8 +158,22 @@ export async function fatal(db: Database, checks: string[], fault: number,
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'fatal', fault, metrics,
     recreated: fresh.diagnostics(), settlements: counts});
   checks.push(fault === 1 ? 'real-wasm-trap' : 'real-wasm-abort', 'fatal-settles-all', 'fatal-instance-rejected', 'recreate-after-fatal');
-  if (storage) {
+  if (storage && !retainStorage) {
     const origin = await navigator.storage.getDirectory();
     await (await origin.getDirectoryHandle('postgamma')).removeEntry(storage.name, {recursive: true});
   }
+}
+
+export async function repeatedFatal(checks: string[], metrics: unknown[], fault: number, repetitions: number) {
+  const storage = {type: 'opfs' as const, name: 'fatal-repeated-' + crypto.randomUUID()};
+  // Reuse durable data, but create a fresh module for every attempt. The error
+  // path still opens its replacement immediately, without sleeps or retries.
+  for (let iteration = 1; iteration <= repetitions; iteration++) {
+    const db = await Database.open({storage, create: iteration === 1});
+    await fatal(db, checks, fault, storage, true);
+    metrics.push(db.diagnostics());
+    (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'fatal-iteration', fault, iteration});
+  }
+  const origin = await navigator.storage.getDirectory();
+  await (await origin.getDirectoryHandle('postgamma')).removeEntry(storage.name, {recursive: true});
 }

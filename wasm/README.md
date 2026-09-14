@@ -67,6 +67,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-lifecycle-check` | Run OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
