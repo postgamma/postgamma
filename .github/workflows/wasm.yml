@@ -94,7 +94,7 @@ jobs:
 
   native:
     needs: plan
-    if: needs.plan.outputs.native == 'true'
+    if: github.event_name != 'pull_request' || needs.plan.outputs.native == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
