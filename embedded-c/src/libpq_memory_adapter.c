@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include "libpq-fe.h"
 #include "libpq-int.h"
@@ -89,7 +90,9 @@ struct PostgammaPrivateLibpqConnection
 	PGconn     *postgres_connection;
 	PostgammaPrivateLibpqOperation *active_operation;
 	bool		connect_operation;
-	int64_t		operation_deadline_ns;
+	unsigned char *connect_output;
+	size_t		connect_output_size;
+	size_t		connect_output_offset;
 	PostgammaPrivateCancelCallback cancel_callback;
 	void       *cancel_argument;
 	PostgammaPrivateNoticeCallback notice_callback;
@@ -322,47 +325,28 @@ postgamma_libpq_memory_secure_write(PGconn *connection, const void *buffer,
 	current->secure_write_calls++;
 	if (current->connect_operation)
 	{
-		const unsigned char *cursor = buffer;
-		size_t		remaining = length;
+		/* pqPacketSend requires an all-or-error flush during PQconnectPoll.
+		 * Retain bounded output here; the next host step flushes it in pieces.
+		 * No transport wait may escape from inside the upstream handshake. */
+		size_t pending = current->connect_output_size - current->connect_output_offset;
+		unsigned char *output;
 
-		while (remaining != 0)
+		if (current->connect_output_offset && pending)
+			memmove(current->connect_output, current->connect_output + current->connect_output_offset, pending);
+		current->connect_output_offset = 0;
+		current->connect_output_size = pending;
+		if (length == 0) { *result = 0; return true; }
+		if (length > 65536U - pending ||
+			(output = realloc(current->connect_output, pending + length)) == NULL)
 		{
-			PostgammaMemoryWaitResult wait_result;
-
-			io = postgamma_memory_endpoint_write(
-				current->endpoint, current->generation, cursor, remaining);
-			if (io.status == POSTGAMMA_MEMORY_STATUS_PROGRESS)
-			{
-				current->bytes_written += io.bytes;
-				cursor += io.bytes;
-				remaining -= io.bytes;
-				continue;
-			}
-			if (io.status != POSTGAMMA_MEMORY_STATUS_RETRY)
-			{
-				postgamma_private_transport_error(
-					connection, "connect write", io.status);
-				*result = -1;
-				SOCK_ERRNO_SET(EPIPE);
-				return true;
-			}
-			wait_result = postgamma_memory_endpoint_wait(
-				current->endpoint, current->generation,
-				POSTGAMMA_MEMORY_WAIT_WRITABLE |
-					POSTGAMMA_MEMORY_WAIT_PEER_CLOSED,
-				0, current->operation_deadline_ns);
-			if (wait_result.status != POSTGAMMA_MEMORY_STATUS_OK ||
-				(wait_result.events & POSTGAMMA_MEMORY_WAIT_WRITABLE) == 0)
-			{
-				postgamma_private_transport_error(
-					connection, "connect write wait", wait_result.status);
-				*result = -1;
-				SOCK_ERRNO_SET(
-					wait_result.status == POSTGAMMA_MEMORY_STATUS_TIMEOUT ?
-					ETIMEDOUT : ECONNRESET);
-				return true;
-			}
+			*result = -1;
+			SOCK_ERRNO_SET(ENOMEM);
+			return true;
 		}
+		current->connect_output = output;
+		memcpy(output + pending, buffer, length);
+		current->connect_output_offset = 0;
+		current->connect_output_size = pending + length;
 		*result = (ssize_t) length;
 		SOCK_ERRNO_SET(0);
 		return true;
@@ -1126,46 +1110,96 @@ postgamma_private_libpq_create(const PostgammaPrivateLibpqOptions *options,
 
 
 PostgammaPrivateLibpqStatus
-postgamma_private_libpq_connect(PostgammaPrivateLibpqConnection *connection,
-								int64_t deadline_ns)
+postgamma_private_libpq_connect_step(PostgammaPrivateLibpqConnection *connection,
+                                    bool *done)
 {
 	PostgammaPrivateLibpqStatus status;
+	PostgresPollingStatusType polled;
 
-	if (!postgamma_private_libpq_valid(connection) || deadline_ns < 0)
+	if (!postgamma_private_libpq_valid(connection) || done == NULL)
 		return POSTGAMMA_PRIVATE_LIBPQ_INVALID_ARGUMENT;
+	*done = false;
 	if (pthread_mutex_lock(&connection->mutex) != 0)
 		return POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
 	status = postgamma_private_bind(connection);
-	connection->connect_operation = true;
-	connection->operation_deadline_ns = deadline_ns;
-	while (status == POSTGAMMA_PRIVATE_LIBPQ_OK)
+	if (status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+		goto unlock;
+	if (connection->connect_output_offset < connection->connect_output_size)
 	{
-		PostgresPollingStatusType poll_status =
-			PQconnectPoll(connection->postgres_connection);
+		PostgammaMemoryTelemetry transport;
+		size_t remaining = connection->connect_output_size - connection->connect_output_offset;
+		PostgammaMemoryIoResult io;
 
-		if (poll_status == PGRES_POLLING_OK)
-			break;
-		if (poll_status == PGRES_POLLING_FAILED)
+		/* A rejected startup can close the backend before consuming the
+		 * packet. The public monitor retains an endpoint reference, so a full
+		 * outbound queue alone cannot detect that its reader has exited. */
+		if (postgamma_memory_endpoint_snapshot(connection->endpoint,
+				connection->generation, &transport) != POSTGAMMA_MEMORY_STATUS_OK ||
+			transport.backend_to_frontend.writer_closed)
 		{
-			status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
-			break;
+			status = POSTGAMMA_PRIVATE_LIBPQ_TRANSPORT_ERROR;
+			goto restore;
 		}
-		status = postgamma_private_wait(
-			connection, true, poll_status == PGRES_POLLING_WRITING,
-			deadline_ns);
+		io = postgamma_memory_endpoint_write(
+			connection->endpoint, connection->generation,
+			connection->connect_output + connection->connect_output_offset,
+			remaining < 8192U ? remaining : 8192U);
+
+		if (io.status == POSTGAMMA_MEMORY_STATUS_PROGRESS)
+		{
+			connection->connect_output_offset += io.bytes;
+			connection->bytes_written += io.bytes;
+		}
+		else if (io.status != POSTGAMMA_MEMORY_STATUS_RETRY)
+			status = POSTGAMMA_PRIVATE_LIBPQ_TRANSPORT_ERROR;
+		/* Even writable output yields after one bounded transfer. */
+		goto restore;
 	}
+	connection->connect_output_offset = connection->connect_output_size = 0;
+	connection->connect_operation = true;
+	polled = PQconnectPoll(connection->postgres_connection);
 	connection->connect_operation = false;
-	connection->operation_deadline_ns = 0;
-	if (status == POSTGAMMA_PRIVATE_LIBPQ_OK)
-		atomic_store_explicit(
-			&connection->backend_pid,
-			PQbackendPID(connection->postgres_connection),
-			memory_order_release);
+	if (polled == PGRES_POLLING_FAILED)
+		status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+	else if (polled == PGRES_POLLING_OK && connection->connect_output_size == 0)
+	{
+		atomic_store_explicit(&connection->backend_pid,
+			PQbackendPID(connection->postgres_connection), memory_order_release);
+		*done = true;
+	}
+restore:
 	postgamma_private_restore(connection);
+unlock:
 	(void) pthread_mutex_unlock(&connection->mutex);
 	return status;
 }
 
+
+PostgammaPrivateLibpqStatus
+postgamma_private_libpq_connect(PostgammaPrivateLibpqConnection *connection,
+                               int64_t deadline_ns)
+{
+	bool done = false;
+
+	if (deadline_ns < 0)
+		return POSTGAMMA_PRIVATE_LIBPQ_INVALID_ARGUMENT;
+	while (!done)
+	{
+		PostgammaPrivateLibpqStatus status =
+			postgamma_private_libpq_connect_step(connection, &done);
+		int64_t now;
+		struct timespec pause = {0, 1000000L};
+
+		if (status != POSTGAMMA_PRIVATE_LIBPQ_OK || done)
+			return status;
+		if (postgamma_memory_clock_now(&now) != POSTGAMMA_MEMORY_STATUS_OK)
+			return POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
+		if (deadline_ns != POSTGAMMA_MEMORY_NO_DEADLINE && now >= deadline_ns)
+			return POSTGAMMA_PRIVATE_LIBPQ_TIMEOUT;
+		(void) nanosleep(&pause, NULL);
+	}
+	return POSTGAMMA_PRIVATE_LIBPQ_OK;
+}
 
 PostgammaPrivateLibpqStatus
 postgamma_private_libpq_tool_borrow(
@@ -2860,6 +2894,7 @@ postgamma_private_libpq_close(PostgammaPrivateLibpqConnection **connection)
 	if (pthread_mutex_destroy(&closing->mutex) != 0 &&
 		status == POSTGAMMA_PRIVATE_LIBPQ_OK)
 		status = POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
+	free(closing->connect_output);
 	closing->magic = 0;
 	free(closing);
 	*connection = NULL;

@@ -3,6 +3,7 @@
 #include "wasm-sql-policy.h"
 #include "postgamma/private/data_directory_lock.h"
 #include "postgamma/private/wasm_events.h"
+#include "postgamma/private/public_runtime.h"
 #include "postgamma/shmem_platform.h"
 #include "postgamma/dsm_platform.h"
 #include "postgamma/io_platform.h"
@@ -22,13 +23,13 @@
 
 /* This is a private, versioned byte protocol, never a native structure layout.
  * One host driver owns every pgm handle. Queries use nonblocking next-result
- * calls. Disconnect yields between backend-release checks; connect, request
- * retirement and COPY close still have synchronous lifecycle waits. */
+ * calls. Connection startup, cancellation and retirement perform bounded
+ * steps and yield the driver while tickets, transport or backends are pending. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
-       COPY_FINISH, COPY_CLOSE, COPY_ABORT };
-enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
-#define WIRE_VERSION 4
+       COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL };
+enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING };
+#define WIRE_VERSION 5
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -37,6 +38,8 @@ typedef struct Handle {
     uint64_t ready_sequence;
     bool watching;
     bool closing;
+    bool progress_watching;
+    double cancel_deadline_ms;
     double close_deadline_ms, close_retry_ms;
 } Handle;
 typedef struct Reader { const unsigned char *data; size_t size, offset; bool failed; } Reader;
@@ -85,14 +88,14 @@ static double notify_ready(void)
     double now = emscripten_get_now(), wait_ms = __builtin_inf();
     for (unsigned i = 0; i < SLOT_COUNT; i++) {
         Handle *h = &handles[i];
-        if (!h->watching) continue;
-        if (h->closing) {
-            // Backend reference release has no public waitable. Match the C
-            // close loop's 1 ms retry, only while a close is actually pending.
+        if (!h->watching && !h->progress_watching) continue;
+        if (h->progress_watching) {
+            // Lifecycle tickets and backend release have no public waitable.
+            // Retry only while a bounded lifecycle step is pending.
             double remaining = h->close_retry_ms - now;
             if (remaining > 0) {
                 if (remaining < wait_ms) wait_ms = remaining;
-                continue;
+                if (!h->watching || ready_sequence(h) == h->ready_sequence) continue;
             }
         } else if (ready_sequence(h) == h->ready_sequence) continue;
         ReadyEvent *event = malloc(sizeof(*event));
@@ -100,6 +103,7 @@ static double notify_ready(void)
         *event = (ReadyEvent){h->kind, i + 1, h->generation};
         // One notification per armed handle; the next consuming call rearms.
         h->watching = false;
+        h->progress_watching = false;
         notify_control(deliver_event, event);
     }
     return wait_ms;
@@ -171,6 +175,7 @@ static void publish(Writer *w, Handle *h, uint32_t kind, Handle *parent, void *p
 {
     h->kind = kind; h->generation++; h->pointer = pointer;
     h->closing = false; h->close_deadline_ms = h->close_retry_ms = 0;
+    h->progress_watching = false; h->cancel_deadline_ms = 0;
     h->parent = parent ? (uint32_t)(parent - handles + 1) : 0;
     put(w, kind); put(w, h - handles + 1); put(w, h->generation);
 }
@@ -180,7 +185,13 @@ static bool children(Handle *h)
         if (handles[i].kind && handles[i].parent == (uint32_t)(h - handles + 1)) return true;
     return false;
 }
-static void retire(Handle *h) { h->watching = false; h->kind = 0; h->parent = 0; h->pointer = NULL; }
+static void retire(Handle *h) { h->watching = h->progress_watching = false; h->kind = 0; h->parent = 0; h->pointer = NULL; }
+static void progress_again(Handle *h, Writer *payload)
+{
+    h->close_retry_ms = emscripten_get_now() + 1;
+    h->progress_watching = true;
+    put(payload, PGM_AVAILABILITY_AGAIN);
+}
 static void log_record(void *unused, const pgm_log_record *record)
 {
     (void)unused;
@@ -209,6 +220,7 @@ static pgm_status marshal_result(Writer *w, pgm_result *result, pgm_error **erro
 #ifdef POSTGAMMA_WASM_TESTING
 #include "../../tests/wasm/storage/filesystem.c"
 #include "../../tests/wasm/sql/close_gate.c"
+#include "../../tests/wasm/sql/control_gate.c"
 #endif
 static bool command(void)
 {
@@ -223,6 +235,28 @@ static bool command(void)
     Handle *h = NULL, *slot = NULL;
     if (version != WIRE_VERSION) r.failed = true;
 #ifdef POSTGAMMA_WASM_TESTING
+    if (!r.failed && op == 65531) {
+        unsigned action = get(&r);
+        h = lookup(&r, action == 1 ? INSTANCE : CONNECTING);
+        unsigned capacity = get(&r);
+        if (r.failed || r.offset != r.size || (action != 1 && action != 2)) r.failed = true;
+        else if (action == 1 && capacity >= 16 && capacity <= 65536)
+            ((pgm_instance *)h->pointer)->transport_queue_capacity = capacity;
+        else if (action == 2)
+            ((pgm_connection *)h->pointer)->connect_deadline_ns = postgamma_monotonic_now_ns() - 1;
+        else r.failed = true;
+        goto done;
+    }
+    if (!r.failed && op == 65532) {
+        unsigned action = get(&r);
+        if (r.failed || r.offset != r.size || action > 2) r.failed = true;
+        else if (action == 2) put(&payload, control_gate_ticket != NULL);
+        else {
+            control_gate_armed = action == 1;
+            control_gate_ticket = NULL;
+        }
+        goto done;
+    }
     if (!r.failed && op == 65533) {
         h = lookup(&r, CONNECTION);
         unsigned hold = get(&r);
@@ -252,6 +286,7 @@ static bool command(void)
 #endif
     if (op != OPEN && op != STOP)
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
+                   op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
                    op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
     if (op == OPEN || op == CONNECT || op == EXECUTE) {
@@ -259,8 +294,8 @@ static bool command(void)
         if (!slot) status = PGM_STATUS_BUSY;
     }
     if (r.failed || status) goto done;
-    if (h && h->closing && op != DISCONNECT) {
-        status = PGM_STATUS_BUSY; bridge_message = "Connection is closing"; goto done;
+    if (h && h->closing && op != DISCONNECT && op != RELEASE && op != COPY_CLOSE) {
+        status = PGM_STATUS_BUSY; bridge_message = "Handle is closing"; goto done;
     }
     switch (op) {
     case OPEN: {
@@ -314,18 +349,19 @@ static bool command(void)
         free(path); free(name); free(test_channel); break;
     }
     case CONNECT: {
-        unsigned connections = 0;
-        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTION) connections++;
+        unsigned connections = 0, opening = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++) {
+            if (handles[i].kind == CONNECTION || handles[i].kind == CONNECTING) connections++;
+            if (handles[i].kind == CONNECTING) opening++;
+        }
         if (connections >= PGW_MAX_CONNECTIONS) {
             status = PGM_STATUS_BUSY; bridge_message = "Maximum live connections reached"; break;
         }
-        /* Connect performs a synchronous handshake on this driver. Reserve
-         * its carrier before entering it, including requests that can still
-         * become pinned. Only this driver admits/progresses host requests. */
+        /* Reserve one carrier for each startup across yielded driver turns. */
         pgm_instance_telemetry capacity = PGM_INSTANCE_TELEMETRY_INIT;
         status = pgm_instance_get_telemetry(h->pointer, &capacity, &error);
         if (status) break;
-        if (capacity.pinned_session_count + capacity.active_request_count >= capacity.executor_worker_count) {
+        if (capacity.pinned_session_count + capacity.active_request_count + opening >= capacity.executor_worker_count) {
             status = PGM_STATUS_BUSY; bridge_message = "No carrier is available for a new connection"; break;
         }
         char *name = string(&r);
@@ -333,12 +369,40 @@ static bool command(void)
             pgm_connection_options o = PGM_CONNECTION_OPTIONS_INIT;
             pgm_connection *connection = NULL;
             o.user = "postgamma"; o.database = "postgres"; o.application_name = name;
-            status = pgm_connection_open(h->pointer, &o, &connection, &error);
-            if (!status) publish(&payload, slot, CONNECTION, h, connection);
+            status = postgamma_public_connection_begin(h->pointer, &o, &connection, &error);
+            if (!status) publish(&payload, slot, CONNECTING, h, connection);
         } else r.failed = true;
         free(name); break;
     }
+    case CONNECT_POLL: {
+        bool complete = false;
+        pgm_connection *connection = h->pointer;
+        if (r.offset != r.size) {r.failed = true; break;}
+        h->progress_watching = false;
+        status = postgamma_public_connection_step(&connection, &complete, &error);
+        h->pointer = connection;
+        if (complete && status) retire(h);
+        else if (!status && complete) {
+            h->kind = CONNECTION;
+            put(&payload, PGM_AVAILABILITY_END);
+            put(&payload, h->kind); put(&payload, h - handles + 1); put(&payload, h->generation);
+        } else if (!status) progress_again(h, &payload);
+        break;
+    }
     case EXECUTE: {
+        unsigned opening = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTING) opening++;
+        if (opening) {
+            pgm_connection *connection = h->pointer;
+            pgm_instance_telemetry capacity = PGM_INSTANCE_TELEMETRY_INIT;
+            pgm_connection_status_snapshot session = PGM_CONNECTION_STATUS_SNAPSHOT_INIT;
+            status = pgm_instance_get_telemetry(connection->instance, &capacity, &error);
+            if (!status) status = pgm_connection_get_status(connection, &session, &error);
+            if (status) break;
+            if (!session.carrier_retained && capacity.pinned_session_count + capacity.active_request_count + opening >= capacity.executor_worker_count) {
+                status = PGM_STATUS_BUSY; bridge_message = "Carrier reserved for connection startup"; break;
+            }
+        }
         char *sql = string(&r);
         pgm_execute_options o = PGM_EXECUTE_OPTIONS_INIT;
         uint32_t format = get(&r), chunk_rows = get(&r), count = get(&r);
@@ -392,26 +456,21 @@ static bool command(void)
     case DISCONNECT:
         if (r.offset != r.size) { r.failed = true; break; }
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
-        h->closing = true; h->watching = false;
+        h->closing = true; h->watching = h->progress_watching = false;
         if (!h->close_deadline_ms) h->close_deadline_ms = emscripten_get_now() + 10000;
         status = pgm_connection_close(h->pointer, 0, &error);
         if (status == PGM_STATUS_TIMEOUT && emscripten_get_now() < h->close_deadline_ms) {
             pgm_error_free(error); error = NULL; status = PGM_STATUS_OK;
-            h->close_retry_ms = emscripten_get_now() + 1;
-            if (h->close_retry_ms > h->close_deadline_ms) h->close_retry_ms = h->close_deadline_ms;
-            h->watching = true;
-            put(&payload, PGM_AVAILABILITY_AGAIN);
+            progress_again(h, &payload);
         } else {
             h->close_deadline_ms = 0; // A failed close retains the handle for a new attempt.
             if (!status) {retire(h); put(&payload, PGM_AVAILABILITY_END);}
         }
         break;
-    case RELEASE:
     case CLOSE:
         if (r.offset != r.size) { r.failed = true; break; }
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
-        if (op == RELEASE) pgm_request_free(h->pointer);
-        else status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
+        status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
         if (!status) {
             retire(h);
             if (op == CLOSE) {
@@ -431,8 +490,30 @@ static bool command(void)
         break;
     }
     case CANCEL:
+    case RELEASE:
+    case COPY_CLOSE:
+    case COPY_ABORT: {
+        bool complete = false;
+        bool closing = op == RELEASE || op == COPY_CLOSE;
+        double *deadline = closing ? &h->close_deadline_ms : &h->cancel_deadline_ms;
         if (r.offset != r.size) { r.failed = true; break; }
-        status = pgm_request_cancel(h->pointer, &error); break;
+        if (closing && children(h)) {status = PGM_STATUS_BUSY; break;}
+        if (closing) {h->closing = true; h->watching = false;}
+        h->progress_watching = false;
+        if (!*deadline) *deadline = emscripten_get_now() + 10000;
+        if (op == CANCEL) status = postgamma_public_request_cancel_step(h->pointer, &complete, &error);
+        else if (op == RELEASE) status = postgamma_public_request_release_step(h->pointer, &complete, &error);
+        else if (op == COPY_CLOSE) status = postgamma_public_copy_close_step(h->pointer, &complete, &error);
+        else status = postgamma_public_copy_abort_step(h->pointer, &complete, &error);
+        if (!status && !complete && emscripten_get_now() >= *deadline) {
+            status = PGM_STATUS_TIMEOUT; bridge_message = "Lifecycle operation timed out; handle retained for retry";
+        }
+        if (status || complete) {
+            *deadline = 0;
+            if (!status) {if (closing) retire(h); put(&payload, PGM_AVAILABILITY_END);}
+        } else progress_again(h, &payload);
+        break;
+    }
     case COPY_READ: {
         uint32_t capacity = get(&r);
         unsigned char buffer[PGW_COPY_CHUNK_BYTES];
@@ -462,14 +543,6 @@ static bool command(void)
         h->watching = !status && progress == PGM_IO_AGAIN;
         put(&payload, progress); break;
     }
-    case COPY_CLOSE:
-        if (r.offset != r.size) { r.failed = true; break; }
-        status = pgm_copy_close(h->pointer, 10000, &error);
-        if (!status) retire(h);
-        break;
-    case COPY_ABORT:
-        if (r.offset != r.size) { r.failed = true; break; }
-        status = pgm_copy_abort(h->pointer, NULL, 0, &error); break;
     case TELEMETRY: {
         if (r.offset != r.size) { r.failed = true; break; }
         pgm_instance_telemetry t = PGM_INSTANCE_TELEMETRY_INIT;

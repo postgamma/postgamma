@@ -90,6 +90,7 @@ struct pgm_copy
 	size_t		finish_message_size;
 	bool		finish_message_set;
 	bool		io_ended;
+	bool		released;
 };
 
 struct pgm_operation
@@ -204,6 +205,11 @@ struct pgm_connection
 	bool		registered_with_instance;
 	bool		failed;
 	bool		closing;
+	PostgammaSupervisorTicket *connect_ticket;
+	PostgammaKernelConnectRequest connect_payload;
+	uint64_t	connect_deadline_ns;
+	int			connect_error;
+	bool		connect_handshake;
 };
 
 struct pgm_statement
@@ -249,6 +255,11 @@ struct pgm_request
 	bool		saw_cancel_error;
 	bool		terminal_accounted;
 	bool		free_pending;
+	/* The single lifecycle owner retains the payload until its ticket completes. */
+	PostgammaSupervisorTicket *cancel_ticket;
+	PostgammaKernelCancelRequest cancel_payload;
+	uint64_t	cancel_next_ns;
+	bool		cancel_dispatched;
 };
 
 bool instance_is_valid(const pgm_instance *instance);
@@ -299,6 +310,30 @@ pgm_status result_attach_lease(
 void result_lease_release(PostgammaPublicResultLease *lease);
 void request_destroy(pgm_request *request);
 void request_account_terminal(pgm_request *request);
+
+/* Private connection startup for hosts with one driver. A step with !done
+ * retains the connection and any outstanding supervisor payload. A completed
+ * failure sets done and clears *connection after ticket/backend retirement.
+ */
+pgm_status postgamma_public_connection_begin(
+	pgm_instance *instance, const pgm_connection_options *options,
+	pgm_connection **connection, pgm_error **error);
+pgm_status postgamma_public_connection_step(
+	pgm_connection **connection, bool *done, pgm_error **error);
+/* Request/COPY controls: OK + !done and errors retain the handle and payload.
+ * Successful release/close with done destroys the handle; cancel/abort does not.
+ * Cancel may coexist with result consumption; release requires exclusive ownership.
+ */
+pgm_status postgamma_public_cancel_dispatch_step(
+	pgm_request *request, bool submit, bool *done, pgm_error **error);
+pgm_status postgamma_public_request_cancel_step(
+	pgm_request *request, bool *done, pgm_error **error);
+pgm_status postgamma_public_request_release_step(
+	pgm_request *request, bool *done, pgm_error **error);
+pgm_status postgamma_public_copy_close_step(
+	pgm_copy *copy, bool *done, pgm_error **error);
+pgm_status postgamma_public_copy_abort_step(
+	pgm_copy *copy, bool *done, pgm_error **error);
 
 bool postgamma_logical_operation_kind(pgm_operation_kind kind);
 pgm_status postgamma_logical_operation_progress(

@@ -102,6 +102,24 @@ $(BUILD_DIR)/tests/test_connection_close: tests/test_connection_close.c \
 		-ffunction-sections -fdata-sections $(filter %.c,$^) $(LIBRARY) \
 		-Wl,--gc-sections $(PRIVATE_THREAD_FLAGS) -o "$@"
 
+$(BUILD_DIR)/tests/test_lifecycle_ticket: tests/test_lifecycle_ticket.c \
+		src/postgamma.c src/postgamma_events.c $(LIBRARY) \
+		$(ROOT)/runtime/src/thread_runtime.c
+	@mkdir -p "$(@D)"
+	@$(CC) $(CPPFLAGS) $(PRIVATE_CPPFLAGS) $(CFLAGS) $(PRIVATE_CFLAGS) \
+		-DPOSTGAMMA_PRODUCT_VERSION='"test"' -DPOSTGAMMA_POSTGRESQL_MAJOR='"19"' \
+		-ffunction-sections -fdata-sections $(filter %.c,$^) $(LIBRARY) \
+		-Wl,--gc-sections $(PRIVATE_THREAD_FLAGS) -o "$@"
+
+$(BUILD_DIR)/tests/test_lifecycle_copy: tests/test_lifecycle_copy.c \
+		src/postgamma.c src/postgamma_copy.c $(LIBRARY) \
+		$(ROOT)/runtime/src/thread_runtime.c
+	@mkdir -p "$(@D)"
+	@$(CC) $(CPPFLAGS) $(PRIVATE_CPPFLAGS) $(CFLAGS) $(PRIVATE_CFLAGS) \
+		-DPOSTGAMMA_PRODUCT_VERSION='"test"' -DPOSTGAMMA_POSTGRESQL_MAJOR='"19"' \
+		-ffunction-sections -fdata-sections $(filter %.c,$^) $(LIBRARY) \
+		-Wl,--gc-sections $(PRIVATE_THREAD_FLAGS) -o "$@"
+
 $(SUPERVISOR_ASAN): tests/test_supervisor.c src/supervisor.c \
 		$(ROOT)/runtime/src/thread_runtime.c
 	@mkdir -p "$(@D)"

@@ -53,6 +53,9 @@ typedef struct PostgammaPrivateLibpqConnection
 typedef struct PostgammaPrivateLibpqOperation
 	PostgammaPrivateLibpqOperation;
 
+PostgammaPrivateLibpqStatus postgamma_private_libpq_connect_step(
+	PostgammaPrivateLibpqConnection *connection, bool *done);
+
 typedef enum PostgammaPrivateLibpqProgress
 {
 	POSTGAMMA_PRIVATE_LIBPQ_PROGRESS_WAITING = 0,

@@ -192,7 +192,7 @@ def source_function(content: str, name: str) -> str:
 
 
 def audit_connection_open_order(content: str) -> None:
-    connection_open = source_function(content, "pgm_connection_open")
+    connection_open = source_function(content, "postgamma_public_connection_step")
     register_at = connection_open.find(
         "postgamma_public_event_register_connection("
     )

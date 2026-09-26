@@ -512,6 +512,7 @@ class Builder:
                    *("-Wl,--export=" + name for name in ("__tls_size", "__tls_align", "__data_end", "__heap_base")),
                    *("-Wl,--undefined=" + name for name in roots),
                    *self.inputs["profile"]["modes"][self.config.mode],
+                   *(["-Wl,--wrap=postgamma_supervisor_ticket_wait"] if "-DPOSTGAMMA_WASM_TESTING" in bridge_flags else []),
                    "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
                    '-sINCOMING_MODULE_JS_API=["print","printErr","onAbort","locateFile","getPreloadedPackage","wasmBinary","noExitRuntime"]',
                    '-sEXPORTED_RUNTIME_METHODS=["HEAPU8","PThread","wasmMemory"]', f"-sPTHREAD_POOL_SIZE={pool}",

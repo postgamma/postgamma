@@ -1,6 +1,7 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {Database, DatabaseError} from '../src/api/database.js';
 import type {Connection, Result} from '../src/api/database.js';
+import {Op, type Handle, type Reader} from '../src/protocol/wire.js';
 import {assert, scalar, errorState} from './helpers.js';
 import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
@@ -8,6 +9,7 @@ import {results} from './results.js';
 import {lifecycle, disconnectTimeout, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
 import {budget} from './budget.js';
 import {bindings} from './bindings.js';
+import {controlProgress, controlTimeout, connectProgress, connectReservation} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
@@ -48,7 +50,9 @@ async function abi(db: Database) {
   const old = await c.execute('SELECT 8'); await old.next(); await old.next(); await old.close();
   const fresh = await c.execute('SELECT 9');
   let staleRejected = false;
-  try {await old.cancel();} catch (error) {staleRejected = error instanceof DatabaseError;}
+  const transport = (db as unknown as {transport: {call(op: number, handle: Handle): Promise<Reader>}}).transport;
+  try {await transport.call(Op.cancel, (old as unknown as {handle: Handle}).handle);}
+  catch (error) {staleRejected = error instanceof DatabaseError && error.status === 1;}
   assert(staleRejected && scalar([await fresh.next() as Result]) === '9', 'Stale generation rejected without touching fresh request');
   await fresh.next(); await fresh.close();
   await c.close();
@@ -82,6 +86,9 @@ try {
   else if (scenario === 'budget') await budget(db, checks);
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
   else if (scenario === 'disconnect-timeout') await disconnectTimeout(db, checks);
+  else if (scenario === 'control-progress') await controlProgress(db, checks);
+  else if (scenario === 'control-timeout') await controlTimeout(db, checks);
+  else if (scenario === 'connect-progress') await connectProgress(db, checks);
   else if (['fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort'].includes(scenario))
     await fatal(db, checks, scenario.endsWith('trap') ? 1 : 2, storage);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);
@@ -89,6 +96,10 @@ try {
   if (scenario === 'concurrency') {
     const small = await Database.open({workers: 2});
     await saturated(small, checks); metrics.push(await small.close());
+  }
+  if (scenario === 'connect-progress') {
+    const small = await Database.open({workers: 2});
+    await connectReservation(small, checks); metrics.push(await small.close());
   }
   }
   const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) :

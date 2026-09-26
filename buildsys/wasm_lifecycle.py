@@ -11,7 +11,7 @@ from wasm_sql import startup
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
 
-SCENARIOS = ('lifecycle', 'disconnect-timeout', 'close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort')
+SCENARIOS = ('lifecycle', 'disconnect-timeout', 'control-progress', 'control-timeout', 'connect-progress', 'close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort')
 ENGINES = ('chromium', 'firefox', 'webkit')
 
 
@@ -44,6 +44,13 @@ def validate_case(row, scenario, repetitions):
         'lifecycle': {'disconnect-yields-to-sql', 'disconnect-yields-to-cancel', 'disconnect-waits-for-backend-release'},
         'disconnect-timeout': {'disconnect-bounded-deadline', 'disconnect-timeout-retry',
                                'disconnect-rejects-new-work', 'disconnect-stale-generation'},
+        'control-progress': {'cancel-yields-to-sql', 'cancel-yields-to-cancel', 'release-yields-to-sql', 'release-yields-to-cancel', 'copy-close-yields-to-sql', 'copy-close-yields-to-cancel',
+                            'copy-abort-yields-to-sql', 'copy-abort-yields-to-cancel', 'unclaimed-copy-in-yields-to-sql', 'unclaimed-copy-in-yields-to-cancel',
+                            'copy-in-close', 'unclaimed-copy-release'},
+        'control-timeout': {'control-bounded-deadline', 'control-timeout-retry', 'control-stale-generation'},
+        'connect-progress': {'connect-yields-to-sql', 'connect-yields-to-cancel', 'connect-startup-backpressure', 'connect-failure-retirement',
+                             'connect-deadline-retirement', 'connect-stale-generation',
+                             'connect-carrier-reservation', 'connect-pinned-commit'},
     }
     if scenario in progress_checks:
         probe = row['probe']
@@ -53,6 +60,10 @@ def validate_case(row, scenario, repetitions):
             timings = [event for event in events if event.get('kind') == 'disconnect-timeout']
             if len(timings) != 1 or not 9900 <= timings[0].get('elapsedMs', 0) < 15000 or timings[0].get('attempts', 0) <= 1:
                 raise WasmError('missing or out-of-budget disconnect deadline evidence')
+        if scenario == 'control-timeout':
+            timings = [event for event in events if event.get('kind') == 'control-timeout']
+            if len(timings) != 1 or not 9900 <= timings[0].get('elapsedMs', 0) < 15000:
+                raise WasmError('missing or out-of-budget control deadline evidence')
         return
     timings = [e['elapsedMs'] for e in events if e.get('kind') == 'recovery-timing']
     expected = repetitions if scenario.startswith('fatal-') else 1

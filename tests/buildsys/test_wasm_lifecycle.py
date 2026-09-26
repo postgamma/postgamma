@@ -14,6 +14,30 @@ from wasm_link import source_snapshot
 
 
 class LifecycleEvidenceTests(unittest.TestCase):
+    def test_control_and_startup_require_each_ownership_observation(self):
+        required = {
+            'control-progress': ['cancel-yields-to-sql', 'cancel-yields-to-cancel', 'release-yields-to-sql', 'release-yields-to-cancel', 'copy-close-yields-to-sql', 'copy-close-yields-to-cancel',
+                'copy-abort-yields-to-sql', 'copy-abort-yields-to-cancel', 'unclaimed-copy-in-yields-to-sql', 'unclaimed-copy-in-yields-to-cancel', 'copy-in-close', 'unclaimed-copy-release'],
+            'control-timeout': ['control-bounded-deadline', 'control-timeout-retry', 'control-stale-generation'],
+            'connect-progress': ['connect-yields-to-sql', 'connect-yields-to-cancel', 'connect-startup-backpressure', 'connect-failure-retirement',
+                'connect-deadline-retirement', 'connect-stale-generation', 'connect-carrier-reservation', 'connect-pinned-commit'],
+        }
+        for scenario, checks in required.items():
+            row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': scenario, 'checks': checks},
+                   'events': [{'kind': 'control-timeout', 'elapsedMs': 10001}]}
+            validate_case(row, scenario, 20)
+            for check in checks:
+                broken = copy.deepcopy(row)
+                broken['probe']['checks'].remove(check)
+                with self.subTest(scenario=scenario, check=check), self.assertRaises(WasmError):
+                    validate_case(broken, scenario, 20)
+            if scenario == 'control-timeout':
+                for elapsed in (0, 9899, 15000):
+                    broken = copy.deepcopy(row)
+                    broken['events'][0]['elapsedMs'] = elapsed
+                    with self.assertRaises(WasmError):
+                        validate_case(broken, scenario, 20)
+
     def test_connection_progress_requires_all_observations(self):
         row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'lifecycle', 'checks': [
             'disconnect-yields-to-sql', 'disconnect-yields-to-cancel', 'disconnect-waits-for-backend-release']}}

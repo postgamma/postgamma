@@ -404,9 +404,22 @@ that partially closed connection is rejected. A 1 ms readiness retry is armed
 only while backend release is pending; idle operation remains notification-driven.
 The `lifecycle` scenario holds a real backend endpoint reference to verify other
 connections keep progressing. `disconnect-timeout`, included in the full SQL
-gate, checks the deadline, retry and stale-generation behavior. Connection
-handshake, request retirement and COPY close still contain synchronous waits.
-The three-engine lifecycle matrix also runs these progress and deadline cases.
+gate, checks the deadline, retry and stale-generation behavior.
+
+Cancellation, request release and COPY close also yield between bounded C
+steps. Pending cancellation tickets retain their request payload until the
+supervisor acknowledges completion. Release discards at most one result or
+8 KiB COPY fragment per step; timeout retains the handle for retry. Connection
+startup uses CONNECT begin/poll with a reserved connection and carrier slot.
+Startup output is staged within 64 KiB and transferred in bounded pieces;
+failure or deadline expiry retires the ticket and backend before releasing
+the reservation. The private byte protocol is version 5.
+
+The three-engine lifecycle matrix includes `control-progress`,
+`control-timeout` and `connect-progress`: cross-connection SQL/cancel,
+10-second release timeout/retry, startup backpressure with a 32-byte queue,
+failed and expired startup retirement, and two-worker admission with a pinned
+transaction. Test-only ticket gates are excluded from production builds.
 Reused receipts include the native C test fixture identities as well as the
 kernel, bridge, TypeScript harness and generated assets.
 
@@ -424,8 +437,9 @@ supplies the hard pthread bound. Caller-retained results
 and the browser's VM/code memory are outside managed queue accounting.
 
 The host driver sleeps on notifications between commands. Replies and
-per-connection result/COPY readiness use events, including cancellation and
-close; no periodic readiness timer is required. The lifecycle gate records
+per-connection result/COPY readiness use events. Pending lifecycle steps use
+a 1 ms retry for supervisor/backend states without a public waitable; idle
+operation has no periodic readiness timer. The lifecycle gate records
 idle driver wakeups separately from browser CPU or power consumption.
 
 A minimal source-API call, from a page serving the generated assets with

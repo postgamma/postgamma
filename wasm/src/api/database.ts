@@ -124,10 +124,24 @@ export class Database {
   }
   async connect(name = 'postgamma-wasm'): Promise<Connection> {
     if (this.closing) throw new ClosedError();
-    const work = this.transport.call(Op.connect, this.handle, w => w.text(name)).then(r => {
-      const h = r.handle(); r.end();
-      const connection = new Connection(this.transport, h, () => this.connections.delete(connection));
-      this.connections.add(connection); return connection;
+    const work = this.transport.call(Op.connect, this.handle, w => w.text(name)).then(async r => {
+      const pending = r.handle(); r.end();
+      this.transport.readiness.track(pending);
+      try {
+        const signal = new AbortController().signal;
+        for (;;) {
+          const version = this.transport.readiness.version(pending);
+          const reply = await this.transport.call(Op.connectPoll, pending), progress = reply.u32();
+          if (progress === 2) {
+            const h = reply.handle(); reply.end();
+            const connection = new Connection(this.transport, h, () => this.connections.delete(connection));
+            this.connections.add(connection); return connection;
+          }
+          reply.end();
+          if (progress !== 1) throw new Error('Invalid connection startup progress');
+          await this.transport.readiness.wait(pending, version, signal);
+        }
+      } finally {this.transport.readiness.retire(pending);}
     });
     this.starting.add(work);
     try {return await work;} finally {this.starting.delete(work);}
@@ -167,6 +181,17 @@ export class Database {
     return this.closeWork;
   }
 }
+async function lifecycleStep(transport: Transport, op: number, handle: Handle): Promise<void> {
+  const signal = new AbortController().signal;
+  for (;;) {
+    const version = transport.readiness.version(handle);
+    const reply = await transport.call(op, handle), progress = reply.u32(); reply.end();
+    if (progress === 2) return;
+    if (progress !== 1) throw new Error('Invalid lifecycle progress');
+    await transport.readiness.wait(handle, version, signal);
+  }
+}
+
 export class Connection {
   private transport: Transport;
   private handle: Handle;
@@ -251,6 +276,7 @@ export class Connection {
   }
 }
 export class Request {
+  private cancelWork?: Promise<void>;
   private reading = false;
   private readDone?: Promise<void>;
   private finishRead?: () => void;
@@ -286,7 +312,12 @@ export class Request {
       }
     } finally {this.reading = false; this.finishRead?.();}
   }
-  async cancel(): Promise<void> {(await this.transport.call(Op.cancel, this.handle)).end();}
+  cancel(): Promise<void> {
+    if (this.closing) return Promise.reject(new ClosedError());
+    if (!this.cancelWork) this.cancelWork = lifecycleStep(this.transport, Op.cancel, this.handle)
+      .finally(() => {this.cancelWork = undefined;});
+    return this.cancelWork;
+  }
   async *[Symbol.asyncIterator](): AsyncGenerator<Result> {
     try {for (;;) {const batch = await this.next(); if (batch === null) return; yield batch;}}
     finally {await this.close();}
@@ -297,8 +328,9 @@ export class Request {
     this.stopped.abort(new ClosedError());
     this.closeWork = (async () => {
       await this.readDone;
+      await this.cancelWork?.catch(() => {});
       if (this.copy) await this.copy.close();
-      (await this.transport.call(Op.release, this.handle)).end();
+      await lifecycleStep(this.transport, Op.release, this.handle);
       this.transport.readiness.retire(this.handle); this.onClosed();
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
@@ -306,6 +338,7 @@ export class Request {
 }
 
 export class CopyStream {
+  private abortWork?: Promise<void>;
   private transport: Transport;
   private handle: Handle;
   readonly direction: 'in' | 'out';
@@ -374,14 +407,20 @@ export class CopyStream {
       }
     } finally {this.busy = false; this.finishOperation?.();}
   }
-  async abort(): Promise<void> {(await this.transport.call(Op.copyAbort, this.handle)).end();}
+  abort(): Promise<void> {
+    if (this.closed) return Promise.reject(new ClosedError());
+    if (!this.abortWork) this.abortWork = lifecycleStep(this.transport, Op.copyAbort, this.handle)
+      .finally(() => {this.abortWork = undefined;});
+    return this.abortWork;
+  }
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closed = true;
     this.stopped.abort(new ClosedError());
     this.closeWork = (async () => {
       await this.idle;
-      (await this.transport.call(Op.copyClose, this.handle)).end();
+      await this.abortWork?.catch(() => {});
+      await lifecycleStep(this.transport, Op.copyClose, this.handle);
       this.transport.readiness.retire(this.handle);
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;

@@ -447,6 +447,139 @@ fail:
 }
 
 
+pgm_status
+postgamma_public_copy_abort_step(pgm_copy *copy, bool *done, pgm_error **error)
+{
+	pgm_status status;
+
+	if (done == NULL)
+		return PGM_STATUS_INVALID_ARGUMENT;
+	*done = false;
+	status = copy_lock(copy, error);
+	if (status != PGM_STATUS_OK)
+		return status;
+	if (copy->direction == POSTGAMMA_PRIVATE_COPY_IN)
+	{
+		copy_release(copy);
+		/* COPY IN abort only queues a bounded CopyFail, without a cancel callback. */
+		status = pgm_copy_abort(copy, NULL, 0, error);
+		*done = status == PGM_STATUS_OK;
+		return status;
+	}
+	if (copy->io_ended)
+		*done = true;
+	else
+	{
+		copy->state = POSTGAMMA_PUBLIC_COPY_ABORTED;
+		status = postgamma_public_cancel_dispatch_step(copy->request, true, done, error);
+	}
+	copy_dispatch_and_release(copy);
+	return status;
+}
+
+
+pgm_status
+postgamma_public_copy_close_step(pgm_copy *copy, bool *done, pgm_error **error)
+{
+	static const char message[] = "COPY closed before completion";
+	unsigned char discard[8192];
+	PostgammaPrivateCopyProgress progress;
+	PostgammaPrivateLibpqStatus private_status;
+	pgm_request *request;
+	pgm_status status;
+	bool dispatched = true;
+
+	if (done == NULL)
+		return PGM_STATUS_INVALID_ARGUMENT;
+	*done = false;
+	status = copy_lock(copy, error);
+	if (status != PGM_STATUS_OK)
+		return status;
+	request = copy->request;
+	if (!copy->released)
+	{
+		if (copy->direction == POSTGAMMA_PRIVATE_COPY_OUT)
+		{
+			status = postgamma_public_cancel_dispatch_step(
+				request, !copy->io_ended, &dispatched, error);
+			if (status != PGM_STATUS_OK)
+				goto fail;
+		}
+		if (!copy->io_ended)
+		{
+			if (copy->direction == POSTGAMMA_PRIVATE_COPY_IN)
+			{
+				if (copy->state == POSTGAMMA_PUBLIC_COPY_ACTIVE)
+				{
+					status = set_finish_message(copy, message, sizeof(message) - 1, error);
+					if (status != PGM_STATUS_OK)
+						goto fail;
+					copy->state = POSTGAMMA_PUBLIC_COPY_ABORTED;
+				}
+				private_status = postgamma_private_libpq_copy_finish(
+					request->operation, copy->finish_message, &progress);
+			}
+			else
+			{
+				size_t produced;
+
+				copy->state = POSTGAMMA_PUBLIC_COPY_ABORTED;
+				private_status = postgamma_private_libpq_copy_read(
+					request->operation, discard, sizeof(discard), &produced, &progress);
+			}
+			if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+			{
+				status = copy_private_error(error, private_status, "close COPY step");
+				goto fail;
+			}
+			copy->io_ended = progress == POSTGAMMA_PRIVATE_COPY_END;
+		}
+		if (!copy->io_ended || !dispatched)
+			goto fail;
+		private_status = postgamma_private_libpq_copy_release(request->operation);
+		if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+		{
+			status = copy_private_error(error, private_status, "release COPY step");
+			goto fail;
+		}
+		if (postgamma_mutex_lock(request->mutex) != 0)
+		{
+			status = PGM_STATUS_INTERNAL_ERROR;
+			goto fail;
+		}
+		request->active_copy = NULL;
+		(void) postgamma_mutex_unlock(request->mutex);
+		atomic_store_explicit(&copy->lease->outstanding, false, memory_order_release);
+		result_lease_release(copy->lease);
+		copy->lease = NULL;
+		copy->released = true;
+		copy->state = POSTGAMMA_PUBLIC_COPY_ENDED;
+	}
+	if (request->free_pending)
+	{
+		bool released;
+
+		/* Keep the COPY allocation as the owner while the abandoned request drains. */
+		status = postgamma_public_request_release_step(request, &released, error);
+		if (status != PGM_STATUS_OK || !released)
+			goto fail;
+	}
+	else
+		postgamma_public_dispatch_progress_events(request);
+	free(copy->finish_message);
+	(void) postgamma_mutex_unlock(copy->mutex);
+	copy->magic = 0;
+	(void) postgamma_mutex_destroy(copy->mutex);
+	free(copy);
+	*done = true;
+	return PGM_STATUS_OK;
+
+fail:
+	copy_dispatch_and_release(copy);
+	return status;
+}
+
+
 static pgm_io_state
 public_copy_progress(PostgammaPrivateCopyProgress progress)
 {
