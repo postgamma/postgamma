@@ -18,6 +18,15 @@ ENGINES = ('chromium', 'firefox', 'webkit')
 def verify_inputs(config, sql):
     if sql.get('status') != 'passed' or not sql.get('sql_validated') or sql.get('action') != 'check':
         raise WasmError('lifecycle matrix requires a passing SQL check receipt')
+    from wasm_link import source_snapshot
+    link = read_json(Path(sql['link_report']))
+    if link.get('status') != 'passed' or not link.get('kernel_linked'):
+        raise WasmError('lifecycle matrix requires a linked kernel')
+    if link.get('source_snapshot') != source_snapshot(config.root, link.get('extensions', ())):
+        raise WasmError('lifecycle kernel sources changed; rebuild SQL before reusing its receipt')
+    bridge = config.root / 'wasm/bridge/sql.c'
+    if link.get('bridge', {}).get('sha256') != digest(bridge):
+        raise WasmError('lifecycle SQL bridge changed; rebuild SQL before reusing its receipt')
     for base, key in ((Path(sql['site']), 'harness'), (config.root, 'harness_sources')):
         for name, checksum in sql[key].items():
             if digest(base / name) != checksum:

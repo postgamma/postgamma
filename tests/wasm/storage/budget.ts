@@ -27,7 +27,7 @@ export function storageBudget(modules: any[], events: any[]) {
     e.metrics.flushes > 0 && e.metrics.directoryFlushes > 0, 'OPFS actual barriers and bounded physical handles');
   const stackBound = Object.values(stacks).reduce((a, b) => a + b, 0) + 2 * 4194304 + 2097152;
   assert(stackBound <= 77594624, 'OPFS stacks fit the existing role reservations');
-  return {scope: {mode: 'debug', browser: 'chromium', storage: 'opfs'}, healthyModules: modules.length,
+  return {scope: {browser: 'chromium', storage: 'opfs'}, healthyModules: modules.length,
     peakLinearMemory: Math.max(...modules.map(m => m.peakMemory)), peakPthreads: Math.max(...modules.map(m => m.peakThreads)),
     stackClassPeaks: stacks, stackReservationUpperBound: stackBound, ioStackBytes: 2097152,
     peakDataHandles: Math.max(...closed.map(e => e.metrics.peakHandles)), journalHandles: 2,

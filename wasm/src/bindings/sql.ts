@@ -1,6 +1,7 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import type {KernelModule} from './kernel.js';
 export interface SqlModule extends KernelModule {
+  postgammaStorageOwner?: (worker?: Worker) => void;
   postgammaBridgeEvent?: (kind: number, id: number, generation: number) => void;
   postgammaBridgeReply?: () => void;
   _postgamma_wasm_start(): number;

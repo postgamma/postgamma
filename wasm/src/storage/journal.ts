@@ -207,10 +207,11 @@ export class Journal {
 
   close() {
     let failure: unknown;
+    const remaining: AccessHandle[] = [];
     for (const handle of this.handles) {
-      try {handle.close();} catch (cause) {failure ??= cause;}
+      try {handle.close();} catch (cause) {failure ??= cause; remaining.push(handle);}
     }
-    this.handles = [];
+    this.handles = remaining;
     if (failure) throw failure;
   }
 }

@@ -140,8 +140,10 @@ export async function fatal(db: Database, checks: string[], fault: number,
   const injected = transport.call(65535, undefined, w => w.u32(fault)).then(() => 'success', error => error);
   const outcomes = await Promise.all([...settled, injected]);
   assert(outcomes.every(value => value instanceof Error) && counts.every(count => count === 1), 'Fatal error settles every in-flight and queued Promise once');
-  const metrics = db.diagnostics() as {terminationRequested: boolean; interruptedWorkers: number; runningWorkers: number};
+  const metrics = db.diagnostics() as {terminationRequested: boolean; interruptedWorkers: number; runningWorkers: number; storageQuiesced: boolean; storageReleased: boolean};
   assert(metrics.terminationRequested && metrics.interruptedWorkers > 0 && metrics.runningWorkers === 0, 'Fatal path requests termination of all owned SDK workers');
+  if (storage) assert(metrics.storageQuiesced === true && metrics.storageReleased === true,
+    'Fatal path confirms I/O quiescence and physical OPFS handle release before rejecting requests');
   let rejected = false; try {await a.query('SELECT 3');} catch {rejected = true;}
   assert(rejected, 'Failed instance rejects subsequent requests');
   // Open immediately, with no sleep or retry to conceal ownership races.

@@ -24,6 +24,10 @@ class Transport {
   private sequence = 0;
   private pending = new Map<number, {bytes: number; resolve(value: ArrayBuffer): void; reject(error: Error): void}>();
   private failure: Error | null = null;
+  private failureWork: Promise<void> | undefined;
+  private finishRetirement: (() => void) | undefined;
+  private retirementTimer: ReturnType<typeof setTimeout> | undefined;
+  private retired = false;
   private pendingBytes = 0;
   sample: {memory: number; threads: number; queuedBytes: number; periodicSamples: number; driverWakeCount: number} | undefined;
   metrics: unknown;
@@ -34,7 +38,8 @@ class Transport {
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
-      if (data.fatal) {this.fail(new Error(data.fatal)); return;}
+      if (data.fatal) {this.retire(new Error(data.fatal)); return;}
+      if (this.failure) return;
       if (data.ready) {this.readiness.notify(data.ready); return;}
       const waiter = this.pending.get(data.sequence);
       if (!waiter) return; // Retired sequence: never deliver it to a later request.
@@ -46,15 +51,34 @@ class Transport {
     worker.onerror = event => this.fail(new Error(event.message));
     worker.onmessageerror = () => this.fail(new Error('Worker message could not be decoded'));
   }
-  private fail(error: Error) {
-    if (this.failure) return;
-    this.failure = error;
-    this.readiness.fail(error);
-    for (const waiter of this.pending.values()) waiter.reject(error);
+  private retire(error: Error) {
+    if (this.retired) return;
+    this.retired = true;
+    clearTimeout(this.retirementTimer);
+    if (this.failure && this.failure !== error) this.failure.cause = error;
+    this.failure ??= error;
+    this.readiness.fail(this.failure);
+    for (const waiter of this.pending.values()) waiter.reject(this.failure);
     this.pending.clear(); this.pendingBytes = 0; this.worker.terminate();
+    this.finishRetirement?.();
+  }
+  private fail(error: Error): Promise<void> {
+    if (this.failureWork) return this.failureWork;
+    if (this.retired) return Promise.resolve();
+    this.failure = error;
+    this.failureWork = new Promise(resolve => {this.finishRetirement = resolve;});
+    // A control Worker can release OPFS even when its native module failed.
+    // Stop admission now, but reject callers only after its cleanup reply.
+    this.retirementTimer = setTimeout(() => {
+      error.message += '; control Worker cleanup acknowledgement timed out';
+      this.retire(error);
+    }, 10000);
+    try {this.worker.postMessage({discard: String(error)});}
+    catch (cause) {error.cause = cause; this.retire(error);}
+    return this.failureWork;
   }
   async call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader> {
-    if (this.failure) throw this.failure;
+    if (this.failure) {await this.failureWork; throw this.failure;}
     if (this.pending.size >= limits.maxPendingCommands || this.sequence === 0xffffffff) throw new Error('Request capacity exhausted');
     const sequence = ++this.sequence, w = new Writer().u32(VERSION).u32(sequence).u32(op);
     if (handle) w.handle(handle); write?.(w);
@@ -65,11 +89,11 @@ class Transport {
     });
     try {return response(reply, sequence, op);}
     catch (error) {
-      if (!(error instanceof DatabaseError) || error.status === 8) this.fail(error as Error);
+      if (!(error instanceof DatabaseError) || error.status === 8) await this.fail(error as Error);
       throw error;
     }
   }
-  terminate() {this.fail(new ClosedError());}
+  terminate() {this.retire(new ClosedError());}
 }
 export class Database {
   private transport: Transport;

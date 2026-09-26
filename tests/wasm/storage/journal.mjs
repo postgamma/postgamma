@@ -15,6 +15,27 @@ assert.equal(store.point('write', 2), '', 'Unarmed probes return synchronously')
 store.fault = {operation: 'flush-before', path: '/data', action: 'pause', remaining: 1};
 assert.equal(store.point('write', 2), '', 'Unrelated probes return synchronously');
 
+// An access-handle acquisition can finish after fatal cleanup starts. It must
+// be drained and closed before ownership transfers, without flushing buffers
+// belonging to the failed kernel or requiring balanced native file opens.
+for (const closeFails of [false, true]) {
+  const retiring = new Store(), closed = [];
+  let complete;
+  const pending = new Promise(resolve => {complete = resolve;});
+  const handle = id => ({close() {closed.push(id); if (closeFails && id === 1) throw new Error('close failed');},
+    flush() {throw new Error('Fatal teardown must not flush');}});
+  retiring.handles.set(1, handle(1)); retiring.dirty.add(1); retiring.opens.set(1, 3);
+  retiring.journal = {close() {closed.push('journal');}};
+  retiring.tail = pending.then(() => {retiring.handles.set(2, handle(2));});
+  const work = retiring.discard();
+  await Promise.resolve(); assert.deepEqual(closed, [], 'Wait for outstanding browser I/O');
+  complete();
+  if (closeFails) await assert.rejects(work, /close failed/);
+  else assert.equal(await work, 2);
+  assert.deepEqual(closed, [1, 2, 'journal'], 'Even a close error does not skip the other handles');
+  await assert.rejects(retiring.call(1, {}), /retired/);
+}
+
 // Writes and flushes are distinct. A crash drops every unflushed change and
 // releases handles without executing product close/flush code.
 class File {

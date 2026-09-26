@@ -386,10 +386,15 @@ and the harness uses the [Playwright library](https://playwright.dev/docs/librar
 `WASM_SQL_SCENARIO=lifecycle` exercises close during lock waits, result/COPY
 backpressure and handle submission. `fatal-trap` and `fatal-abort` exercise real
 test-only faults and fresh-module recreation. Normal close waits for native
-resource and pthread reclamation. Fatal teardown requests Worker termination
-and discards the failed module; the browser does not provide synchronous VM
-termination acknowledgement. These checks cover ephemeral databases in the
-debug Chromium profile.
+resource and pthread reclamation. Fatal teardown uses a separate MessagePort
+to quiesce the I/O owner's native callbacks before terminating other pthreads,
+then drains outstanding browser I/O and closes physical OPFS handles without
+entering the failed Wasm module. Only its
+close acknowledgement permits an affirmative `storageReleased` diagnostic;
+cleanup errors and timeouts remain visible. Ownership release and host request
+rejection follow that cleanup attempt. The browser still does not provide a
+synchronous VM termination acknowledgement. Abrupt Worker and browser crash
+tests bypass this cleanup path and independently exercise WAL recovery.
 
 The accepted SQL limits are generated for both C and JavaScript from
 `manifests/profiles/wasm-resource-budget.json`: four live connections, 256 KiB
@@ -587,7 +592,10 @@ SDK, bridge or shared kernel inputs also run `wasm-platform-check`,
 `wasm-wait-check` and `wasm-recovery-check`. Use
 `make wasm-ci WASM_PLATFORM_CHECKS=1 JOBS=2` to include these probes locally.
 The full and weekly suites always include all four gates, before SQL and
-package checks; a failed probe stops the suite.
+package checks; a failed probe stops the suite. Release and weekly acceptance
+also run the three-engine OPFS lifecycle matrix, with 20 trap/reopen and 20
+abort/reopen cycles per engine, before accepting a consumer package. Reusing a
+SQL receipt requires unchanged kernel sources, bridge, and browser assets.
 
 The Wasm job uses Ubuntu 24.04, matching LLVM/Clang 22 host AST tools and the
 pinned SDK/browser package. It retains stage logs, source/tool identities and

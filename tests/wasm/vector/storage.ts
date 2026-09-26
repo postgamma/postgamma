@@ -35,7 +35,7 @@ export async function vectorStorage(checks: string[], metrics: unknown[]) {
   const gate = await control.wait(e => e.gate === 'flush-before');
   assert(!acknowledged, 'Vector transaction is interrupted before WAL acknowledgement');
   events().push({kind: 'vector-interruption', gate, sample: db.sample(), method: 'Worker.terminate'});
-  (db as any).transport.fail(new Error('Injected pgvector owner termination'));
+  (db as any).transport.terminate();
   await pending; control.close();
 
   c = await open(false);

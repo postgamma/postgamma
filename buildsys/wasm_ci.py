@@ -19,6 +19,7 @@ def stages(profile, platform_checks=False):
                ('sql', ['wasm-sql-check'])]
     if profile == 'weekly':
         result += [('vector', ['wasm-vector-check']), ('storage', ['wasm-storage-check'])]
+        result += [('lifecycle', ['wasm-lifecycle-check'])]
     result += [('package', ['wasm-package-check'])]
     if profile == 'weekly': result += [('matrix', ['wasm-matrix-check'])]
     return result

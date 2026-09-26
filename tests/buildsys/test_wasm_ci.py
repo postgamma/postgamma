@@ -29,10 +29,14 @@ class WasmCITests(unittest.TestCase):
     def test_collect_failure_logs_without_user_profiles_or_objects(self):
         for path in ('wasm/ci/run/generation.log', 'wasm/target/runs/link-1/cases/abi/browser.json',
                      'wasm/target/runs/link-1/report.json',
+                     'wasm/lifecycle/run/report.json',
+                     'wasm/lifecycle/run/firefox-fatal-opfs-abort/browser.json',
+                     'wasm/lifecycle/run/webkit-fatal-opfs-trap/browser.log',
                      'wasm/upstream/run/report.json',
                      'wasm/upstream/run/project/build/wasm/ci/run/generation.log'):
             self.assertTrue(selected(Path(path)), path)
         for path in ('wasm/target/runs/link-1/consumer-chromium/node_modules/private.json',
+                     'wasm/lifecycle/run/profile/Preferences.json',
                      'wasm/target/runs/link-1/cases/abi/profile/Preferences.json',
                      'wasm/target/link/objects/backend/a.json', 'wasm/target/generated/ownership.json',
                      'wasm/upstream/run/project/wasm/package.json',
@@ -46,6 +50,11 @@ class WasmCITests(unittest.TestCase):
         self.assertLess(names.index('oracle-build'), names.index('oracle-install'))
         self.assertLess(names.index('oracle-install'), names.index('sql'))
         self.assertEqual(names[-1], 'package')
+
+    def test_release_and_weekly_require_lifecycle_before_package(self):
+        names = [name for name, _ in stages('weekly')]
+        self.assertLess(names.index('storage'), names.index('lifecycle'))
+        self.assertLess(names.index('lifecycle'), names.index('package'))
 
     def test_platform_changes_select_probes_and_full_suite_always_runs_them(self):
         for path in ('runtime/platform/emscripten/io.c', 'wasm/bridge/sql.c',

@@ -1,5 +1,6 @@
 """Repeated recovery evidence must not pass with missing or stale observations."""
 import copy
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -9,6 +10,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'buildsys'))
 from wasm_lifecycle import validate_case, verify_inputs
 from wasm_toolchain import WasmError, digest
+from wasm_link import source_snapshot
 
 
 class LifecycleEvidenceTests(unittest.TestCase):
@@ -34,16 +36,27 @@ class LifecycleEvidenceTests(unittest.TestCase):
             (root / 'source.ts').write_text('original')
             (root / 'module.js').write_text('original')
             (root / 'postgamma.assets.json').write_text('{"mode":"release"}')
+            (root / 'buildsys').mkdir()
+            (root / 'runtime').mkdir()
+            (root / 'runtime/io.c').write_text('original')
+            (root / 'wasm/bridge').mkdir(parents=True)
+            (root / 'wasm/bridge/sql.c').write_text('bridge')
+            link = {'status': 'passed', 'kernel_linked': True, 'extensions': [],
+                    'source_snapshot': source_snapshot(root),
+                    'bridge': {'sha256': digest(root / 'wasm/bridge/sql.c')}}
+            (root / 'link.json').write_text(json.dumps(link))
             sql = {'status': 'passed', 'action': 'check', 'sql_validated': True, 'site': str(root),
+                   'link_report': str(root / 'link.json'),
                    'harness': {'module.js': digest(root / 'module.js')},
                    'harness_sources': {'source.ts': digest(root / 'source.ts')}}
             config = SimpleNamespace(root=root, mode='release')
             verify_inputs(config, sql)
-            for name in ('source.ts', 'module.js'):
+            for name in ('source.ts', 'module.js', 'runtime/io.c', 'wasm/bridge/sql.c'):
+                original = (root / name).read_text()
                 (root / name).write_text('changed')
                 with self.assertRaisesRegex(WasmError, 'changed'):
                     verify_inputs(config, sql)
-                (root / name).write_text('original')
+                (root / name).write_text(original)
             with self.assertRaisesRegex(WasmError, 'mode differs'):
                 verify_inputs(SimpleNamespace(root=root, mode='debug'), sql)
             sql['action'] = 'build'

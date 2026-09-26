@@ -4,13 +4,18 @@
   "files": {
     "system/lib/pthread/thread_mailbox.c": "f38adb258e51e5ca91ced4e87d804676e0a59870665491a82c00fbfdc4bb4957",
     "src/lib/libpthread.js": "9b762d32a9473f720fe75f64a5bd56108a91654b9833cc8842553c631288d6a9",
+    "src/runtime_pthread.js": "706a86c300b3ace58c2a31a7394ea322ff18a63266c0287493287199cf27635b",
     "system/include/emscripten/proxying.h": "a96305ebc27f9df0904f2fd113ef8cec22873e9c61bac4ddba7d65f5f37d86d7",
-    "system/lib/pthread/proxying.c": "5f34e8638fa4b38a26437e5d0663c856282d7ee9829e077ee0d0c661022146f4"
+    "system/lib/pthread/proxying.c": "5f34e8638fa4b38a26437e5d0663c856282d7ee9829e077ee0d0c661022146f4",
+    "src/lib/libcore.js": "e6725c19444bde11549a9f3e9bf280cd98298c3ceb5239f4faab571cb6bc222a"
   },
   "invariants": [
     "A clear waiting_async flag selects SDK postMessage mailbox delivery, including pthread cancellation and reuse.",
     "ProxyingQueue.queue identifies the public C queue executed by emscripten_proxy_execute_queue on its target thread.",
     "Async proxy submission publishes work before notifying; duplicate notifications can observe an empty queue.",
-    "The SQL control Worker stays live until replies are delivered; the I/O owner drains independently through its direct channel."
+    "The SQL control Worker stays live until replies are delivered; the I/O owner drains independently through its direct channel.",
+    "PThread.pthreads maps pthread identities to Worker objects; terminateAllThreads skips an explicitly removed I/O owner and does not free terminated thread data.",
+    "The pthread message handler ignores messages without a cmd field, allowing a private MessagePort to close OPFS handles without entering a failed Wasm module.",
+    "MAIN_THREAD_EM_ASM synchronously dispatches to the SQL control Worker; owner registration completes before the I/O thread publishes readiness."
   ]
 }

@@ -33,6 +33,19 @@ def target_static_modules(document, selected, major, candidate=False):
     return manifest
 
 
+def source_snapshot(root: Path, extensions=()):
+    from wasm_generate import tree_hashes
+    result = {name: tree_hashes(root / name) for name in
+              ("runtime", "embedded-c", "manifests")}
+    result["buildsys"] = {str(p.relative_to(root)): digest(p)
+                          for p in sorted((root / "buildsys").iterdir())
+                          if p.suffix in (".py", ".mjs", ".mk")}
+    if extensions:
+        for name in ("extensions/pgvector", "third_party/pgvector"):
+            result[name] = tree_hashes(root / name)
+    return result
+
+
 class Builder:
     def __init__(self, config, longjmp, extensions=()):
         self.config, self.root = config, config.root
@@ -120,16 +133,7 @@ class Builder:
         return value.replace(str(self.config.sdk), 'emscripten-sdk').replace(str(self.root), 'postgamma-source')
 
     def snapshot(self):
-        from wasm_generate import tree_hashes
-        result = {name: tree_hashes(self.root / name) for name in
-                  ("runtime", "embedded-c", "manifests")}
-        result["buildsys"] = {str(p.relative_to(self.root)): digest(p)
-                              for p in sorted((self.root / "buildsys").iterdir())
-                              if p.suffix in (".py", ".mjs", ".mk")}
-        if self.extensions:
-            for name in ("extensions/pgvector", "third_party/pgvector"):
-                result[name] = tree_hashes(self.root / name)
-        return result
+        return source_snapshot(self.root, self.extensions)
 
     def generated_artifacts(self):
         from apply_replacements import apply_bytes

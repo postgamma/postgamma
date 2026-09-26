@@ -102,7 +102,8 @@ async function close() {
 }
 async function terminate() {
   const before = ticks;
-  (db as any).transport.fail(new Error('Injected owner Worker termination'));
+  // This gate deliberately kills the control Worker without its cleanup path.
+  (db as any).transport.terminate();
   control.close(); await pending;
   return {method: 'Worker.terminate', pendingSettled: true, pageAlive: ticks >= before};
 }

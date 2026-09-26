@@ -17,17 +17,19 @@
 
 // JS receives explicit scalar arguments and byte buffers, never C++ layouts.
 // The buffer belongs to a synchronously waiting caller until storage_finish.
-EM_JS_DEPS(postgamma_storage_deps, "$UTF8ToString");
+EM_JS_DEPS(postgamma_storage_deps, "$UTF8ToString,$PThread");
 EM_JS(void, postgamma_storage_dispatch,
       (void *context, int op, int id, int parent, const char *name,
        unsigned char *data, size_t length, double offset, int mode,
        double *result, int *error), {
-    (async () => {
+    if (globalThis.postgammaStorageRetired) return;
+    const work = (async () => {
       let adapter;
       try {
         if (!globalThis.postgammaStorageModule)
           globalThis.postgammaStorageModule = await import(new URL('src/storage/opfs.js', import.meta.url));
         adapter = globalThis.postgammaStorageModule;
+        if (globalThis.postgammaStorageRetired) return;
         const text = name ? UTF8ToString(name) : "";
         let value = 0;
         if (op === adapter.StorageOp.mount) {
@@ -37,16 +39,22 @@ EM_JS(void, postgamma_storage_dispatch,
           value = await globalThis.postgammaStore.call(op, {id, parent, name: text,
             data: new Uint8Array(wasmMemory.buffer, data, length), offset, mode});
         }
+        if (globalThis.postgammaStorageRetired) return;
         new DataView(wasmMemory.buffer).setFloat64(result, value, true);
         new DataView(wasmMemory.buffer).setInt32(error, 0, true);
       } catch (cause) {
         // C initializes EIO so even an adapter import failure has a status.
-        if (adapter) new DataView(wasmMemory.buffer).setInt32(error, adapter.storageErrorCode(cause), true);
+        if (adapter && !globalThis.postgammaStorageRetired)
+          new DataView(wasmMemory.buffer).setInt32(error, adapter.storageErrorCode(cause), true);
         err('OPFS: ' + String(cause));
       } finally {
-        _postgamma_storage_finish(context);
+        // The fatal path has terminated callers and must not re-enter Wasm
+        // or dereference their stack-resident Completion objects.
+        if (!globalThis.postgammaStorageRetired) _postgamma_storage_finish(context);
       }
     })();
+    globalThis.postgammaStoragePending.add(work);
+    work.finally(() => globalThis.postgammaStoragePending.delete(work));
 });
 
 // A direct channel keeps I/O independent of synchronous control-Worker calls.
@@ -59,8 +67,39 @@ EM_JS(void, postgamma_storage_channel_name, (char *name), {
 });
 EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
     const channel = new BroadcastChannel('postgamma-io-' + UTF8ToString(name));
-    channel.onmessage = () => _emscripten_proxy_execute_queue(queue);
+    channel.onmessage = () => {
+      if (!globalThis.postgammaStorageRetired) _emscripten_proxy_execute_queue(queue);
+    };
     globalThis.postgammaIOListener = channel;
+    globalThis.postgammaStoragePending = new Set();
+    globalThis.postgammaStorageRetired = false;
+    const listen = event => {
+      if (!event.data?.postgammaStorageControl) return;
+      const port = event.ports[0];
+      globalThis.postgammaStorageControl = port;
+      port.onmessage = async () => {
+        globalThis.postgammaStorageRetired = true;
+        channel.onmessage = null;
+        channel.close();
+        // Disable SDK mailbox delivery before draining browser I/O. No more
+        // native proxy work may run in this discarded module.
+        globalThis.onmessage = () => {};
+        globalThis.postgammaStore?.interrupt();
+        // Reaching this event-loop turn proves the previous native callback
+        // has returned. Callers can now be terminated without stranding us
+        // inside one of their native completion or proxy-queue locks.
+        port.postMessage({quiesced: true});
+        try {
+          await Promise.allSettled([...globalThis.postgammaStoragePending]);
+          const handles = await globalThis.postgammaStore?.discard() ?? 0;
+          port.postMessage({released: true, handles});
+        } catch (cause) {
+          port.postMessage({released: false, error: String(cause)});
+        }
+      };
+    };
+    globalThis.postgammaStorageControlListener = listen;
+    globalThis.addEventListener('message', listen);
 });
 EM_JS(void, postgamma_storage_notify, (const char *name), {
     const key = 'postgamma-io-' + UTF8ToString(name);
@@ -73,6 +112,9 @@ EM_JS(void, postgamma_storage_notify, (const char *name), {
 EM_JS(void, postgamma_storage_unlisten, (), {
     globalThis.postgammaIOListener.close();
     delete globalThis.postgammaIOListener;
+    globalThis.removeEventListener('message', globalThis.postgammaStorageControlListener);
+    globalThis.postgammaStorageControl?.close();
+    delete globalThis.postgammaStorageControl;
 });
 
 namespace {
@@ -133,6 +175,11 @@ public:
                 pthread_attr_destroy(&observed);
             }
             postgamma_storage_listen(self->channel, self->queue.queue);
+            // Register while the host waits for readiness, before any mount
+            // can acquire a physical OPFS handle. Cleanup uses a JS-only port.
+            MAIN_THREAD_EM_ASM({
+                Module['postgammaStorageOwner']?.(PThread.pthreads[$0]);
+            }, (uintptr_t) pthread_self());
             {
                 std::lock_guard<std::mutex> lock(self->mutex);
                 self->ready = true;
@@ -151,6 +198,7 @@ public:
         if (!error) {
             call([](Completion *completion) {
                 postgamma_storage_unlisten();
+                MAIN_THREAD_EM_ASM({ Module['postgammaStorageOwner']?.(); });
                 completion->finish();
             });
             pthread_cancel(thread);

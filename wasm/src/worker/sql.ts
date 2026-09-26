@@ -13,6 +13,7 @@ function record(text: string) {
 }
 let loaded: SqlModule | undefined;
 let ownership: (() => Promise<void>) | undefined;
+let storageWorker: Worker | undefined, storagePort: MessagePort | undefined;
 const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
@@ -30,14 +31,50 @@ async function fail(error: unknown) {
   sample(); clearInterval(sampler);
   failed = true; stopped.abort();
   const interruptedWorkers = loaded ? Object.keys(loaded.PThread.pthreads).length : null;
-  loaded?.PThread.terminateAllThreads();
+  // Quiesce the I/O owner's native callbacks before killing their callers:
+  // an in-progress completion could otherwise wait on a killed thread's lock.
+  // Keep the owner alive until its physical handles are closed.
+  const owner = storageWorker, port = storagePort;
+  let callersStopped = false;
+  const stopCallers = () => {
+    if (callersStopped) return;
+    callersStopped = true;
+    if (loaded && owner) {
+      for (const [id, worker] of Object.entries(loaded.PThread.pthreads))
+        if (worker === owner) delete loaded.PThread.pthreads[id];
+    }
+    loaded?.PThread.terminateAllThreads();
+  };
   const release = ownership; ownership = undefined;
   let failure = String(error);
+  let storageQuiesced: boolean | null = owner ? false : null;
+  let storageReleased: boolean | null = owner ? false : null, closedStorageHandles = 0;
+  try {
+    if (port) {
+      closedStorageHandles = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('OPFS owner ' +
+          (storageQuiesced ? 'physical close' : 'quiescence') + ' timed out')), 5000);
+        port.onmessage = ({data}) => {
+          if (data.quiesced === true) {storageQuiesced = true; stopCallers(); return;}
+          clearTimeout(timer);
+          if (data.released === true && storageQuiesced) resolve(data.handles);
+          else reject(new Error('OPFS owner cleanup failed: ' +
+            (data.error ?? 'missing quiescence acknowledgement')));
+        };
+        port.postMessage({discard: true});
+      });
+      storageReleased = true;
+    }
+  } catch (cause) {failure += '; ' + String(cause);}
+  finally {
+    stopCallers(); owner?.terminate(); port?.close();
+    storageWorker = undefined; storagePort = undefined;
+  }
   try {await release?.();}
   catch (cause) {failure += '; ownership release failed: ' + String(cause);}
   postMessage({fatal: failure, output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
-    ioStackBytes,
+    ioStackBytes, storageQuiesced, storageReleased, closedStorageHandles,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
   self.close();
 }
@@ -49,6 +86,23 @@ function startKernel() {return loadKernel({print: record, printErr: text => {
 }, onAbort: fail}).then(value => {
   const module = value as SqlModule;
   loaded = module;
+  // The strict SDK pool is fully created before loadKernel resolves. Own its
+  // error events: the SDK's default handler rethrows and leaves the original
+  // event uncancelled, leaking an uncaught exception past the API rejection.
+  for (const worker of new Set([...module.PThread.unusedWorkers, ...Object.values(module.PThread.pthreads)])) {
+    worker.onerror = event => {
+      event.preventDefault();
+      void fail(event.error ?? event.message);
+    };
+  }
+  module.postgammaStorageOwner = worker => {
+    storagePort?.close(); storagePort = undefined; storageWorker = worker;
+    if (!worker) return;
+    if (failed) {worker.terminate(); return;}
+    const channel = new MessageChannel();
+    storagePort = channel.port1;
+    worker.postMessage({postgammaStorageControl: true}, [channel.port2]);
+  };
   module.postgammaBridgeEvent = (kind, id, generation) => {
     if (kind === 0) module.postgammaBridgeReply?.();
     else postMessage({ready: {kind, id, generation}});
@@ -79,6 +133,7 @@ async function dispose(module: SqlModule) {
 let queue = Promise.resolve();
 self.onmessage = ({data}) => {
   if (failed) return;
+  if (data && typeof data.discard === 'string') {void fail(new Error(data.discard)); return;}
   if (!(data instanceof ArrayBuffer) || data.byteLength > LIMIT || ++pending > limits.maxPendingCommands || queuedBytes + data.byteLength > limits.workerQueueBytes) {
     fail(new Error('Invalid or excessive Worker messages')); return;
   }

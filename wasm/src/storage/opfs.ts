@@ -25,6 +25,7 @@ export class Store {
   private journal: Journal | undefined;
   private namespace = new Namespace();
   private poisoned = false;
+  private retired = false;
   private handles = new Map<number, AccessHandle>();
   private files = new Map<number, StorageFile>();
   // The exclusive I/O owner observes every mutation. Sizes remain valid across
@@ -91,8 +92,8 @@ export class Store {
         this.channel.postMessage({mounted: true, metrics: this.metrics});
       }
     } catch (cause) {
-      try {this.journal?.close();} catch { /* Preserve the mount failure. */ }
-      this.journal = undefined;
+      try {this.journal?.close(); this.journal = undefined;}
+      catch { /* Retain failed handles for fatal cleanup, and the mount error. */ }
       throw cause;
     }
   }
@@ -175,10 +176,9 @@ export class Store {
         if (!this.poisoned && this.dirty.has(id)) h.flush();
       } catch (cause) {failure ??= cause;}
       try {
-        h.close();
+        h.close(); this.handles.delete(id);
       } catch (cause) {failure ??= cause;}
     }
-    this.handles.clear();
     this.files.clear();
     this.sizes.clear();
     this.dirty.clear();
@@ -186,19 +186,41 @@ export class Store {
     try {
       if (!this.poisoned) this.journal!.flush();
     } catch (cause) {failure ??= cause;}
-    try {this.journal!.close();} catch (cause) {failure ??= cause;}
-    this.journal = undefined;
+    try {this.journal!.close(); this.journal = undefined;} catch (cause) {failure ??= cause;}
     this.channel?.postMessage({closed: true, metrics: this.metrics, handles: this.handles.size, virtualOpens: this.opens.size,
       failed: failure !== undefined});
     this.channel?.close();
     if (failure) throw failure;
     return 0;
   }
+  // Fatal teardown cannot enter PostgreSQL or flush buffers from a failed
+  // instance. Stop admission, unblock test gates, then close physical handles
+  // after the I/O owner's already submitted browser operations have settled.
+  interrupt() {
+    this.retired = true;
+    this.fault = undefined;
+    this.resume?.(); this.resume = undefined;
+    if (this.channel) this.channel.onmessage = null;
+  }
+  async discard(): Promise<number> {
+    this.interrupt();
+    await this.tail;
+    let failure: unknown, closed = 0;
+    for (const [id, handle] of this.handles) {
+      try {handle.close(); this.handles.delete(id); closed++;} catch (cause) {failure ??= cause;}
+    }
+    this.files.clear(); this.sizes.clear(); this.dirty.clear();
+    try {this.journal?.close(); this.journal = undefined;} catch (cause) {failure ??= cause;}
+    this.channel?.close(); this.channel = undefined;
+    if (failure) throw failure;
+    return closed;
+  }
   call(op: StorageOperation, request: StorageRequest): Promise<number> {
     const work = this.tail.then(() => this.execute(op, request));
     this.tail = work.then(() => {}, () => {}); return work;
   }
   private async execute(op: StorageOperation, request: StorageRequest): Promise<number> {
+    if (this.retired) throw error('InvalidStateError', 'OPFS owner has been retired');
     const {id, parent, name, data, offset, mode} = request;
     if (this.poisoned && op !== StorageOp.shutdown) throw error('UnknownError', 'OPFS namespace requires recovery');
     const view = () => new DataView(data.buffer, data.byteOffset, data.byteLength);
