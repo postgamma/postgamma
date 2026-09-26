@@ -67,7 +67,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
-| `make wasm-lifecycle-check` | Run OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
+| `make wasm-lifecycle-check` | Run connection close progress/deadline and OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
@@ -395,6 +395,20 @@ cleanup errors and timeouts remain visible. Ownership release and host request
 rejection follow that cleanup attempt. The browser still does not provide a
 synchronous VM termination acknowledgement. Abrupt Worker and browser crash
 tests bypass this cleanup path and independently exercise WAL recovery.
+
+Connection disconnect waits for backend reference release in bounded steps on
+the existing host driver. While that connection is closing, other connections
+can consume results, execute SQL and cancel requests. Retries share a 10-second
+deadline; timeout retains the connection for another close attempt. New work on
+that partially closed connection is rejected. A 1 ms readiness retry is armed
+only while backend release is pending; idle operation remains notification-driven.
+The `lifecycle` scenario holds a real backend endpoint reference to verify other
+connections keep progressing. `disconnect-timeout`, included in the full SQL
+gate, checks the deadline, retry and stale-generation behavior. Connection
+handshake, request retirement and COPY close still contain synchronous waits.
+The three-engine lifecycle matrix also runs these progress and deadline cases.
+Reused receipts include the native C test fixture identities as well as the
+kernel, bridge, TypeScript harness and generated assets.
 
 The accepted SQL limits are generated for both C and JavaScript from
 `manifests/profiles/wasm-resource-budget.json`: four live connections, 256 KiB

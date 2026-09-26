@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce OPFS error recovery in every required browser, including repeated fatals."""
+"""Validate connection progress and OPFS error recovery in every required browser."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from wasm_sql import startup
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
 
-SCENARIOS = ('close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort')
+SCENARIOS = ('lifecycle', 'disconnect-timeout', 'close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort')
 ENGINES = ('chromium', 'firefox', 'webkit')
 
 
@@ -40,6 +40,20 @@ def validate_case(row, scenario, repetitions):
     if row.get('status') != 'passed' or row.get('probe', {}).get('status') != 'passed':
         raise WasmError('lifecycle case failed: ' + scenario)
     events = row.get('events', [])
+    progress_checks = {
+        'lifecycle': {'disconnect-yields-to-sql', 'disconnect-yields-to-cancel', 'disconnect-waits-for-backend-release'},
+        'disconnect-timeout': {'disconnect-bounded-deadline', 'disconnect-timeout-retry',
+                               'disconnect-rejects-new-work', 'disconnect-stale-generation'},
+    }
+    if scenario in progress_checks:
+        probe = row['probe']
+        if probe.get('scenario') != scenario or not progress_checks[scenario] <= set(probe.get('checks', [])):
+            raise WasmError('missing connection lifecycle checks: ' + scenario)
+        if scenario == 'disconnect-timeout':
+            timings = [event for event in events if event.get('kind') == 'disconnect-timeout']
+            if len(timings) != 1 or not 9900 <= timings[0].get('elapsedMs', 0) < 15000 or timings[0].get('attempts', 0) <= 1:
+                raise WasmError('missing or out-of-budget disconnect deadline evidence')
+        return
     timings = [e['elapsedMs'] for e in events if e.get('kind') == 'recovery-timing']
     expected = repetitions if scenario.startswith('fatal-') else 1
     if len(timings) != expected or any(t < 0 or t >= 30000 for t in timings):
@@ -67,7 +81,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
         'sql_receipt': str(sql_receipt), 'sql_receipt_sha256': digest(sql_receipt),
         'harness_sources': sources, 'mode': config.mode, 'repetitions': repetitions,
         'fixtureBudgetMs': 90000, 'recoveryBudgetMs': 30000, 'engines': {},
-        'scope': 'Fresh runs in Chromium, Firefox and Linux WebKit. Fatal iterations reuse durable data '
+        'scope': 'Fresh connection-progress/deadline and OPFS recovery runs in Chromium, Firefox and Linux WebKit. Fatal iterations reuse durable data '
                  'with fresh modules. Immediate reopen has no sleep or retry; initial creation is timed separately. '
                  'Repeated success is empirical evidence, not a synchronous pthread termination guarantee.'}
     try:

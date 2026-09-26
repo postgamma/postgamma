@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from wasm_toolchain import WasmError, write_json
 
-SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'close-audit', 'open-failed',
+SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'disconnect-timeout', 'close-audit', 'open-failed',
              'fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort', 'budget')
 
 

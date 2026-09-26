@@ -177,6 +177,7 @@ export class Connection {
   private onClosed: () => void;
   constructor(transport: Transport, handle: Handle, onClosed: () => void) {
     this.transport = transport; this.handle = handle; this.onClosed = onClosed;
+    this.transport.readiness.track(handle);
   }
   async execute(sql: string, options: ExecuteOptions = {}): Promise<Request> {
     if (this.closing) throw new ClosedError();
@@ -235,7 +236,16 @@ export class Connection {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.requests].map(request => request.close()));
       await this.queryTail;
-      (await this.transport.call(Op.disconnect, this.handle)).end(); this.onClosed();
+      const signal = new AbortController().signal;
+      for (;;) {
+        const version = this.transport.readiness.version(this.handle);
+        const reply = await this.transport.call(Op.disconnect, this.handle);
+        const availability = reply.u32(); reply.end();
+        if (availability === 2) break;
+        if (availability !== 1) throw new Error('Invalid connection close progress');
+        await this.transport.readiness.wait(this.handle, version, signal);
+      }
+      this.transport.readiness.retire(this.handle); this.onClosed();
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }

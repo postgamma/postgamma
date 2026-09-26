@@ -40,6 +40,12 @@ def source_snapshot(root: Path, extensions=()):
     result["buildsys"] = {str(p.relative_to(root)): digest(p)
                           for p in sorted((root / "buildsys").iterdir())
                           if p.suffix in (".py", ".mjs", ".mk")}
+    # Test C includes are compiled into the bridge but are not TS harness inputs.
+    # Retain their identity so a receipt cannot outlive a changed native fixture.
+    result["wasm_bridge_sources"] = {str(p.relative_to(root)): digest(p)
+        for directory in ("wasm/bridge", "tests/wasm")
+        for p in sorted((root / directory).rglob("*"))
+        if p.is_file() and p.suffix in (".c", ".cpp", ".h")}
     if extensions:
         for name in ("extensions/pgvector", "third_party/pgvector"):
             result[name] = tree_hashes(root / name)

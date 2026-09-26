@@ -101,7 +101,8 @@ main(void)
 	notifications_after_close = notify_calls;
 	assert(postgamma_memory_endpoint_release(&backend, TEST_GENERATION) ==
 		POSTGAMMA_MEMORY_STATUS_OK);
-	status = pgm_connection_close(connection, 1000, &error);
+	/* A nonblocking retry must also be able to finish, not merely time out. */
+	status = pgm_connection_close(connection, 0, &error);
 	assert(status == PGM_STATUS_OK && error == NULL);
 	assert(instance.connection_count == 0 && close_calls == 1);
 	assert(notify_calls == notifications_after_close);

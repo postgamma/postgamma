@@ -75,6 +75,7 @@ export async function lifecycle(db: Database, checks: string[]) {
     elapsedMs, driverWakes, periodicSamples: observed.periodicSamples, visibility: document.visibilityState,
     scope: 'host driver wakeups only; browser CPU and power are not measured'});
   checks.push('idle-notification-wait', 'sampling-disabled-by-default');
+  await closeProgress(db, checks);
   const a = await db.connect('close-holder'), b = await db.connect('close-waiter'), c = await db.connect('close-observer');
   await a.query('CREATE TABLE close_test(id int PRIMARY KEY)'); await a.query('INSERT INTO close_test VALUES (1)');
   await a.query('BEGIN'); await a.query('SELECT * FROM close_test FOR UPDATE');
@@ -117,6 +118,99 @@ export async function lifecycle(db: Database, checks: string[]) {
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'lifecycle', metrics,
     recreated: fresh.diagnostics(), settlements});
   checks.push('close-during-submission', 'recreate-after-close');
+}
+
+async function closeProgress(db: Database, checks: string[]) {
+  const a = await db.connect('delayed-close'), b = await db.connect('close-progress'),
+    c = await db.connect('close-cancel');
+  const handle = (a as unknown as {handle: Handle}).handle;
+  const transport = (db as unknown as {transport: {
+    call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader>;
+  }}).transport;
+  const call = transport.call.bind(transport);
+  let submitted!: () => void;
+  const submission = new Promise<void>(resolve => {submitted = resolve;});
+  transport.call = (op, h, write) => {
+    const work = call(op, h, write);
+    if (op === Op.disconnect && h?.id === handle.id) submitted();
+    return work;
+  };
+  const request = await c.execute('SELECT pg_sleep(20)');
+  const pending = request.next().then(() => null, error => error);
+  let closed = false, held = false, released = false, timer: ReturnType<typeof setTimeout> | undefined;
+  let closing: Promise<unknown> | undefined;
+  try {
+    (await call(65533, handle, w => w.u32(1))).end(); held = true;
+    closing = a.close().then(() => {closed = true; return null;}, error => error);
+    await submission;
+    await Promise.race([
+      (async () => {
+        assert(scalar(await b.query('SELECT 42')) === '42', 'SQL progresses while another backend reference is retained');
+        assert(!closed && !released, 'Connection close remains pending while its backend reference is retained');
+        await request.cancel();
+        const canceled = await pending;
+        assert(canceled instanceof DatabaseError && canceled.sqlstate === '57014', 'CANCEL progresses during unrelated connection close');
+        await request.close();
+        assert(scalar(await c.query('SELECT 43')) === '43', 'Canceled connection is reusable before delayed close completes');
+      })(),
+      new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error('Connection close blocked unrelated SQL or cancellation')), 3000);}),
+    ]);
+    checks.push('disconnect-yields-to-sql', 'disconnect-yields-to-cancel');
+  } finally {
+    clearTimeout(timer);
+    if (held) {(await call(65533, handle, w => w.u32(0))).end(); released = true;}
+    transport.call = call;
+    await closing;
+    await Promise.allSettled([request.close(), a.close(), b.close(), c.close()]);
+  }
+  assert(closed, 'Connection close finishes after the retained backend reference is released');
+  checks.push('disconnect-waits-for-backend-release');
+}
+
+export async function disconnectTimeout(db: Database, checks: string[]) {
+  const a = await db.connect('close-deadline'), b = await db.connect('deadline-observer');
+  const handle = (a as unknown as {handle: Handle}).handle;
+  const transport = (db as unknown as {transport: {
+    call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader>;
+  }}).transport;
+  const call = transport.call.bind(transport);
+  let submitted!: () => void, attempts = 0, held = false;
+  const submission = new Promise<void>(resolve => {submitted = resolve;});
+  transport.call = (op, h, write) => {
+    const work = call(op, h, write);
+    if (op === Op.disconnect && h?.id === handle.id) {attempts++; submitted();}
+    return work;
+  };
+  try {
+    (await call(65533, handle, w => w.u32(1))).end(); held = true;
+    const started = performance.now();
+    const closing = a.close().then(() => null, error => error);
+    assert(a.close() === a.close(), 'Pending disconnect shares its completion');
+    await submission;
+    assert(scalar(await b.query('SELECT 44')) === '44', 'Another connection progresses before the close deadline');
+    const error = await closing, elapsedMs = performance.now() - started;
+    assert(error instanceof DatabaseError && error.status === 3, 'Retained backend reference causes a visible close timeout');
+    assert(attempts > 1 && elapsedMs >= 9900 && elapsedMs < 15000, 'Disconnect retries share the original 10-second deadline');
+    const rejected = await call(Op.status, handle).then(() => null, error => error);
+    assert(rejected instanceof DatabaseError && rejected.status === 2, 'Partially closed native connection rejects ordinary operations');
+    (await call(65533, handle, w => w.u32(0))).end(); held = false;
+    await a.close();
+    (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'disconnect-timeout', attempts, elapsedMs});
+    checks.push('disconnect-bounded-deadline', 'disconnect-timeout-retry', 'disconnect-rejects-new-work');
+    const fresh = await db.connect('close-slot-reuse');
+    try {
+      const freshHandle = (fresh as unknown as {handle: Handle}).handle;
+      assert(freshHandle.id === handle.id && freshHandle.generation !== handle.generation, 'Closed connection slot is reused with a fresh generation');
+      const stale = await call(Op.disconnect, handle).then(() => null, error => error);
+      assert(stale instanceof DatabaseError && stale.status === 1, 'Stale close cannot retire the reused connection');
+      assert(scalar(await fresh.query('SELECT 45')) === '45', 'Reused connection survives a stale disconnect');
+      checks.push('disconnect-stale-generation');
+    } finally {await fresh.close();}
+  } finally {
+    if (held) (await call(65533, handle, w => w.u32(0))).end();
+    transport.call = call;
+    await Promise.allSettled([a.close(), b.close()]);
+  }
 }
 export async function fatal(db: Database, checks: string[], fault: number,
                             storage?: {type: 'opfs'; name: string}, retainStorage = false) {

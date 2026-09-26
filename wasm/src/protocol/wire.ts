@@ -1,6 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {limits} from './limits.js';
-export const VERSION = 3;
+export const VERSION = 4;
 export const LIMIT = limits.commandBytes;
 export const Op = {open: 1, connect: 2, execute: 3, next: 4, release: 5, disconnect: 6,
   close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11, copyRead: 12, copyWrite: 13, copyFinish: 14, copyClose: 15, copyAbort: 16} as const;

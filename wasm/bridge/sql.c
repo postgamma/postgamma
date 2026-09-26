@@ -22,12 +22,13 @@
 
 /* This is a private, versioned byte protocol, never a native structure layout.
  * One host driver owns every pgm handle. Queries use nonblocking next-result
- * calls; lifecycle calls below remain synchronous on that driver. */
+ * calls. Disconnect yields between backend-release checks; connect, request
+ * retirement and COPY close still have synchronous lifecycle waits. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM };
-#define WIRE_VERSION 3
+#define WIRE_VERSION 4
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -35,6 +36,8 @@ typedef struct Handle {
     void *pointer;
     uint64_t ready_sequence;
     bool watching;
+    bool closing;
+    double close_deadline_ms, close_retry_ms;
 } Handle;
 typedef struct Reader { const unsigned char *data; size_t size, offset; bool failed; } Reader;
 typedef struct Writer { unsigned char *data; size_t size, capacity; bool failed; } Writer;
@@ -77,11 +80,21 @@ static void watch_begin(Handle *h)
     // Capture before consuming: an edge between AGAIN and arming is retained.
     h->ready_sequence = ready_sequence(h);
 }
-static void notify_ready(void)
+static double notify_ready(void)
 {
+    double now = emscripten_get_now(), wait_ms = __builtin_inf();
     for (unsigned i = 0; i < SLOT_COUNT; i++) {
         Handle *h = &handles[i];
-        if (!h->watching || ready_sequence(h) == h->ready_sequence) continue;
+        if (!h->watching) continue;
+        if (h->closing) {
+            // Backend reference release has no public waitable. Match the C
+            // close loop's 1 ms retry, only while a close is actually pending.
+            double remaining = h->close_retry_ms - now;
+            if (remaining > 0) {
+                if (remaining < wait_ms) wait_ms = remaining;
+                continue;
+            }
+        } else if (ready_sequence(h) == h->ready_sequence) continue;
         ReadyEvent *event = malloc(sizeof(*event));
         if (!event) abort();
         *event = (ReadyEvent){h->kind, i + 1, h->generation};
@@ -89,6 +102,7 @@ static void notify_ready(void)
         h->watching = false;
         notify_control(deliver_event, event);
     }
+    return wait_ms;
 }
 
 static uint32_t get(Reader *r)
@@ -156,6 +170,7 @@ static Handle *reserve(void)
 static void publish(Writer *w, Handle *h, uint32_t kind, Handle *parent, void *pointer)
 {
     h->kind = kind; h->generation++; h->pointer = pointer;
+    h->closing = false; h->close_deadline_ms = h->close_retry_ms = 0;
     h->parent = parent ? (uint32_t)(parent - handles + 1) : 0;
     put(w, kind); put(w, h - handles + 1); put(w, h->generation);
 }
@@ -193,6 +208,7 @@ static pgm_status marshal_result(Writer *w, pgm_result *result, pgm_error **erro
 }
 #ifdef POSTGAMMA_WASM_TESTING
 #include "../../tests/wasm/storage/filesystem.c"
+#include "../../tests/wasm/sql/close_gate.c"
 #endif
 static bool command(void)
 {
@@ -207,6 +223,15 @@ static bool command(void)
     Handle *h = NULL, *slot = NULL;
     if (version != WIRE_VERSION) r.failed = true;
 #ifdef POSTGAMMA_WASM_TESTING
+    if (!r.failed && op == 65533) {
+        h = lookup(&r, CONNECTION);
+        unsigned hold = get(&r);
+        if (r.failed || r.offset != r.size || hold > 1) r.failed = true;
+        else if (close_gate(h->pointer, hold)) {
+            status = PGM_STATUS_INTERNAL_ERROR; bridge_message = "Connection close gate failed";
+        }
+        goto done;
+    }
     if (!r.failed && op == 65534) {
         uint32_t phase = get(&r);
         if (r.failed || r.offset != r.size) r.failed = true;
@@ -234,6 +259,9 @@ static bool command(void)
         if (!slot) status = PGM_STATUS_BUSY;
     }
     if (r.failed || status) goto done;
+    if (h && h->closing && op != DISCONNECT) {
+        status = PGM_STATUS_BUSY; bridge_message = "Connection is closing"; goto done;
+    }
     switch (op) {
     case OPEN: {
         uint32_t create = get(&r), workers = get(&r);
@@ -361,13 +389,28 @@ static bool command(void)
         }
         pgm_result_free(result); break;
     }
-    case RELEASE:
     case DISCONNECT:
+        if (r.offset != r.size) { r.failed = true; break; }
+        if (children(h)) { status = PGM_STATUS_BUSY; break; }
+        h->closing = true; h->watching = false;
+        if (!h->close_deadline_ms) h->close_deadline_ms = emscripten_get_now() + 10000;
+        status = pgm_connection_close(h->pointer, 0, &error);
+        if (status == PGM_STATUS_TIMEOUT && emscripten_get_now() < h->close_deadline_ms) {
+            pgm_error_free(error); error = NULL; status = PGM_STATUS_OK;
+            h->close_retry_ms = emscripten_get_now() + 1;
+            if (h->close_retry_ms > h->close_deadline_ms) h->close_retry_ms = h->close_deadline_ms;
+            h->watching = true;
+            put(&payload, PGM_AVAILABILITY_AGAIN);
+        } else {
+            h->close_deadline_ms = 0; // A failed close retains the handle for a new attempt.
+            if (!status) {retire(h); put(&payload, PGM_AVAILABILITY_END);}
+        }
+        break;
+    case RELEASE:
     case CLOSE:
         if (r.offset != r.size) { r.failed = true; break; }
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
         if (op == RELEASE) pgm_request_free(h->pointer);
-        else if (op == DISCONNECT) status = pgm_connection_close(h->pointer, 10000, &error);
         else status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
         if (!status) {
             retire(h);
@@ -470,9 +513,9 @@ static void *run(void *unused)
     for (;;) {
         uint32_t expected = postgamma_platform_notification_sequence();
         atomic_fetch_add_explicit(&wake_count, 1, memory_order_relaxed);
-        notify_ready();
+        double wait_ms = notify_ready();
         if (atomic_load_explicit(&state, memory_order_acquire) != 1) {
-            if (postgamma_platform_notification_wait(expected, __builtin_inf()) < 0) abort();
+            if (postgamma_platform_notification_wait(expected, wait_ms) < 0) abort();
             continue;
         }
         bool stop = command();

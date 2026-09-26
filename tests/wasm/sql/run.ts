@@ -5,7 +5,7 @@ import {assert, scalar, errorState} from './helpers.js';
 import {concurrency, saturated} from './concurrency.js';
 import {errors} from './errors.js';
 import {results} from './results.js';
-import {lifecycle, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
+import {lifecycle, disconnectTimeout, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
 import {budget} from './budget.js';
 import {bindings} from './bindings.js';
 import {storage} from '../storage-tests/run.js';
@@ -81,6 +81,7 @@ try {
   else if (scenario === 'results') await results(db, checks);
   else if (scenario === 'budget') await budget(db, checks);
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
+  else if (scenario === 'disconnect-timeout') await disconnectTimeout(db, checks);
   else if (['fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort'].includes(scenario))
     await fatal(db, checks, scenario.endsWith('trap') ? 1 : 2, storage);
   else throw new Error(`Unknown SQL scenario: ${scenario}`);

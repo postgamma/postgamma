@@ -14,6 +14,32 @@ from wasm_link import source_snapshot
 
 
 class LifecycleEvidenceTests(unittest.TestCase):
+    def test_connection_progress_requires_all_observations(self):
+        row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'lifecycle', 'checks': [
+            'disconnect-yields-to-sql', 'disconnect-yields-to-cancel', 'disconnect-waits-for-backend-release']}}
+        validate_case(row, 'lifecycle', 20)
+        for check in row['probe']['checks']:
+            broken = copy.deepcopy(row)
+            broken['probe']['checks'].remove(check)
+            with self.assertRaisesRegex(WasmError, 'missing connection'):
+                validate_case(broken, 'lifecycle', 20)
+
+    def test_connection_deadline_requires_timing_and_retry(self):
+        row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'disconnect-timeout', 'checks': [
+            'disconnect-bounded-deadline', 'disconnect-timeout-retry', 'disconnect-rejects-new-work',
+            'disconnect-stale-generation']}, 'events': [{'kind': 'disconnect-timeout', 'elapsedMs': 10001, 'attempts': 50}]}
+        validate_case(row, 'disconnect-timeout', 20)
+        for mutation in ('missing', 'duplicate', 'early', 'late', 'no-retry', 'wrong-scenario'):
+            broken = copy.deepcopy(row)
+            if mutation == 'missing': broken['events'] = []
+            if mutation == 'duplicate': broken['events'] *= 2
+            if mutation == 'early': broken['events'][0]['elapsedMs'] = 100
+            if mutation == 'late': broken['events'][0]['elapsedMs'] = 15000
+            if mutation == 'no-retry': broken['events'][0]['attempts'] = 1
+            if mutation == 'wrong-scenario': broken['probe']['scenario'] = 'lifecycle'
+            with self.subTest(mutation=mutation), self.assertRaises(WasmError):
+                validate_case(broken, 'disconnect-timeout', 20)
+
     def test_all_iterations_and_recovery_bounds_are_required(self):
         row = {'status': 'passed', 'probe': {'status': 'passed'}, 'events': [
             event for iteration in range(1, 21) for event in (
@@ -41,6 +67,8 @@ class LifecycleEvidenceTests(unittest.TestCase):
             (root / 'runtime/io.c').write_text('original')
             (root / 'wasm/bridge').mkdir(parents=True)
             (root / 'wasm/bridge/sql.c').write_text('bridge')
+            (root / 'tests/wasm/sql').mkdir(parents=True)
+            (root / 'tests/wasm/sql/close_gate.c').write_text('native fixture')
             link = {'status': 'passed', 'kernel_linked': True, 'extensions': [],
                     'source_snapshot': source_snapshot(root),
                     'bridge': {'sha256': digest(root / 'wasm/bridge/sql.c')}}
@@ -51,7 +79,7 @@ class LifecycleEvidenceTests(unittest.TestCase):
                    'harness_sources': {'source.ts': digest(root / 'source.ts')}}
             config = SimpleNamespace(root=root, mode='release')
             verify_inputs(config, sql)
-            for name in ('source.ts', 'module.js', 'runtime/io.c', 'wasm/bridge/sql.c'):
+            for name in ('source.ts', 'module.js', 'runtime/io.c', 'wasm/bridge/sql.c', 'tests/wasm/sql/close_gate.c'):
                 original = (root / name).read_text()
                 (root / name).write_text('changed')
                 with self.assertRaisesRegex(WasmError, 'changed'):
