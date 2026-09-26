@@ -40,7 +40,7 @@ runs:
         python3 - <<'PYFAIL'
         from pathlib import Path
         for path in sorted(Path('build/wasm/reports').glob('setup-*.log')):
-            for line in path.read_text(errors='replace').splitlines()[-30:]:
-                message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                print('::error title=' + path.stem + '::' + message)
+            lines = path.read_text(errors='replace').splitlines()[-40:]
+            message = '\n'.join(lines).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::error title=' + path.stem + '::' + message)
         PYFAIL

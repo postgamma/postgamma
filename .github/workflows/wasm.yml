@@ -38,7 +38,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PG_REPOSITORY: ${{ vars.PG_REPOSITORY }}
+  PG_REPOSITORY: ${{ vars.PG_REPOSITORY || 'https://github.com/postgres/postgres.git' }}
+  PG_REPOSITORY_FALLBACK: ${{ vars.PG_REPOSITORY_FALLBACK || 'https://git.postgresql.org/git/postgresql.git' }}
   PGVECTOR_REPOSITORY: ${{ vars.PGVECTOR_REPOSITORY }}
 
 jobs:
@@ -122,9 +123,8 @@ jobs:
             python3 - <<'PY'
           from pathlib import Path
           lines = Path('build/reports/wasm-shared-native.log').read_text(errors='replace').splitlines()
-          for line in lines[-30:]:
-              message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=Shared native regression::' + message)
+          message = '\n'.join(lines[-40:]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Shared native regression::' + message)
           PY
           fi
           exit "$status"
