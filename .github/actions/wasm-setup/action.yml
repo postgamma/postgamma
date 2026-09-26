@@ -10,12 +10,15 @@ runs:
     - name: Install host build prerequisites
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y bison build-essential ca-certificates curl flex \
-          gnupg libicu-dev libipc-run-perl libreadline-dev libssl-dev lsb-release software-properties-common zlib1g-dev
-        curl -fsSLo /tmp/postgamma-llvm.sh https://apt.llvm.org/llvm.sh
-        sudo bash /tmp/postgamma-llvm.sh 22
-        sudo apt-get install -y libclang-22-dev llvm-22-dev
+        mkdir -p build/wasm/reports
+        (
+          sudo apt-get update
+          sudo apt-get install -y bison build-essential ca-certificates curl flex \
+            gnupg libicu-dev libipc-run-perl libreadline-dev libssl-dev lsb-release software-properties-common zlib1g-dev
+          curl -fsSLo /tmp/postgamma-llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/postgamma-llvm.sh 22
+          sudo apt-get install -y libclang-22-dev llvm-22-dev
+        ) 2>&1 | tee build/wasm/reports/setup-prerequisites.log
     - uses: actions/cache@v4
       with:
         path: .deps/wasm/emsdk
@@ -23,7 +26,21 @@ runs:
     - name: Initialize pinned sources and browser tools
       shell: bash
       run: |
-        make source-init wasm-setup JOBS=2
-        if [ '${{ inputs.matrix }}' = true ]; then
-          make wasm-browser-setup
-        fi
+        mkdir -p build/wasm/reports
+        (
+          make source-init wasm-setup JOBS=2
+          if [ '${{ inputs.matrix }}' = true ]; then
+            make wasm-browser-setup
+          fi
+        ) 2>&1 | tee build/wasm/reports/setup-tools.log
+    - name: Report setup failure
+      if: failure()
+      shell: bash
+      run: |
+        python3 - <<'PYFAIL'
+        from pathlib import Path
+        for path in sorted(Path('build/wasm/reports').glob('setup-*.log')):
+            for line in path.read_text(errors='replace').splitlines()[-30:]:
+                message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                print('::error title=' + path.stem + '::' + message)
+        PYFAIL
