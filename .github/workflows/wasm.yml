@@ -110,6 +110,7 @@ jobs:
         run: |
           make source-init
           make embedded-runtime-fast-check JOBS=2
+          make copy-streaming-check runtime-events-check JOBS=2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -119,4 +120,33 @@ jobs:
             build/embedded-bootstrap/reports/
             build/reports/
           if-no-files-found: warn
+          retention-days: 14
+
+  candidate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+      - uses: ./.github/actions/wasm-setup
+        with:
+          matrix: 'true'
+      - name: Revalidate the preview's PostgreSQL 20 candidate
+        # Keep this identity fixed; weekly canaries separately follow upstream.
+        run: >-
+          make wasm-upstream-canary
+          PG_REF=7a0aa99e51c7a3263e6ee45f19f270ddae430a92
+          PG_BRANCH=master CANARY_PROFILE=weekly WASM_MODE=release JOBS=2
+      - name: Collect candidate diagnostics
+        if: always()
+        run: python3 buildsys/collect_wasm_evidence.py --build-dir build --output build/wasm-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wasm-preview-pg20-${{ github.run_id }}
+          path: build/wasm-evidence/
+          if-no-files-found: error
           retention-days: 14

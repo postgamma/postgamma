@@ -4,6 +4,8 @@ The browser package runs the PostgreSQL kernel in Workers, with four independent
 SQL sessions and static pgvector. Debug and optimized release wasm32 packages
 with pthreads have passed in Chromium, Firefox and Linux WebKit. This package is
 a source-built preview; an npm registry release has not been published.
+See the [browser preview release notes](../releases/wasm-0.1.0-alpha.1.md)
+for the accepted scope, data compatibility and release gates.
 
 ## Build and install
 

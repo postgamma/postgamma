@@ -142,6 +142,7 @@ nav:
       - Release index: releases/index.md
       - Versioning policy: releases/versioning.md
       - 0.1.0a1: releases/0.1.0a1.md
+      - Browser 0.1.0-alpha.1: releases/wasm-0.1.0-alpha.1.md
   - About:
       - License: about/license.md
 
