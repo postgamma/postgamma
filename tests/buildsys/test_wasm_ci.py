@@ -17,7 +17,8 @@ class WasmCITests(unittest.TestCase):
     def test_shared_changes_require_native_regression(self):
         for path in ('runtime/platform/emscripten/storage.cpp', 'runtime/src/session.c',
                      'compiler/src/transform.cpp', 'embedded-c/src/api.c',
-                     'manifests/thread-state.json', 'buildsys/apply_replacements.py', 'postgres'):
+                     'manifests/thread-state.json', 'buildsys/apply_replacements.py', 'postgres',
+                     '.github/workflows/wasm.yml'):
             with self.subTest(path=path): self.assertTrue(shared_input(path))
         for path in ('wasm/src/api/database.ts', 'tests/wasm/sql/results.ts',
                      'buildsys/wasm_link.py', 'manifests/profiles/wasm-kernel.json'):

@@ -9,7 +9,8 @@ import subprocess
 
 
 def shared_input(name):
-    if name in ('Makefile', 'VERSION', 'postgres', 'third_party/pgvector'):
+    if name in ('Makefile', 'VERSION', 'postgres', 'third_party/pgvector',
+                '.github/workflows/wasm.yml'):
         return True
     if name.startswith(('runtime/', 'embedded-c/', 'compiler/', 'extensions/pgvector/', 'tests/embedded/', 'tests/runtime/')):
         return True

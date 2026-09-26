@@ -105,12 +105,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bison build-essential clang flex libclang-dev \
-            libicu-dev libipc-run-perl libreadline-dev libssl-dev llvm-dev zlib1g-dev
+            libicu-dev libipc-run-perl libreadline-dev libssl-dev llvm-dev strace zlib1g-dev
       - name: Shared runtime regression
         run: |
-          make source-init
-          make embedded-runtime-fast-check JOBS=2
-          make copy-streaming-check runtime-events-check JOBS=2
+          mkdir -p build/reports
+          set +e
+          (
+            set -e
+            make source-init
+            make embedded-runtime-fast-check JOBS=2
+            make copy-streaming-check runtime-events-check JOBS=2 \
+              PG_CONFIGURE_ARGS="--enable-debug --enable-cassert --enable-tap-tests --enable-injection-points"
+          ) 2>&1 | tee build/reports/wasm-shared-native.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          lines = Path('build/reports/wasm-shared-native.log').read_text(errors='replace').splitlines()
+          for line in lines[-30:]:
+              message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Shared native regression::' + message)
+          PY
+          fi
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
