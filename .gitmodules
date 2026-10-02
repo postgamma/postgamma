@@ -1,0 +1,6 @@
+[submodule "postgres"]
+	path = postgres
+	url = https://git.postgresql.org/git/postgresql.git
+[submodule "third_party/pgvector"]
+	path = third_party/pgvector
+	url = https://github.com/pgvector/pgvector.git

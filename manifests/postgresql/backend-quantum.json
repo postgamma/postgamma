@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgresql-backend-quantum",
+  "id": "postgresql-19-ready-for-query-quantum-v1",
+  "product_postgresql_major": 19,
+  "edits": [
+    {
+      "id": "backend-main-may-return",
+      "source_file": "src/include/tcop/backend_startup.h",
+      "enclosing_function": null,
+      "anchor": "pg_noreturn extern void BackendMain(const void *startup_data, size_t startup_data_len);",
+      "expected_matches": 1,
+      "kind": "replace",
+      "replacement": "extern void BackendMain(const void *startup_data, size_t startup_data_len);"
+    },
+    {
+      "id": "postgres-main-may-return",
+      "source_file": "src/include/tcop/tcopprot.h",
+      "enclosing_function": null,
+      "anchor": "pg_noreturn extern void PostgresMain(const char *dbname,\n\t\t\t\t\t\t\t\t\t const char *username);",
+      "expected_matches": 1,
+      "kind": "replace",
+      "replacement": "extern void PostgresMain(const char *dbname,\n\t\t\t\t\t const char *username);"
+    },
+    {
+      "id": "quantum-persistent-locals",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\tvolatile bool idle_session_timeout_enabled = false;",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\tvolatile bool postgamma_quantum_resumed = postgamma_postgres_quantum_begin(\n\t\t&send_ready_for_query, &idle_in_transaction_timeout_enabled,\n\t\t&idle_session_timeout_enabled);"
+    },
+    {
+      "id": "quantum-initialize-open",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\tAssert(dbname != NULL);",
+      "expected_matches": 1,
+      "kind": "insert_before",
+      "replacement": "\tif (!postgamma_quantum_resumed)\n\t{\n"
+    },
+    {
+      "id": "quantum-initialize-close",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\tEventTriggerOnLogin();",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\t\tpostgamma_postgres_quantum_initialized();\n\t}"
+    },
+    {
+      "id": "quantum-error-recovery",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\tif (sigsetjmp(local_sigjmp_buf, 1) != 0)\n\t{",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\t\tpostgamma_quantum_resumed = false;"
+    },
+    {
+      "id": "quantum-no-duplicate-ready",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\tif (!ignore_till_sync)\n\t\tsend_ready_for_query = true;\t/* initially, or after error */",
+      "expected_matches": 1,
+      "kind": "insert_at",
+      "marker": "!ignore_till_sync",
+      "side": "before",
+      "replacement": "!postgamma_quantum_resumed && "
+    },
+    {
+      "id": "quantum-ready-yield",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\t\t\tReadyForQuery(whereToSendOutput);\n\t\t\tsend_ready_for_query = false;",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\t\t\tif (postgamma_postgres_quantum_yield_ready(\n\t\t\t\t\tsend_ready_for_query,\n\t\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\t\tidle_session_timeout_enabled))\n\t\t\t\treturn;"
+    },
+    {
+      "id": "quantum-command-read-yield",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\t\tDoingCommandRead = true;",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\t\tif (postgamma_postgres_quantum_yield_command_read(\n\t\t\t\tsend_ready_for_query,\n\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\tidle_session_timeout_enabled))\n\t\t\treturn;"
+    },
+    {
+      "id": "lock-wait-blocking-begin",
+      "source_file": "src/backend/storage/lmgr/lock.c",
+      "enclosing_function": "LockAcquireExtended",
+      "anchor": "\t\twaitResult = WaitOnLock(locallock, owner);",
+      "expected_matches": 1,
+      "kind": "insert_before",
+      "replacement": "\t\tpostgamma_postgres_blocking_begin();\n"
+    },
+    {
+      "id": "lock-wait-blocking-end",
+      "source_file": "src/backend/storage/lmgr/lock.c",
+      "enclosing_function": "LockAcquireExtended",
+      "anchor": "\t\twaitResult = WaitOnLock(locallock, owner);",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\t\tpostgamma_postgres_blocking_end();"
+    },
+    {
+      "id": "advisory-lock-local-hash-accessor",
+      "source_file": "src/backend/storage/lmgr/lock.c",
+      "enclosing_function": null,
+      "anchor": "#ifdef USE_ASSERT_CHECKING\n/*\n * GetLockMethodLocalHash -- return the hash of local locks, for modules that",
+      "expected_matches": 1,
+      "kind": "replace",
+      "replacement": "#if defined(USE_ASSERT_CHECKING) || defined(POSTGAMMA_BACKEND)\n/*\n * GetLockMethodLocalHash -- return the hash of local locks, for modules that"
+    },
+    {
+      "id": "advisory-lock-local-hash-role-state",
+      "source_file": "src/backend/storage/lmgr/lock.c",
+      "enclosing_function": "GetLockMethodLocalHash",
+      "anchor": "\treturn LockMethodLocalHash;",
+      "expected_matches": 1,
+      "kind": "insert_before",
+      "replacement": "#ifndef USE_ASSERT_CHECKING\n\treturn POSTGAMMA_BACKEND_STATE_NAMED_VALUE(\n\t\t\"internal:src/backend/storage/lmgr/lock.c:\"\n\t\t\"src/backend/storage/lmgr/lock.c::LockMethodLocalHash\",\n\t\tLockMethodLocalHash);\n#else\n"
+    },
+    {
+      "id": "advisory-lock-local-hash-role-state-end",
+      "source_file": "src/backend/storage/lmgr/lock.c",
+      "enclosing_function": "GetLockMethodLocalHash",
+      "anchor": "\treturn LockMethodLocalHash;",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n#endif"
+    },
+    {
+      "id": "result-budget-begin",
+      "source_file": "src/backend/access/common/printtup.c",
+      "enclosing_function": "printtup_startup",
+      "anchor": "\tPortal\t\tportal = myState->portal;",
+      "expected_matches": 1,
+      "kind": "insert_after",
+      "replacement": "\n\n\tpostgamma_postgres_result_budget_begin();"
+    },
+    {
+      "id": "result-budget-check-datarow",
+      "source_file": "src/backend/access/common/printtup.c",
+      "enclosing_function": "printtup",
+      "anchor": "\tpq_endmessage_reuse(buf);",
+      "expected_matches": 1,
+      "kind": "insert_before",
+      "replacement": "\tpostgamma_postgres_result_budget_check(\n\t\tbuf->data, (size_t) buf->len);\n"
+    }
+  ]
+}

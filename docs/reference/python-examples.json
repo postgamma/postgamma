@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.python-documentation-examples",
+  "examples": [
+    {
+      "name": "quickstart",
+      "path": "quickstart.py",
+      "stdout": "(1, {'kind': 'plan', 'score': 0.98})\nPostgreSQL cluster directory: agent.pgm\n"
+    },
+    {
+      "name": "async-concurrency",
+      "path": "async_concurrency.py",
+      "stdout": "(0,) (42,)\n"
+    },
+    {
+      "name": "backup-restore",
+      "path": "backup_restore.py",
+      "stdout": "Restored rows: 1\n"
+    },
+    {
+      "name": "vector-search",
+      "path": "vector_search.py",
+      "stdout": "Bundled pgvector 0.8.6\n(1, 'alpha')\n"
+    }
+  ]
+}

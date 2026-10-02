@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.embedded-conformance-corpus",
+  "postgresql_major": 19,
+  "required_categories": [
+    "cleanup",
+    "ddl",
+    "dml",
+    "types",
+    "query",
+    "mvcc",
+    "transaction",
+    "savepoint",
+    "error",
+    "session",
+    "temporary",
+    "locking"
+  ],
+  "cases": [
+    {
+      "name": "cleanup_before",
+      "category": "cleanup",
+      "session": "primary",
+      "sql": "DROP TABLE IF EXISTS pgm_conformance",
+      "expected_kind": "command"
+    },
+    {
+      "name": "create_table",
+      "category": "ddl",
+      "session": "primary",
+      "sql": "CREATE TABLE pgm_conformance (id bigint PRIMARY KEY, label text NOT NULL, payload jsonb NOT NULL, amount numeric(10,2) NOT NULL, tags int[] NOT NULL, created_on date NOT NULL, active boolean NOT NULL)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "insert_seed",
+      "category": "dml",
+      "session": "primary",
+      "sql": "INSERT INTO pgm_conformance VALUES (1, 'alpha', '{\"kind\":\"plan\",\"score\":0.98}', 12.50, ARRAY[1,2,3], DATE '2026-08-01', true), (2, 'beta', '{\"kind\":\"tool\",\"score\":0.75}', 7.25, ARRAY[4,5], DATE '2026-08-02', false)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "integer_arithmetic",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT (6 * 7)::int4 AS answer",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "numeric_aggregate",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT sum(amount)::text AS total FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "boolean_aggregate",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT bool_and(active)::text AS all_active FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "ordered_text_aggregate",
+      "category": "query",
+      "session": "primary",
+      "sql": "SELECT string_agg(label, ',' ORDER BY id) AS labels FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "json_projection",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT string_agg(payload->>'kind', ',' ORDER BY id) AS kinds FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "array_projection",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT array_to_string(tags, '|') AS tags FROM pgm_conformance WHERE id = 1",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "date_arithmetic",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT (min(created_on) + 2)::text AS shifted FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "uuid_round_trip",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT '12345678-1234-5678-1234-567812345678'::uuid::text AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "bytea_round_trip",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT encode(decode('00ff10', 'hex'), 'hex') AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "interval_arithmetic",
+      "category": "types",
+      "session": "primary",
+      "sql": "SELECT ('2 days'::interval + '03:00'::interval)::text AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "recursive_cte",
+      "category": "query",
+      "session": "primary",
+      "sql": "WITH RECURSIVE values(n) AS (VALUES (1) UNION ALL SELECT n + 1 FROM values WHERE n < 5) SELECT sum(n)::text AS total FROM values",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "window_aggregate",
+      "category": "query",
+      "session": "primary",
+      "sql": "SELECT string_agg(running::text, ',' ORDER BY id) AS totals FROM (SELECT id, sum(id) OVER (ORDER BY id) AS running FROM pgm_conformance) AS ranked",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "values_join",
+      "category": "query",
+      "session": "primary",
+      "sql": "SELECT string_agg(p.label || ':' || weights.weight, ',' ORDER BY p.id) AS joined FROM pgm_conformance AS p JOIN (VALUES (1::bigint, 'high'), (2::bigint, 'low')) AS weights(id, weight) USING (id)",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "update_returning",
+      "category": "dml",
+      "session": "primary",
+      "sql": "UPDATE pgm_conformance SET label = upper(label) WHERE id = 2 RETURNING label",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "upsert_returning",
+      "category": "dml",
+      "session": "primary",
+      "sql": "INSERT INTO pgm_conformance VALUES (2, 'ignored', '{}', 8.00, ARRAY[4], DATE '2026-08-02', false) ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount RETURNING amount::text AS amount",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "seed_count",
+      "category": "query",
+      "session": "secondary",
+      "sql": "SELECT count(*)::text AS count FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "mvcc_begin",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "BEGIN",
+      "expected_kind": "command"
+    },
+    {
+      "name": "mvcc_insert_uncommitted",
+      "category": "dml",
+      "session": "primary",
+      "sql": "INSERT INTO pgm_conformance VALUES (3, 'gamma', '{\"kind\":\"memory\"}', 3.00, ARRAY[6], DATE '2026-08-03', true)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "mvcc_primary_visibility",
+      "category": "mvcc",
+      "session": "primary",
+      "sql": "SELECT count(*)::text AS count FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "mvcc_secondary_isolation",
+      "category": "mvcc",
+      "session": "secondary",
+      "sql": "SELECT count(*)::text AS count FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "mvcc_commit",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "COMMIT",
+      "expected_kind": "command"
+    },
+    {
+      "name": "mvcc_secondary_after_commit",
+      "category": "mvcc",
+      "session": "secondary",
+      "sql": "SELECT count(*)::text AS count FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "savepoint_begin",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "BEGIN",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_insert",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "INSERT INTO pgm_conformance VALUES (4, 'delta', '{\"kind\":\"checkpoint\"}', 4.00, ARRAY[7], DATE '2026-08-04', true)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_create",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "SAVEPOINT pgm_before_update",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_update",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "UPDATE pgm_conformance SET label = 'changed' WHERE id = 4",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_rollback",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "ROLLBACK TO SAVEPOINT pgm_before_update",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_value",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "SELECT label FROM pgm_conformance WHERE id = 4",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "savepoint_release",
+      "category": "savepoint",
+      "session": "primary",
+      "sql": "RELEASE SAVEPOINT pgm_before_update",
+      "expected_kind": "command"
+    },
+    {
+      "name": "savepoint_commit",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "COMMIT",
+      "expected_kind": "command"
+    },
+    {
+      "name": "error_begin",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "BEGIN",
+      "expected_kind": "command"
+    },
+    {
+      "name": "division_by_zero",
+      "category": "error",
+      "session": "primary",
+      "sql": "SELECT 1 / 0",
+      "expected_kind": "error",
+      "expected_sqlstate": "22012"
+    },
+    {
+      "name": "aborted_transaction",
+      "category": "error",
+      "session": "primary",
+      "sql": "SELECT 1",
+      "expected_kind": "error",
+      "expected_sqlstate": "25P02"
+    },
+    {
+      "name": "error_rollback",
+      "category": "transaction",
+      "session": "primary",
+      "sql": "ROLLBACK",
+      "expected_kind": "command"
+    },
+    {
+      "name": "reuse_after_error",
+      "category": "error",
+      "session": "primary",
+      "sql": "SELECT 99::int4 AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "set_primary_application_name",
+      "category": "session",
+      "session": "primary",
+      "sql": "SET application_name = 'postgamma-conformance-primary-mutated'",
+      "expected_kind": "command"
+    },
+    {
+      "name": "primary_application_name",
+      "category": "session",
+      "session": "primary",
+      "sql": "SELECT current_setting('application_name') AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "secondary_application_name",
+      "category": "session",
+      "session": "secondary",
+      "sql": "SELECT current_setting('application_name') AS value",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "create_temporary_table",
+      "category": "temporary",
+      "session": "primary",
+      "sql": "CREATE TEMP TABLE pgm_local(value int)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "insert_temporary_rows",
+      "category": "temporary",
+      "session": "primary",
+      "sql": "INSERT INTO pgm_local VALUES (10), (20)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "temporary_primary_visibility",
+      "category": "temporary",
+      "session": "primary",
+      "sql": "SELECT sum(value)::text AS total FROM pgm_local",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "temporary_secondary_isolation",
+      "category": "temporary",
+      "session": "secondary",
+      "sql": "SELECT (to_regclass('pg_temp.pgm_local') IS NULL)::text AS isolated",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "primary_advisory_lock",
+      "category": "locking",
+      "session": "primary",
+      "sql": "SELECT pg_try_advisory_lock(71001)::text AS acquired",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "secondary_advisory_blocked",
+      "category": "locking",
+      "session": "secondary",
+      "sql": "SELECT pg_try_advisory_lock(71001)::text AS acquired",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "primary_advisory_unlock",
+      "category": "locking",
+      "session": "primary",
+      "sql": "SELECT pg_advisory_unlock(71001)::text AS released",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "secondary_advisory_acquire",
+      "category": "locking",
+      "session": "secondary",
+      "sql": "SELECT pg_try_advisory_lock(71001)::text AS acquired",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "secondary_advisory_unlock",
+      "category": "locking",
+      "session": "secondary",
+      "sql": "SELECT pg_advisory_unlock(71001)::text AS released",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "create_index",
+      "category": "ddl",
+      "session": "primary",
+      "sql": "CREATE INDEX pgm_conformance_label_idx ON pgm_conformance(label)",
+      "expected_kind": "command"
+    },
+    {
+      "name": "final_data_digest",
+      "category": "query",
+      "session": "secondary",
+      "sql": "SELECT string_agg(id::text || ':' || label || ':' || amount::text, ',' ORDER BY id) AS digest FROM pgm_conformance",
+      "expected_kind": "tuples"
+    },
+    {
+      "name": "drop_table",
+      "category": "cleanup",
+      "session": "primary",
+      "sql": "DROP TABLE pgm_conformance",
+      "expected_kind": "command"
+    },
+    {
+      "name": "cleanup_verified",
+      "category": "cleanup",
+      "session": "secondary",
+      "sql": "SELECT (to_regclass('public.pgm_conformance') IS NULL)::text AS removed",
+      "expected_kind": "tuples"
+    }
+  ]
+}

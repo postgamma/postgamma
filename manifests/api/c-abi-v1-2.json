@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.c-abi-release-baseline",
+  "postgresql_major": 19,
+  "abi": {
+    "major": 1,
+    "minor": 2,
+    "encoded_version": 65538,
+    "state": "frozen",
+    "release_milestone": "logical-management",
+    "delivered_through": "logical-management",
+    "symbol_version_node": "POSTGAMMA_1.0",
+    "evolution": "additive-within-major"
+  },
+  "prior_baseline": {
+    "path": "manifests/api/c-abi-v1-1.json",
+    "encoded_version": 65537,
+    "function_count": 69,
+    "complete_record_count": 17,
+    "opaque_record_count": 9,
+    "numeric_count": 91
+  },
+  "additive_functions": [
+    {
+      "name": "pgm_instance_logical_dump_async",
+      "function_type": "int (struct pgm_instance *, const struct pgm_logical_dump_options *, struct pgm_operation **, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_instance_logical_restore_async",
+      "function_type": "int (struct pgm_instance *, const struct pgm_logical_restore_options *, struct pgm_operation **, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_instance_maintenance_async",
+      "function_type": "int (struct pgm_instance *, const struct pgm_maintenance_options *, struct pgm_operation **, struct pgm_error **)"
+    },
+    {
+      "name": "pgm_operation_get_progress",
+      "function_type": "int (struct pgm_operation *, struct pgm_operation_progress_snapshot *, struct pgm_error **)"
+    }
+  ],
+  "additive_complete_records": [
+    {
+      "name": "pgm_logical_dump_options",
+      "size": 56,
+      "alignment": 8,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "flags", "canonical_type": "unsigned int", "offset": 4},
+        {"name": "database", "canonical_type": "const char *", "offset": 8},
+        {"name": "user", "canonical_type": "const char *", "offset": 16},
+        {"name": "channel_capacity", "canonical_type": "unsigned long", "offset": 24},
+        {"name": "progress_quantum", "canonical_type": "unsigned long", "offset": 32},
+        {"name": "write", "canonical_type": "int (*)(void *, const void *, unsigned long, unsigned long *)", "offset": 40},
+        {"name": "user_data", "canonical_type": "void *", "offset": 48}
+      ]
+    },
+    {
+      "name": "pgm_logical_restore_options",
+      "size": 56,
+      "alignment": 8,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "flags", "canonical_type": "unsigned int", "offset": 4},
+        {"name": "database", "canonical_type": "const char *", "offset": 8},
+        {"name": "user", "canonical_type": "const char *", "offset": 16},
+        {"name": "channel_capacity", "canonical_type": "unsigned long", "offset": 24},
+        {"name": "progress_quantum", "canonical_type": "unsigned long", "offset": 32},
+        {"name": "read", "canonical_type": "int (*)(void *, void *, unsigned long, unsigned long *)", "offset": 40},
+        {"name": "user_data", "canonical_type": "void *", "offset": 48}
+      ]
+    },
+    {
+      "name": "pgm_maintenance_options",
+      "size": 32,
+      "alignment": 8,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "flags", "canonical_type": "unsigned int", "offset": 4},
+        {"name": "kind", "canonical_type": "int", "offset": 8},
+        {"name": "reserved", "canonical_type": "unsigned int", "offset": 12},
+        {"name": "database", "canonical_type": "const char *", "offset": 16},
+        {"name": "user", "canonical_type": "const char *", "offset": 24}
+      ]
+    },
+    {
+      "name": "pgm_operation_progress_snapshot",
+      "size": 56,
+      "alignment": 8,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "kind", "canonical_type": "int", "offset": 4},
+        {"name": "state", "canonical_type": "int", "offset": 8},
+        {"name": "phase", "canonical_type": "int", "offset": 12},
+        {"name": "bytes_received", "canonical_type": "unsigned long", "offset": 16},
+        {"name": "bytes_produced", "canonical_type": "unsigned long", "offset": 24},
+        {"name": "total_bytes", "canonical_type": "unsigned long", "offset": 32},
+        {"name": "objects_completed", "canonical_type": "unsigned long", "offset": 40},
+        {"name": "objects_total", "canonical_type": "unsigned long", "offset": 48}
+      ]
+    }
+  ],
+  "additive_opaque_records": [],
+  "numeric_overrides": {
+    "PGM_ABI_VERSION": 65538,
+    "PGM_ABI_VERSION_MINOR": 2
+  },
+  "numeric_additions": {
+    "PGM_OPERATION_CHECKPOINT": 0,
+    "PGM_OPERATION_LOGICAL_DUMP": 1,
+    "PGM_OPERATION_LOGICAL_RESTORE": 2,
+    "PGM_OPERATION_MAINTENANCE": 3,
+    "PGM_OPERATION_PHASE_PENDING": 0,
+    "PGM_OPERATION_PHASE_STARTING": 1,
+    "PGM_OPERATION_PHASE_DATABASE": 2,
+    "PGM_OPERATION_PHASE_ARCHIVE_IO": 3,
+    "PGM_OPERATION_PHASE_HOST_IO": 4,
+    "PGM_OPERATION_PHASE_FINALIZING": 5,
+    "PGM_OPERATION_PHASE_TERMINAL": 6,
+    "PGM_MAINTENANCE_VACUUM": 0,
+    "PGM_MAINTENANCE_ANALYZE": 1,
+    "PGM_MAINTENANCE_VACUUM_ANALYZE": 2,
+    "PGM_MAINTENANCE_REINDEX_DATABASE": 3,
+    "PGM_LOGICAL_SCHEMA_ONLY": 1,
+    "PGM_LOGICAL_DATA_ONLY": 2,
+    "PGM_LOGICAL_CLEAN": 4,
+    "PGM_LOGICAL_CREATE": 8,
+    "PGM_LOGICAL_NO_OWNER": 16,
+    "PGM_LOGICAL_NO_PRIVILEGES": 32,
+    "PGM_LOGICAL_FLAGS_ALL": 63,
+    "PGM_CAP_LOGICAL_BACKUP": 4096,
+    "PGM_CAP_LOGICAL_RESTORE": 8192,
+    "PGM_CAP_PHYSICAL_BACKUP": 16384,
+    "PGM_CAP_MAINTENANCE": 32768
+  },
+  "exported_symbol_count": 73,
+  "complete_record_count": 21,
+  "opaque_record_count": 9,
+  "numeric_count": 117,
+  "capabilities": {
+    "advertised_value": 46079,
+    "advertised": [
+      "PGM_CAP_PREPARED_STATEMENTS",
+      "PGM_CAP_CHUNKED_RESULTS",
+      "PGM_CAP_COPY_IN",
+      "PGM_CAP_COPY_OUT",
+      "PGM_CAP_ARROW_C_DATA",
+      "PGM_CAP_NOTIFICATIONS",
+      "PGM_CAP_REQUEST_NOTICES",
+      "PGM_CAP_STATUS_TELEMETRY",
+      "PGM_CAP_INSTANCE_EVENTS",
+      "PGM_CAP_MANAGEMENT_OPERATIONS",
+      "PGM_CAP_LOGICAL_BACKUP",
+      "PGM_CAP_LOGICAL_RESTORE",
+      "PGM_CAP_MAINTENANCE"
+    ],
+    "reserved_unadvertised": [
+      "PGM_CAP_MULTIPLE_INSTANCES",
+      "PGM_CAP_NATIVE_EXTENSION_LOADING",
+      "PGM_CAP_PHYSICAL_BACKUP"
+    ]
+  },
+  "private_logical_tool": {
+    "namespaced_libpq_symbols": [
+      "PQclear",
+      "PQclientEncoding",
+      "PQconnectionNeedsPassword",
+      "PQconnectionUsedPassword",
+      "PQconninfoFree",
+      "PQconninfoParse",
+      "PQdb",
+      "PQerrorMessage",
+      "PQescapeStringConn",
+      "PQexec",
+      "PQfname",
+      "PQfnumber",
+      "PQfreemem",
+      "PQftype",
+      "PQgetCopyData",
+      "PQgetResult",
+      "PQgetisnull",
+      "PQgetlength",
+      "PQgetvalue",
+      "PQmblen",
+      "PQmblenBounded",
+      "PQnfields",
+      "PQntuples",
+      "PQparameterStatus",
+      "PQpass",
+      "PQputCopyData",
+      "PQputCopyEnd",
+      "PQresultStatus",
+      "PQserverVersion",
+      "PQsetClientEncoding",
+      "PQsetNoticeProcessor",
+      "PQstatus",
+      "PQtransactionStatus",
+      "appendBinaryPQExpBuffer",
+      "appendPQExpBuffer",
+      "appendPQExpBufferChar",
+      "appendPQExpBufferStr",
+      "createPQExpBuffer",
+      "destroyPQExpBuffer",
+      "enlargePQExpBuffer",
+      "initPQExpBuffer",
+      "lo_close",
+      "lo_create",
+      "lo_open",
+      "lo_read",
+      "lo_write",
+      "printfPQExpBuffer",
+      "resetPQExpBuffer",
+      "termPQExpBuffer"
+    ]
+  },
+  "documented_unsupported": [
+    "physical backup API",
+    "multiple live instances",
+    "parallel pg_dump and pg_restore workers",
+    "arbitrary native extensions",
+    "Python binding"
+  ]
+}

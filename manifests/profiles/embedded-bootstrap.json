@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.bootstrap-profile",
+  "id": "postgresql-19-embedded-bootstrap",
+  "description": "Executable evidence contract for retiring embedded-bootstrap risks.",
+  "supporting_evidence": [
+    {
+      "id": "process_assumptions",
+      "evidence": "process-assumptions.json",
+      "description": "Every known process-model dependency is classified and the executed bootstrap paths preserve their host process"
+    }
+  ],
+  "claims": [
+    {
+      "id": "hidden_static_extension",
+      "evidence": "static-extension.json",
+      "required_for_completion": true,
+      "description": "A hidden-symbol shared library resolves a bundled static PostgreSQL native module"
+    },
+    {
+      "id": "bootstrap_twice",
+      "evidence": "bootstrap-twice.json",
+      "required_for_completion": true,
+      "description": "One loaded PostgreSQL kernel completes two real bootstrap phases in one host process"
+    },
+    {
+      "id": "private_libpq_memory_transport",
+      "evidence": "private-libpq.json",
+      "required_for_completion": true,
+      "description": "Private libpq completes protocol work over the bounded memory transport without sockets"
+    },
+    {
+      "id": "host_safe_lifecycle",
+      "evidence": "host-safe-lifecycle.json",
+      "required_for_completion": false,
+      "description": "The complete embedded instance lifecycle preserves all host process state"
+    },
+    {
+      "id": "complete_initdb",
+      "evidence": "complete-initdb.json",
+      "required_for_completion": false,
+      "description": "The complete transformed initdb tool creates a cluster in process"
+    },
+    {
+      "id": "real_embedded_query",
+      "evidence": "real-embedded-query.json",
+      "required_for_completion": false,
+      "description": "Private libpq executes a query against a real in-process PostgreSQL backend"
+    }
+  ]
+}

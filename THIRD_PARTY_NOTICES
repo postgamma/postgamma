@@ -1,0 +1,16 @@
+PostGamma Third-Party Notices
+
+PostGamma release artifacts include software from the following projects.
+Their original copyright notices and license terms remain in effect.
+
+PostgreSQL
+Source: https://git.postgresql.org/git/postgresql.git
+Revision: 86ed13547589d8401b3b1e1ec2873903b287cb80
+License: PostgreSQL License
+License text: licenses/LICENSE.postgresql
+
+pgvector
+Source: https://github.com/pgvector/pgvector.git
+Revision: 8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
+License: PostgreSQL License
+License text: licenses/LICENSE.pgvector

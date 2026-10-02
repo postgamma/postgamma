@@ -1,0 +1,49 @@
+# Project build products
+/build/
+/.deps/
+
+# Python environments, caches, and packaging products
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+dist/
+*.whl
+*.tar.gz
+
+# Native build and crash artifacts
+compile_commands.json
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.dSYM/
+core
+core.*
+
+# Local PostGamma clusters and logs
+*.pgm/
+*.log
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*~

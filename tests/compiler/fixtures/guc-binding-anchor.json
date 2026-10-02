@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.ast-transform",
+  "binding_anchor_file_suffixes": ["generated/guc_tables.inc.c"],
+  "symbols": [
+    {
+      "id": "fixture.work_mem",
+      "name": "work_mem",
+      "c_type": "int",
+      "slot": "session",
+      "replacement": "POSTGAMMA_GUC_VALUE(work_mem)"
+    }
+  ]
+}

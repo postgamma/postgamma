@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgresql-protocol-contract",
+  "postgresql_major": 19,
+  "upstream_files": {
+    "libpq": "postgres/src/interfaces/libpq/libpq-fe.h",
+    "diagnostics": "postgres/src/include/postgres_ext.h"
+  },
+  "features": [
+    {
+      "name": "extended-single-statement",
+      "phase": "ordered-results",
+      "disposition": "supported",
+      "upstream_symbols": ["PQsendQueryParams", "PQgetResult"],
+      "public_symbols": ["pgm_execute_async_ex", "pgm_request_next_result"]
+    },
+    {
+      "name": "simple-script",
+      "phase": "ordered-results",
+      "disposition": "supported",
+      "upstream_symbols": ["PQsendQuery", "PQgetResult"],
+      "public_symbols": ["pgm_execute_script_async", "pgm_request_next_result"]
+    },
+    {
+      "name": "prepared-statements",
+      "phase": "ordered-results",
+      "disposition": "supported",
+      "upstream_symbols": ["PQsendPrepare", "PQsendQueryPrepared", "PQdescribePrepared", "PQnparams", "PQparamtype"],
+      "public_symbols": ["pgm_statement_prepare", "pgm_statement_execute_async", "pgm_statement_describe", "pgm_statement_parameter_type", "pgm_statement_column", "pgm_statement_close"]
+    },
+    {
+      "name": "bounded-tuple-chunks",
+      "phase": "chunked-results",
+      "disposition": "supported",
+      "upstream_symbols": ["PQsetChunkedRowsMode", "PGRES_TUPLES_CHUNK"],
+      "public_symbols": ["pgm_execute_async_ex", "pgm_request_next_result"]
+    },
+    {
+      "name": "copy-in",
+      "phase": "copy-streaming",
+      "disposition": "supported",
+      "upstream_symbols": ["PGRES_COPY_IN", "PQputCopyData", "PQputCopyEnd"],
+      "public_symbols": ["pgm_result_take_copy", "pgm_copy_write", "pgm_copy_finish", "pgm_copy_abort", "pgm_copy_close"]
+    },
+    {
+      "name": "copy-out",
+      "phase": "copy-streaming",
+      "disposition": "supported",
+      "upstream_symbols": ["PGRES_COPY_OUT", "PQgetCopyData"],
+      "public_symbols": ["pgm_result_take_copy", "pgm_copy_read", "pgm_copy_abort", "pgm_copy_close"]
+    },
+    {
+      "name": "notices",
+      "phase": "runtime-events",
+      "disposition": "supported",
+      "upstream_symbols": ["PQsetNoticeReceiver"],
+      "public_symbols": ["pgm_event_notice", "pgm_instance_next_event", "pgm_instance_dispatch"]
+    },
+    {
+      "name": "notifications",
+      "phase": "runtime-events",
+      "disposition": "supported",
+      "upstream_symbols": ["PQnotifies"],
+      "public_symbols": ["pgm_event_notification", "pgm_instance_next_event", "pgm_instance_dispatch"]
+    },
+    {
+      "name": "cancellation",
+      "phase": "session-execution",
+      "disposition": "supported",
+      "upstream_symbols": ["PQcancelCreate", "PQcancelStart", "PQcancelPoll", "PQcancelFinish"],
+      "public_symbols": ["pgm_request_cancel"]
+    },
+    {
+      "name": "transaction-status",
+      "phase": "ordered-results",
+      "disposition": "supported",
+      "upstream_symbols": ["PQtransactionStatus"],
+      "public_symbols": ["pgm_connection_transaction_status", "pgm_connection_get_status"]
+    },
+    {
+      "name": "parameter-status",
+      "phase": "runtime-events",
+      "disposition": "supported",
+      "upstream_symbols": ["PQparameterStatus"],
+      "public_symbols": ["pgm_connection_parameter_status"]
+    },
+    {
+      "name": "pipeline-mode",
+      "phase": "post-v1",
+      "disposition": "unsupported",
+      "upstream_symbols": ["PQpipelineStatus", "PQpipelineSync"],
+      "public_symbols": []
+    },
+    {
+      "name": "copy-both-and-replication",
+      "phase": "post-v1",
+      "disposition": "unsupported",
+      "upstream_symbols": ["PGRES_COPY_BOTH"],
+      "public_symbols": []
+    }
+  ],
+  "result_statuses": [
+    {"upstream": "PGRES_EMPTY_QUERY", "disposition": "mapped", "public": "PGM_RESULT_EMPTY_QUERY"},
+    {"upstream": "PGRES_COMMAND_OK", "disposition": "mapped", "public": "PGM_RESULT_COMMAND_OK"},
+    {"upstream": "PGRES_TUPLES_OK", "disposition": "mapped", "public": "PGM_RESULT_TUPLES_OK"},
+    {"upstream": "PGRES_COPY_OUT", "disposition": "mapped", "public": "PGM_RESULT_COPY_OUT"},
+    {"upstream": "PGRES_COPY_IN", "disposition": "mapped", "public": "PGM_RESULT_COPY_IN"},
+    {"upstream": "PGRES_BAD_RESPONSE", "disposition": "mapped", "public": "PGM_RESULT_ERROR"},
+    {"upstream": "PGRES_NONFATAL_ERROR", "disposition": "mapped", "public": "PGM_RESULT_ERROR"},
+    {"upstream": "PGRES_FATAL_ERROR", "disposition": "mapped", "public": "PGM_RESULT_ERROR"},
+    {"upstream": "PGRES_COPY_BOTH", "disposition": "unsupported", "public": null},
+    {"upstream": "PGRES_SINGLE_TUPLE", "disposition": "unsupported", "public": null},
+    {"upstream": "PGRES_PIPELINE_SYNC", "disposition": "unsupported", "public": null},
+    {"upstream": "PGRES_PIPELINE_ABORTED", "disposition": "unsupported", "public": null},
+    {"upstream": "PGRES_TUPLES_CHUNK", "disposition": "mapped", "public": "PGM_RESULT_TUPLES_CHUNK"}
+  ],
+  "transaction_statuses": [
+    {"upstream": "PQTRANS_IDLE", "public": "PGM_TRANSACTION_IDLE"},
+    {"upstream": "PQTRANS_ACTIVE", "public": "PGM_TRANSACTION_ACTIVE"},
+    {"upstream": "PQTRANS_INTRANS", "public": "PGM_TRANSACTION_INTRANS"},
+    {"upstream": "PQTRANS_INERROR", "public": "PGM_TRANSACTION_INERROR"},
+    {"upstream": "PQTRANS_UNKNOWN", "public": "PGM_TRANSACTION_UNKNOWN"}
+  ],
+  "diagnostic_fields": [
+    {"upstream": "PG_DIAG_SEVERITY", "disposition": "ignored", "public": null, "reason": "The stable API exposes PostgreSQL's nonlocalized severity."},
+    {"upstream": "PG_DIAG_SQLSTATE", "public": "PGM_DIAG_SQLSTATE"},
+    {"upstream": "PG_DIAG_SEVERITY_NONLOCALIZED", "public": "PGM_DIAG_SEVERITY"},
+    {"upstream": "PG_DIAG_MESSAGE_PRIMARY", "public": "PGM_DIAG_MESSAGE"},
+    {"upstream": "PG_DIAG_MESSAGE_DETAIL", "public": "PGM_DIAG_DETAIL"},
+    {"upstream": "PG_DIAG_MESSAGE_HINT", "public": "PGM_DIAG_HINT"},
+    {"upstream": "PG_DIAG_STATEMENT_POSITION", "public": "PGM_DIAG_POSITION"},
+    {"upstream": "PG_DIAG_INTERNAL_POSITION", "public": "PGM_DIAG_INTERNAL_POSITION"},
+    {"upstream": "PG_DIAG_INTERNAL_QUERY", "public": "PGM_DIAG_INTERNAL_QUERY"},
+    {"upstream": "PG_DIAG_CONTEXT", "public": "PGM_DIAG_CONTEXT"},
+    {"upstream": "PG_DIAG_SCHEMA_NAME", "public": "PGM_DIAG_SCHEMA"},
+    {"upstream": "PG_DIAG_TABLE_NAME", "public": "PGM_DIAG_TABLE"},
+    {"upstream": "PG_DIAG_COLUMN_NAME", "public": "PGM_DIAG_COLUMN"},
+    {"upstream": "PG_DIAG_DATATYPE_NAME", "public": "PGM_DIAG_DATATYPE"},
+    {"upstream": "PG_DIAG_CONSTRAINT_NAME", "public": "PGM_DIAG_CONSTRAINT"},
+    {"upstream": "PG_DIAG_SOURCE_FILE", "public": "PGM_DIAG_SOURCE_FILE"},
+    {"upstream": "PG_DIAG_SOURCE_LINE", "public": "PGM_DIAG_SOURCE_LINE"},
+    {"upstream": "PG_DIAG_SOURCE_FUNCTION", "public": "PGM_DIAG_SOURCE_FUNCTION"}
+  ]
+}
