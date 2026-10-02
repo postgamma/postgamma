@@ -27,6 +27,9 @@ from check_embedded_public_api import PublicApiCheckError, audit_trace
 
 INITDB_MARKER = "POSTGAMMA_INITDB"
 CLUSTER_MARKER = "POSTGAMMA_CLUSTER_CREATE"
+# cluster_create_driver opens A and B, reopens A, then reopens A again to
+# verify that CREATE_NEW rejection preserved the existing cluster.
+EXPECTED_RUNTIME_RECORDS = 4
 PRE_PUBLISH_FAULT_MODES = (
     "fault-temporary",
     "fault-bootstrap",
@@ -312,9 +315,10 @@ def run_process_contention(
 
 def audit_runtime(stderr: str) -> dict[str, int | bool]:
     lines = [line for line in stderr.splitlines() if "POSTGAMMA_RUNTIME" in line]
-    if len(lines) != 3:
+    if len(lines) != EXPECTED_RUNTIME_RECORDS:
         raise InitdbCheckError(
-            f"expected three same-process runtime records, found {len(lines)}"
+            f"expected {EXPECTED_RUNTIME_RECORDS} same-process runtime records, "
+            f"found {len(lines)}"
         )
     total_roles = 0
     for line in lines:
