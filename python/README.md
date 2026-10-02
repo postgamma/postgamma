@@ -8,12 +8,13 @@ database server process, opens no network socket, and exposes ordinary Python
 The wheel contains one CPython extension with the PostGamma kernel linked into
 it statically; it does not ship or load a separate `libpostgamma.so`.
 
-The source distribution contains the complete documentation under `docs/`.
+The [complete documentation](https://postgamma.com/) is also available under
+`docs/` in the source checkout.
 
-Install a downloaded release wheel:
+Once this alpha is published, install it from PyPI:
 
 ```console
-python -m pip install postgamma
+python -m pip install "postgamma==0.1.0a1"
 ```
 
 ```python

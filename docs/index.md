@@ -104,7 +104,7 @@
 <section class="pg-proof-strip" aria-label="Technical support baseline">
   <div><strong>19</strong><span>PostgreSQL core</span></div>
   <div><strong>3.10–3.14</strong><span>CPython wheels</span></div>
-  <div><strong>2.28+</strong><span>glibc baseline</span></div>
+  <div><strong>2.17+</strong><span>glibc baseline</span></div>
   <div><strong>C ABI</strong><span>Static SDK</span></div>
   <div><strong>0.8.6</strong><span>Bundled pgvector</span></div>
 </section>
@@ -122,8 +122,8 @@
       <article class="pg-v3-sdk pg-v3-sdk--python">
         <div class="pg-sdk-head"><span>PY</span><div><strong>Python SDK</strong><small>Native CPython wheel</small></div><em>3.10–3.14</em></div>
         <h3>Install once.<br>Import normally.</h3>
-        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI.</p>
-        <div class="pg-install-line"><pre><code>python -m pip install postgamma</code></pre><span aria-hidden="true">$</span></div>
+        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI. The installation command below applies after publication; see <a href="downloads/">downloads</a> for current availability.</p>
+        <div class="pg-install-line"><pre><code>python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"</code></pre><span aria-hidden="true">$</span></div>
         <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python quickstart</a><a class="pg-inline-link" href="python/">API reference ↗</a></div>
       </article>
       <article class="pg-v3-sdk pg-v3-sdk--c">

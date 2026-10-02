@@ -7,7 +7,7 @@ The public product version, Git tag, compatibility identities, and immutable
 artifact rules are defined in the [versioning policy](versioning.md). Binary
 status and verification commands are on the [download page](../downloads.md).
 
-## Current candidate
+## Versions
 
 | Version | State | PostgreSQL major | Notes |
 | --- | --- | ---: | --- |

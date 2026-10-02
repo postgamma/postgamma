@@ -25,16 +25,18 @@ The first release provides:
   one host process; and
 - bundled pgvector 0.8.6 for local vector search.
 
-This project is an unreleased alpha. Read the
+This is an unreleased alpha intended for evaluation and feedback. Read the
 [compatibility limits](docs/compatibility/limits.md) before using it with data
 that cannot be recreated.
 
 ## Python quickstart
 
-Install a compatible release wheel:
+Until the first public release is available, follow the
+[source build instructions](docs/getting-started/installation.md).
+After publication, install this alpha explicitly:
 
 ```bash
-python -m pip install postgamma
+python -m pip install "postgamma==0.1.0a1"
 ```
 
 Then open or create a persistent cluster and run SQL:

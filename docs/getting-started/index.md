@@ -12,10 +12,12 @@ command, host name, port, or password is required.
 
 ## 1. Install PostGamma
 
-Install the wheel that matches your CPython version and Linux platform:
+Until the first public release is available, follow the
+[source build instructions](installation.md). After publication, install
+the wheel that matches your CPython version and Linux platform:
 
 ```bash
-python -m pip install postgamma
+python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"
 ```
 
 To install a wheel downloaded from a release page instead, pass its actual

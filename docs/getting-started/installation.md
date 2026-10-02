@@ -280,10 +280,11 @@ make threaded-postgresql-check JOBS=4
 ## Python wheel
 
 The first release publishes platform-specific CPython wheels and no source
-distribution. Install the wheel matching the Python interpreter and platform:
+distribution. Once published, install the wheel matching the Python interpreter
+and platform:
 
 ```bash
-python -m pip install postgamma
+python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"
 ```
 
 For an artifact downloaded from a release page:

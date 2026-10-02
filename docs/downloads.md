@@ -10,9 +10,9 @@ wheel mirrors. PyPI receives the exact same tested wheel bytes.
 
 ## {{ POSTGAMMA_VERSION }} · {{ POSTGAMMA_RELEASE_STATE }}
 
-The first public binary release is being prepared. Until its GitHub Release is
-published, build from source or use an explicitly shared candidate artifact.
-Do not treat an Actions artifact as an official release.
+The first public binary release is being prepared for Linux x86-64. Until it
+is published, build from source or use an explicitly shared candidate artifact.
+Only assets attached to a published release are official release artifacts.
 
 [Open GitHub Releases]({{ POSTGAMMA_RELEASES_URL }}){ .md-button .md-button--primary }
 [Read the release notes](releases/{{ POSTGAMMA_VERSION }}.md){ .md-button }
@@ -21,11 +21,11 @@ Do not treat an Actions artifact as an official release.
 
 ## Python
 
-Once the release is published, let `pip` select the wheel for the active
-CPython interpreter:
+Once the release is published, select this alpha explicitly and let `pip`
+choose the wheel for the active CPython interpreter:
 
 ```bash
-python -m pip install postgamma
+python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"
 ```
 
 The initial matrix contains one `manylinux_2_17_x86_64` wheel for each of
