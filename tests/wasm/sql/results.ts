@@ -7,6 +7,34 @@ export async function results(db: Database, checks: string[]) {
   const fixture = await (await fetch(new URL('../fixtures.json', import.meta.url))).json();
   const oracle = await (await fetch(new URL('../oracle.json', import.meta.url))).json();
   const c = await db.connect('stream-owner'), observer = await db.connect('stream-observer');
+  // Both results fit in the 64 KiB transport. Let the backend finish before
+  // consuming: libpq can read only part of an already-readable transport and
+  // return AGAIN after the producer has sent its last notification.
+  const pid = (await c.status()).pid;
+  for (const chunkRows of [0, 2]) {
+    const count = chunkRows ? 3 : 400, width = chunkRows ? 10000 : 100;
+    const sql = `SELECT g, repeat('a', ${width}) FROM generate_series(1, ${count}) g`;
+    const request = await c.execute(sql, chunkRows ? {chunkRows} : {});
+    const deadline = performance.now() + 5000;
+    let idle = false;
+    do {
+      idle = scalar(await observer.query(`SELECT state = 'idle' AND query = $2::text
+        FROM pg_stat_activity WHERE pid = $1::int`, {
+        parameters: [{typeOid: 23, value: String(pid)}, {typeOid: 25, value: sql}],
+      })) === 't';
+      if (!idle) await new Promise(resolve => setTimeout(resolve, 1));
+    } while (!idle && performance.now() < deadline);
+    assert(idle, 'Producer completes before the first result read');
+    let received = 0;
+    for await (const batch of request) {
+      for (const row of batch.rows) {
+        assert(row[0] === String(++received) && row[1] === 'a'.repeat(width),
+          'Already-buffered results arrive once and in order');
+      }
+    }
+    assert(received === count, 'Drains readable input without another producer notification');
+  }
+  checks.push('materialized-level-readiness', 'chunked-level-readiness');
   for (const [name, chunkRows, binary] of [['basic', 3, false], ['binary', 2, true]] as const) {
     const request = await c.execute(fixture[name], {chunkRows, binary});
     const values: string[] = [], chunks: number[] = [];

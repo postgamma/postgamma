@@ -83,6 +83,15 @@ static void watch_begin(Handle *h)
     // Capture before consuming: an edge between AGAIN and arming is retained.
     h->ready_sequence = ready_sequence(h);
 }
+static bool ready_now(Handle *h)
+{
+    if (ready_sequence(h) != h->ready_sequence) return true;
+    // NEXT may consume only part of already readable input. The producer can
+    // have finished before watch_begin, leaving no future notification edge.
+    // Retain the level until the consumer advances, one bounded call per wake.
+    // COPY has direction-specific progress and keeps its existing edge watch.
+    return h->kind == REQUEST && postgamma_public_request_progress_ready(h->pointer);
+}
 static double notify_ready(void)
 {
     double now = emscripten_get_now(), wait_ms = __builtin_inf();
@@ -95,9 +104,9 @@ static double notify_ready(void)
             double remaining = h->close_retry_ms - now;
             if (remaining > 0) {
                 if (remaining < wait_ms) wait_ms = remaining;
-                if (!h->watching || ready_sequence(h) == h->ready_sequence) continue;
+                if (!h->watching || !ready_now(h)) continue;
             }
-        } else if (ready_sequence(h) == h->ready_sequence) continue;
+        } else if (!ready_now(h)) continue;
         ReadyEvent *event = malloc(sizeof(*event));
         if (!event) abort();
         *event = (ReadyEvent){h->kind, i + 1, h->generation};

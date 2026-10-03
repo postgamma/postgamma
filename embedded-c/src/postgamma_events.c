@@ -422,6 +422,12 @@ postgamma_public_request_ready_sequence(pgm_request *request)
 	return atomic_load_explicit(
 		&request->connection->wasm_ready_sequence, memory_order_acquire);
 }
+
+bool
+postgamma_public_request_progress_ready(pgm_request *request)
+{
+	return request_progress_ready(request);
+}
 #endif
 
 
