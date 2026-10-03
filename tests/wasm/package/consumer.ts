@@ -1,6 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {Database, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
-  type ScriptOptions, type Notification} from '@postgamma/wasm';
+  type ScriptOptions, type Notification, type ArchiveOptions, type RestoreOptions} from '@postgamma/wasm';
 const options: OpenOptions = {storage: {type: 'opfs', name: 'typed-consumer'}};
 const parameter: Parameter = {typeOid: 20, value: '9223372036854775807'};
 async function typedConsumer(): Promise<Result[]> {
@@ -18,6 +18,15 @@ async function typedConsumer(): Promise<Result[]> {
   finally {await c.close(); await db.close();}
 }
 void typedConsumer;
+async function typedArchive(db: Database, source: ReadableStream<Uint8Array>) {
+  const archiveOptions: ArchiveOptions = {signal: new AbortController().signal};
+  const restoreOptions: RestoreOptions = {...archiveOptions, storage: {type: 'opfs', name: 'restored'}};
+  const stream: ReadableStream<Uint8Array> = await db.dumpDataDir(archiveOptions);
+  await stream.cancel();
+  const restored = await Database.loadDataDir(source, restoreOptions);
+  await (await restored.clone()).close();
+}
+void typedArchive;
 // @ts-expect-error A native pointer is not a supported parameter value.
 const invalid: Parameter = {typeOid: 20, value: 123};
 void invalid;

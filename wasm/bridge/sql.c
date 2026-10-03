@@ -27,9 +27,10 @@
  * steps and yield the driver while tickets, transport or backends are pending. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
-       COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS };
+       COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS,
+       RESTORE_OPEN, ARCHIVE_READ, ARCHIVE_WRITE, RESTORE_FINISH };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING };
-#define WIRE_VERSION 6
+#define WIRE_VERSION 7
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -308,6 +309,7 @@ static pgm_status marshal_result(Writer *w, pgm_result *result, pgm_error **erro
     }
     return PGM_STATUS_OK;
 }
+#include "archive.h"
 #ifdef POSTGAMMA_WASM_TESTING
 #include "../../tests/wasm/storage/filesystem.c"
 #include "../../tests/wasm/sql/close_gate.c"
@@ -390,12 +392,12 @@ static bool command(void)
         else if (fault == 2) abort();
     }
 #endif
-    if (op != OPEN && op != STOP && op != EVENTS)
+    if (op != OPEN && op != STOP && op != EVENTS && op < RESTORE_OPEN)
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
                    op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
                    op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
-    if (op == OPEN || op == CONNECT || op == EXECUTE || op == SCRIPT) {
+    if (op == OPEN || op == RESTORE_FINISH || op == CONNECT || op == EXECUTE || op == SCRIPT) {
         slot = reserve();
         if (!slot) status = PGM_STATUS_BUSY;
     }
@@ -404,7 +406,9 @@ static bool command(void)
         status = PGM_STATUS_BUSY; bridge_message = "Handle is closing"; goto done;
     }
     switch (op) {
-    case OPEN: {
+    case OPEN:
+    case RESTORE_OPEN:
+    case RESTORE_FINISH: {
         uint32_t create = get(&r), workers = get(&r);
         char *path = string(&r);
         uint32_t storage = get(&r);
@@ -421,6 +425,9 @@ static bool command(void)
         if (!r.failed && !status && create <= 1 && storage <= 1 && workers >= 2 && workers <= 4 &&
             sampling_interval <= 60000 && r.offset == r.size) {
             pgm_instance *instance = NULL;
+            if (op == RESTORE_FINISH && (!restoring || !restore_complete || create)) {
+                r.failed = true; free(path); free(name); free(test_channel); break;
+            }
             if (storage) {
                 char *persistent_path = strdup("/persistent/database");
                 if (!persistent_path) {
@@ -431,7 +438,7 @@ static bool command(void)
 #ifndef POSTGAMMA_WASM_TESTING
                 test_channel[0] = 0;
 #endif
-                int code = postgamma_wasm_storage_mount(name, test_channel);
+                int code = op == RESTORE_FINISH ? 0 : postgamma_wasm_storage_mount(name, test_channel);
                 if (code) {
                     status = code == EBUSY ? PGM_STATUS_BUSY : PGM_STATUS_IO_ERROR;
                     bridge_message = "OPFS storage could not be opened";
@@ -439,13 +446,56 @@ static bool command(void)
                 }
                 free(path); path = persistent_path;
             }
+            char marker[4096];
+            if (!path || path[0] != '/' || strlen(path) > 2048 ||
+                snprintf(marker, sizeof(marker), "%s/postgamma.restore-incomplete", path) >= sizeof(marker)) {
+                r.failed = true; free(path); free(name); free(test_channel); break;
+            }
+            if (op == RESTORE_OPEN) {
+                struct stat st;
+                if (!lstat(path, &st) || errno != ENOENT) {
+                    status = PGM_STATUS_INVALID_ARGUMENT; bridge_message = "Restore requires a new empty destination";
+                } else if (mkdir(path, 0700)) {
+                    status = PGM_STATUS_IO_ERROR; bridge_message = "Could not create restore destination";
+                } else {
+                    int fd = open(marker, O_CREAT | O_EXCL | O_WRONLY, 0600);
+                    if (fd < 0 || fsync(fd)) status = PGM_STATUS_IO_ERROR;
+                    if (fd >= 0) close(fd);
+                    if (!status) {database_path = strdup(path); restoring = true;}
+                }
+                free(path); free(name); free(test_channel); break;
+            }
+            if (op == RESTORE_FINISH) {
+                if (strcmp(database_path, path)) {status = PGM_STATUS_INVALID_ARGUMENT; bridge_message = "Restore path changed";}
+            } else if (access(marker, F_OK) == 0) {
+                status = PGM_STATUS_INVALID_ARGUMENT; bridge_message = "Destination contains an incomplete restore";
+            }
+            if (status) {free(path); free(name); free(test_channel); break;}
             o.create = create; o.path = path; o.executor_worker_count = workers;
             o.executable_path = "/postgamma/bin/postgres"; o.resource_root = "/postgamma";
             o.settings = settings; o.setting_count = sizeof(settings) / sizeof(settings[0]);
             o.result_buffer_limit = PGW_RESULT_BUFFER_BYTES; o.maximum_value_size = PGW_MAXIMUM_VALUE_BYTES;
             o.log_callback = log_record;
             status = pgm_instance_open(&o, &instance, &error);
-            if (!status) publish(&payload, slot, INSTANCE, NULL, instance);
+            if (!status && op == RESTORE_FINISH) {
+                /* Keep failed native validation quarantined, even if the
+                 * framing/checksums describe an invalid PostgreSQL cluster. */
+                int fd = open(path, O_RDONLY | O_DIRECTORY);
+                int code = fd < 0 ? errno : fsync(fd) || unlink(marker) || fsync(fd) ? errno : 0;
+                if (fd >= 0) close(fd);
+                if (code) {
+                    int marker_fd = open(marker, O_CREAT | O_WRONLY, 0600);
+                    if (marker_fd >= 0) {fsync(marker_fd); close(marker_fd);}
+                    pgm_status closed = pgm_instance_close(instance, PGM_SHUTDOWN_FAST, 10000, NULL);
+                    if (closed) abort(); /* Fatal cleanup owns the live module. */
+                    status = PGM_STATUS_IO_ERROR; bridge_message = "Could not commit restored storage";
+                } else restoring = false;
+            }
+            if (!status) {
+                free(database_path); database_path = strdup(path);
+                archive_ready = false;
+                publish(&payload, slot, INSTANCE, NULL, instance);
+            }
             else if (storage) {
                 // Roll back the mount owned by this OPEN. The control Worker
                 // still sends STOP to join the driver and release its Web Lock.
@@ -586,6 +636,7 @@ static bool command(void)
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
         status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
         if (!status) {
+            archive_ready = true;
             pgm_event_free(pending_event); pending_event = NULL;
             event_notified = false;
             retire(h);
@@ -673,9 +724,19 @@ static bool command(void)
         if (r.offset != r.size) {r.failed = true; break;}
         status = marshal_events(&payload, &error);
         break;
+    case ARCHIVE_READ:
+    case ARCHIVE_WRITE: {
+        int code = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind) code = EBUSY;
+        if (!code) code = op == ARCHIVE_READ ?
+            (r.offset == r.size ? archive_read(&payload) : EINVAL) : archive_write(&r);
+        if (code) {status = PGM_STATUS_IO_ERROR; bridge_message = strerror(code);}
+        break;
+    }
     case STOP:
         if (r.offset != r.size) { r.failed = true; break; }
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind) status = PGM_STATUS_BUSY;
+        if (!status) archive_reset();
         if (!status && postgamma_wasm_storage_close()) {
             status = PGM_STATUS_IO_ERROR; bridge_message = "OPFS storage close failed";
         }

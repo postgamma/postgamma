@@ -36,9 +36,9 @@ const report = {
   repetitions: Number(values.repetitions || 0),
   completedIterations: 0,
 };
-if (!Number.isSafeInteger(report.timeoutMs) || report.timeoutMs < 1 || report.timeoutMs > 120000)
+if (!Number.isSafeInteger(report.timeoutMs) || report.timeoutMs < 1 || report.timeoutMs > 600000)
   throw new Error('Invalid browser case timeout');
-if (!Number.isSafeInteger(report.initialTimeoutMs) || report.initialTimeoutMs < report.timeoutMs || report.initialTimeoutMs > 180000)
+if (!Number.isSafeInteger(report.initialTimeoutMs) || report.initialTimeoutMs < report.timeoutMs || report.initialTimeoutMs > 600000)
   throw new Error('Invalid browser initial fixture timeout');
 if (!Number.isSafeInteger(report.repetitions) || report.repetitions < 0 || report.repetitions > 100)
   throw new Error('Invalid browser repetition count');

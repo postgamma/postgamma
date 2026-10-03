@@ -188,12 +188,20 @@ self.onmessage = ({data}) => {
     const sequence = request.u32(), op = request.u32();
     currentCommand = {sequence, op, bytes: data.byteLength, started: performance.now(), phase: 'prepare'};
     if (!kernel) {
-      if (op !== Op.open) throw new Error('Instance must be opened first');
+      if (op !== Op.open && op !== Op.restoreOpen) throw new Error('Instance must be opened first');
       request.u32(); request.u32(); request.text();
       const storage = request.u32(), name = request.text(); request.text();
       samplingIntervalMs = request.u32(); request.end();
       if (samplingIntervalMs > 60000) throw new Error('Invalid diagnostic sampling interval');
-      if (storage === 1) {currentCommand.phase = 'storage-ownership'; ownership = await acquire(name!);}
+      if (storage === 1) {
+        currentCommand.phase = 'storage-ownership'; ownership = await acquire(name!);
+        if (op === Op.restoreOpen) {
+          const root = await navigator.storage.getDirectory();
+          const databases = await root.getDirectoryHandle('postgamma', {create: true});
+          try {await databases.getDirectoryHandle(name!); throw new Error('Restore requires a new OPFS database name');}
+          catch (error) {if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error;}
+        }
+      }
       kernel = startKernel();
     }
     currentCommand.phase = 'load-kernel';
@@ -201,14 +209,14 @@ self.onmessage = ({data}) => {
     currentCommand.phase = 'native-exchange';
     const reply = await exchange(module, data, stopped.signal);
     currentCommand.phase = 'reply';
-    if (op === Op.open) ioStackBytes = module._postgamma_wasm_storage_stack_bytes();
+    if (op === Op.open || op === Op.restoreOpen) ioStackBytes = module._postgamma_wasm_storage_stack_bytes();
     sample();
-    if (op === Op.open && new DataView(reply).getUint32(12, true) !== 0) {
+    if ([Op.open, Op.restoreOpen, Op.restoreFinish].includes(op as 1 | 20 | 23) && new DataView(reply).getUint32(12, true) !== 0) {
       const stoppedReply = await exchange(module, new Writer().u32(VERSION).u32(sequence).u32(Op.stop).finish());
       try {response(stoppedReply, sequence, Op.stop).end();}
       catch (teardownError) {
         let openingError: unknown;
-        try {response(reply, sequence, Op.open);}
+        try {response(reply, sequence, op);}
         catch (cause) {openingError = cause;}
         const detail = openingError instanceof DatabaseError ? openingError.diagnostics[3] : null;
         throw new Error([String(openingError), detail, 'Startup teardown failed: ' + String(teardownError)]

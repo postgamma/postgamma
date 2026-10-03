@@ -8,6 +8,17 @@ export type {Result, Column} from '../codecs/results.js';
 import {limits} from '../protocol/limits.js';
 import {assets, verifiedAsset} from '../loader/assets.js';
 import {Readiness} from '../protocol/readiness.js';
+import {buildId} from '../loader/identity.js';
+import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
+export interface ArchiveOptions {signal?: AbortSignal}
+export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
+const archiveHeader = () => new TextEncoder().encode(JSON.stringify({format: 'postgamma.archive', version: 1, buildId}));
+function openMessage(w: Writer, options: OpenOptions) {
+  w.u32(options.create === false ? 0 : 1).u32(options.workers ?? 4).text(options.path ?? '/database')
+    .u32(options.storage ? 1 : 0).text(options.storage?.name ?? '')
+    .text((options as {storageTestChannel?: string}).storageTestChannel ?? '')
+    .u32(options.diagnostics?.sampleIntervalMs ?? 0);
+}
 export interface OpenOptions {
   create?: boolean; path?: string; workers?: number;
   storage?: {type: 'opfs'; name: string};
@@ -177,8 +188,10 @@ export class Database {
   private closing = false;
   private nativeClosed = false;
   private closeWork: Promise<unknown> | undefined;
+  private archiveCancel: (() => Promise<unknown>) | undefined;
+  private archiveWork: Promise<ReadableStream<Uint8Array>> | undefined;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
-  static async open(options: OpenOptions = {}): Promise<Database> {
+  private static async createTransport(options: OpenOptions): Promise<Transport> {
     const interval = options.diagnostics?.sampleIntervalMs ?? 0;
     if (!Number.isInteger(interval) || interval < 0 || interval > 60000)
       throw new RangeError('sampleIntervalMs must be an integer from 0 to 60000');
@@ -187,14 +200,114 @@ export class Database {
     const manifest = await assets(base);
     if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
     await verifiedAsset(base, manifest, manifest.entries.worker);
-    const transport = new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}));
+    return new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}));
+  }
+  static async open(options: OpenOptions = {}): Promise<Database> {
+    const transport = await Database.createTransport(options);
     try {
-      const r = await transport.call(Op.open, undefined, w => w.u32(options.create === false ? 0 : 1)
-        .u32(options.workers ?? 4).text(options.path ?? '/database')
-        .u32(options.storage ? 1 : 0).text(options.storage?.name ?? '')
-        .text((options as {storageTestChannel?: string}).storageTestChannel ?? '').u32(interval));
+      const r = await transport.call(Op.open, undefined, w => openMessage(w, options));
       const handle = r.handle(); r.end(); return new Database(transport, handle);
     } catch (error) {transport.terminate(); throw error;}
+  }
+  /** Restore a complete archive from this exact asset build into a new target.
+   * Failed OPFS targets retain an incomplete marker and cannot be opened. */
+  static async loadDataDir(source: ReadableStream<Uint8Array>, options: RestoreOptions = {}): Promise<Database> {
+    const decoder = new ArchiveDecoder(source, options.signal);
+    let transport: Transport | undefined, prepared = false;
+    try {
+      const header = await decoder.frame(), expected = archiveHeader();
+      if (header.length !== expected.length || !header.every((b, i) => b === expected[i]))
+        throw new Error('Database archive format or build identity mismatch');
+      options.signal?.throwIfAborted();
+      transport = await Database.createTransport(options);
+      (await transport.call(Op.restoreOpen, undefined, w => openMessage(w, {...options, create: false}))).end();
+      prepared = true;
+      for (;;) {
+        const record = await decoder.frame(); options.signal?.throwIfAborted();
+        if (record.length < 4) throw new Error('Invalid database archive record');
+        const last = new DataView(record.buffer, record.byteOffset, record.byteLength).getUint32(0, true) === 0;
+        if (last) await decoder.end();
+        (await transport.call(Op.archiveWrite, undefined, w => w.raw(record))).end();
+        if (last) break;
+      }
+      options.signal?.throwIfAborted();
+      // The Worker owns teardown if native startup rejects a complete image.
+      prepared = false;
+      const r = await transport.call(Op.restoreFinish, undefined, w => openMessage(w, {...options, create: false}));
+      const handle = r.handle(); r.end();
+      return new Database(transport, handle);
+    } catch (error) {
+      if (prepared && transport) {
+        try {(await transport.call(Op.stop)).end();} catch { /* Worker fatal cleanup owns failed storage. */ }
+      }
+      transport?.terminate(); throw error;
+    } finally {await decoder.close();}
+  }
+  /** Close an idle database and stream its complete data directory. Reading
+   * to EOF, cancelling the stream or close() releases its storage ownership. */
+  dumpDataDir(options: ArchiveOptions = {}): Promise<ReadableStream<Uint8Array>> {
+    if (this.archiveWork) return Promise.reject(new Error('Archive is already in progress'));
+    const work = this.createArchive(options);
+    this.archiveWork = work;
+    void work.catch(() => {this.archiveWork = undefined;});
+    return work;
+  }
+  private async createArchive(options: ArchiveOptions): Promise<ReadableStream<Uint8Array>> {
+    if (this.closing || this.starting.size) throw new Error('Archive requires an idle database');
+    options.signal?.throwIfAborted();
+    this.closing = true;
+    const frozen: Connection[] = [];
+    try {
+      for (const connection of this.connections) {connection.freezeForArchive(true); frozen.push(connection);}
+      for (const connection of frozen) {
+        const status = await connection.status();
+        if (status.transaction !== 0 || status.requestId !== 0n) throw new Error('Archive requires no active transactions or requests');
+      }
+      options.signal?.throwIfAborted();
+    } catch (error) {
+      for (const connection of frozen) connection.freezeForArchive(false);
+      this.closing = false; throw error;
+    }
+    await this.finishClose(true);
+    const resources = (this.transport.metrics as {resources?: unknown})?.resources;
+    const encoder = new ArchiveEncoder(); let first = true, finished = false;
+    let stopping: Promise<unknown> | undefined;
+    const stop = () => stopping ??= (async () => {
+      finished = true; options.signal?.removeEventListener('abort', abort);
+      try {(await this.transport.call(Op.stop)).end();}
+      finally {this.transport.terminate();}
+      this.transport.metrics = {...this.transport.metrics as object, resources,
+        peakHostQueuedBytes: this.transport.peakHostQueuedBytes};
+      return this.transport.metrics;
+    })();
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const abort = () => {controller.error(options.signal?.reason); void stop().catch(() => {});};
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {controller = value;},
+      pull: async value => {
+        if (finished) return;
+        try {
+          options.signal?.throwIfAborted();
+          if (first) {first = false; value.enqueue(await encoder.frame(archiveHeader())); return;}
+          const r = await this.transport.call(Op.archiveRead), record = r.rest();
+          const last = new DataView(record.buffer, record.byteOffset, record.length).getUint32(0, true) === 0;
+          const bytes = await encoder.frame(record);
+          if (last) await stop();
+          if (!options.signal?.aborted) {value.enqueue(bytes); if (last) value.close();}
+        } catch (error) {value.error(error); await stop();}
+      },
+      cancel: async () => {await stop();},
+    }, {highWaterMark: 0});
+    this.archiveCancel = async () => {controller.error(new ClosedError()); return stop();};
+    options.signal?.addEventListener('abort', abort, {once: true});
+    if (options.signal?.aborted) abort();
+    return stream;
+  }
+  /** A clone closes the source, then restores its stream into a new target. */
+  async clone(options: RestoreOptions = {}): Promise<Database> {
+    const archive = await this.dumpDataDir({signal: options.signal});
+    try {return await Database.loadDataDir(archive, options);}
+    finally {await this.close();}
   }
   async connect(name = 'postgamma-wasm'): Promise<Connection> {
     if (this.closing) throw new ClosedError();
@@ -228,6 +341,11 @@ export class Database {
       pinned: r.u64(), runnable: r.u64(), queued: r.u64(), rejections: r.u64()}; r.end(); return t;
   }
   close(): Promise<unknown> {
+    if (this.archiveCancel) return this.archiveCancel();
+    if (this.archiveWork) return this.archiveWork.then(() => this.close(), () => this.finishClose(false));
+    return this.finishClose(false);
+  }
+  private finishClose(preserveStorage: boolean): Promise<unknown> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
     this.closeWork = (async () => {
@@ -246,9 +364,11 @@ export class Database {
         resources = {locks: r.u32(), shmem: r.u32(), dsm: r.u32(), pipes: r.u32()}; r.end();
         if (Object.values(resources).some(count => count !== 0)) throw new Error('Native resources remain after close');
       } catch (error) {failures.push(error);}
-      try {(await this.transport.call(Op.stop)).end();}
-      catch (error) {failures.push(error);}
-      finally {this.transport.terminate();}
+      if (!preserveStorage || failures.length) {
+        try {(await this.transport.call(Op.stop)).end();}
+        catch (error) {failures.push(error);}
+        finally {this.transport.terminate();}
+      }
       this.transport.metrics = {...this.transport.metrics as object, resources,
         peakHostQueuedBytes: this.transport.peakHostQueuedBytes};
       if (failures.length === 1) throw failures[0];
@@ -275,6 +395,13 @@ export class Connection {
   private requests = new Set<Request>();
   private starting = new Set<Promise<Request>>();
   private closing = false;
+  private archiveFrozen = false;
+  /** @internal Admission is frozen synchronously before archive status checks. */
+  freezeForArchive(frozen: boolean) {
+    if (frozen && (this.closing || this.requests.size || this.starting.size || this.queuedQueries))
+      throw new Error('Archive requires no active transactions or requests');
+    this.archiveFrozen = frozen;
+  }
   private closeWork: Promise<void> | undefined;
   private onClosed: () => void;
   constructor(transport: Transport, handle: Handle, onClosed: () => void) {
@@ -297,7 +424,7 @@ export class Connection {
     return this.start(Op.script, w => w.text(sql).u32(options.chunkRows ?? 0));
   }
   private async start(op: number, write: (writer: Writer) => void): Promise<Request> {
-    if (this.closing) throw new ClosedError();
+    if (this.closing || this.archiveFrozen) throw new ClosedError();
     const work = this.transport.call(op, this.handle, write).then(r => {
       const h = r.handle(); r.end();
       const request = new Request(this.transport, h, () => this.requests.delete(request));
@@ -325,7 +452,7 @@ export class Connection {
     return this.transport.subscribe(this.handle, {notify, error: onError});
   }
   private collect(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
-    if (this.closing) return Promise.reject(new ClosedError());
+    if (this.closing || this.archiveFrozen) return Promise.reject(new ClosedError());
     if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
     let bytes = utf8Length(sql) + 64;
     for (const p of options.parameters ?? [])

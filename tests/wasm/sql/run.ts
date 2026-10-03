@@ -16,6 +16,7 @@ import {controlProgress, controlTimeout, connectProgress, connectReservation} fr
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
+import {archive} from '../storage-tests/archive.js';
 import {storageBudget} from '../storage-tests/budget.js';
 import {loadVector} from '../vector-tests/load.js';
 import {vectorQueries} from '../vector-tests/query.js';
@@ -64,6 +65,7 @@ async function abi(db: Database) {
 try {
   const metrics: unknown[] = [];
   if (scenario === 'storage') await storage(checks, metrics);
+  else if (scenario === 'archive') await archive(checks, metrics);
   else if (scenario === 'durability') await durability(checks, metrics);
   else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
   else if (scenario === 'vector-storage') await vectorStorage(checks, metrics);

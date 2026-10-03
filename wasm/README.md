@@ -141,9 +141,18 @@ cancellation and reuse. The 128 MiB single-value expectation remains outside
 the 16 MiB value contract; this is not evidence of GiB-scale capacity.
 The MessageContext regression retains all 300
 100 KiB inserts and its original 5 MiB bound, and is not a browser VM leak test.
-Unsupported extensions, XML, live queries, archive/clone APIs, JS formatting,
+Unsupported extensions, XML, live queries, JS formatting,
 custom codecs, startup options, Node/Deno wrappers and IndexedDB are outside
 this migration. Linux WebKit coverage does not replace Safari/iOS testing.
+
+Complete database transfer has a separate `make wasm-archive-check` gate in
+Chromium, Firefox and Linux WebKit, also included in `wasm-check-full`.
+`Database.dumpDataDir()`, `Database.loadDataDir()` and `Database.clone()` use
+bounded streams and an exact asset-build identity. Export closes an idle source;
+restore requires a new destination and verifies a complete chained-checksum
+archive before starting PostgreSQL. The gate covers ephemeral/OPFS transfers,
+indexes, sequences, large objects, pgvector, invalid input and cancellation.
+See [the package API contract](PACKAGE_README.md) for lifecycle and format limits.
 
 Use `WASM_PGLITE_ENGINES=chromium WASM_PGLITE_STORAGE=ephemeral` with
 `wasm-pglite-check` for a targeted run. The full release gate fixes all six
@@ -493,7 +502,7 @@ supervisor acknowledges completion. Release discards at most one result or
 startup uses CONNECT begin/poll with a reserved connection and carrier slot.
 Startup output is staged within 64 KiB and transferred in bounded pieces;
 failure or deadline expiry retires the ticket and backend before releasing
-the reservation. The private byte protocol is version 6.
+the reservation. The private byte protocol is version 7.
 
 The three-engine lifecycle matrix includes `control-progress`,
 `control-timeout` and `connect-progress`: cross-connection SQL/cancel,

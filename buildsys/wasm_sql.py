@@ -129,7 +129,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                         continue
                     # OPFS initialization uses the storage fixture envelope.
                     # Failure scenarios separately bound recovery to 30 seconds.
-                    timeout = 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
+                    timeout = 300000 if name == "archive" else 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
                         "storage", "durability", "storage-errors", "close-audit", "open-failed", "fatal-opfs-trap", "fatal-opfs-abort", "diagnostics", "capacity") else 30000
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
                                           url + "?scenario=" + name + ("&extension=pgvector" if builder.extensions else ""), timeout_ms=timeout)

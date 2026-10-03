@@ -1,9 +1,10 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {limits} from './limits.js';
-export const VERSION = 6;
+export const VERSION = 7;
 export const LIMIT = limits.commandBytes;
 export const Op = {open: 1, connect: 2, execute: 3, next: 4, release: 5, disconnect: 6,
-  close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11, copyRead: 12, copyWrite: 13, copyFinish: 14, copyClose: 15, copyAbort: 16, connectPoll: 17, script: 18, events: 19} as const;
+  close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11, copyRead: 12, copyWrite: 13, copyFinish: 14, copyClose: 15, copyAbort: 16, connectPoll: 17, script: 18, events: 19,
+  restoreOpen: 20, archiveRead: 21, archiveWrite: 22, restoreFinish: 23} as const;
 export interface Handle {kind: number; id: number; generation: number}
 export class Writer {
   private parts: Uint8Array[] = [];
@@ -49,6 +50,7 @@ export class Reader {
   text(): string | null {const value = this.blob(); return value === null ? null : new TextDecoder('utf-8', {fatal: true}).decode(value);}
   handle(): Handle {return {kind: this.u32(), id: this.u32(), generation: this.u32()};}
   get byteLength(): number {return this.buffer.byteLength;}
+  rest(): Uint8Array {const bytes = new Uint8Array(this.buffer, this.offset); this.offset = this.buffer.byteLength; return bytes;}
   end(): void {if (this.offset !== this.buffer.byteLength) throw new Error('Trailing wire data');}
 }
 export class DatabaseError extends Error {

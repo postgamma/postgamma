@@ -127,7 +127,13 @@ try {
     } else {
       assert(scalar(await c.query("SELECT to_regclass('package_rows')::text")) === null, 'Fresh ephemeral database');
     }
-    await c.close(); metrics.push(await again.close());
+    await c.close();
+    stage('archive');
+    const clone = await again.clone(); metrics.push(await again.close());
+    const copied = await clone.connect();
+    assert(persistent ? scalar(await copied.query('SELECT count(*) FROM package_rows')) === '1' :
+      scalar(await copied.query("SELECT to_regclass('package_rows')::text")) === null, 'Installed archive/restore/clone API');
+    await copied.close(); metrics.push(await clone.close()); checks.push('archive-api');
     checks.push(persistent ? 'opfs-reopen-relocated-assets' : 'ephemeral-reopen-relocated-assets');
     assert(metrics.every(m => m.peakThreads <= 13 && m.peakMemory <= 536870912 &&
       m.returnedWorkers === 13 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');

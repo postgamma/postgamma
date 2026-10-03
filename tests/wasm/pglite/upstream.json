@@ -47,7 +47,7 @@
       "path": "packages/pglite/tests/clone.test.js",
       "sha256": "c935ea7c6d14e55e7bf145113f2ed1de11cfa59221cfb6d03dc0b8f7f17577b3",
       "status": "not-applicable",
-      "reason": "No clone API; independent modules and OPFS reopen have separate PostGamma tests.",
+      "reason": "PGlite keeps the source open when cloning. PostGamma closes an idle source; same-build streaming clones, independent writes and OPFS reopen are covered separately by wasm-archive-check.",
       "cases": []
     },
     {
@@ -70,7 +70,7 @@
       "path": "packages/pglite/tests/dump.test.js",
       "sha256": "69fff6e18a28511e08dee4e7943c75bce866868b49d4d35d84201e163004b5fc",
       "status": "not-applicable",
-      "reason": "No dumpDataDir/loadDataDir archive API.",
+      "reason": "PGlite tar/compression options differ from the bounded PostGamma archive format. Complete ephemeral/OPFS dumpDataDir/loadDataDir roundtrips, corruption and cancellation are covered separately by wasm-archive-check.",
       "cases": []
     },
     {

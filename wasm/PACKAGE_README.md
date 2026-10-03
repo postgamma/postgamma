@@ -47,6 +47,31 @@ files to 16 MiB together. Existing preview databases upgrade when opened;
 the migration needs room for one additional snapshot of at most 5 MiB.
 Older builds cannot open the upgraded storage format.
 
+`await db.dumpDataDir()` closes an idle database and returns a
+`ReadableStream<Uint8Array>` containing its complete physical data directory.
+Active requests and transactions reject the operation, leaving the database
+usable. Consume the stream to EOF, cancel it, or call `db.close()` to release
+the remaining storage ownership. Pipe it directly to a writable destination to
+keep transfer memory bounded. Records contain at most 256 KiB of file data and
+are protected by chained SHA-256 checksums and a required end record.
+
+```ts
+const archive = await db.dumpDataDir(); // closes the source
+const restored = await Database.loadDataDir(archive, {
+  storage: {type: 'opfs', name: 'documents-copy'},
+});
+// Alternatively: const restored = await db.clone({storage: ...});
+```
+
+Restore accepts a stream, for example `file.stream()` or a fetch response body.
+Both operations accept an `AbortSignal`. The archive must come from the exact
+same asset `buildId`, including extensions; it is not a cross-version upgrade
+format. Restore requires a new OPFS name, or a new ephemeral module, and never
+overwrites an existing database. Failed OPFS restores retain an incomplete
+marker and cannot be opened; use a new name for a later attempt. `clone()` also
+closes the source and streams into the new database. External tablespaces and
+symbolic links are not supported by the archive format.
+
 Four independent connections share the instance. A connection serializes
 `query()` and `exec()` calls; different connections run concurrently. `exec()`
 uses PostgreSQL script transaction semantics and accepts multiple statements;
