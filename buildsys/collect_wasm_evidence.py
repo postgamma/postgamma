@@ -15,9 +15,9 @@ def selected(path):
     if any(part in ('node_modules', 'objects', 'profile', 'package', 'site', 'generated', 'postgres-build', 'capture-build') or
            part.startswith(('consumer-', 'browser-profile')) for part in parts):
         return False
-    if path.suffix not in ('.json', '.log'):
+    if path.suffix not in ('.json', '.jsonl', '.log'):
         return False
-    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'lifecycle', 'pglite', 'doctor', 'upstream'}) or path.name == 'inputs.json'
+    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'lifecycle', 'pglite', 'archive', 'contrib', 'soak', 'doctor', 'upstream'}) or path.name == 'inputs.json'
 
 
 def collect(build, output):

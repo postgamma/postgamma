@@ -10,7 +10,7 @@ try {
   await cp(resolve(process.argv[2]), directory, {recursive: true});
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
   await writeFile(join(directory, 'loader/assets.js'),
-    'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js"}}); export const verifiedAsset = async () => {};');
+    'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
   const {Database} = await import(pathToFileURL(join(directory, 'api/database.js')));
   const {Op, VERSION, Writer} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   globalThis.location = {href: 'https://example.invalid/'};
@@ -19,6 +19,7 @@ try {
     terminated = 0; commands = []; discards = [];
     constructor() {worker = this;}
     postMessage(data) {
+      if (data.postgammaPthreadBroker) return;
       if (data.discard) {this.discards.push(data.discard); return;}
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
       this.commands.push(op);
@@ -41,14 +42,17 @@ try {
   assert.equal(worker.terminated, 0, 'Keep the control Worker alive until cleanup is acknowledged');
   assert.equal(settled, 0, 'Pending and new operations do not expose failure before cleanup');
   assert.deepEqual(worker.commands, [Op.open, Op.telemetry], 'Stop admitting native commands during retirement');
-  worker.onmessage({data: {fatal: 'Worker cleanup finished', metrics: {storageReleased: true}}});
+  const cleanupReply = worker.onmessage;
+  cleanupReply({data: {fatal: 'Worker cleanup finished', metrics: {storageReleased: true}}});
   const outcomes = await Promise.all([original, later]);
   assert(outcomes.every(error => error instanceof Error));
   assert.equal(outcomes[0].cause.message, 'Worker cleanup finished', 'Retain cleanup diagnostics alongside the initiating error');
   assert.equal(settled, 2);
   assert.equal(worker.terminated, 1);
   assert.equal(db.diagnostics().storageReleased, true);
-  worker.onmessage({data: {fatal: 'duplicate'}});
+  assert.equal(db.transport.worker, undefined, 'A retained closed handle releases its native Worker reference');
+  assert.equal(worker.onmessage, null, 'Retirement releases the Worker callback and transport cycle');
+  cleanupReply({data: {fatal: 'duplicate'}});
   assert.equal(worker.terminated, 1, 'Retirement is idempotent');
   console.log('Transport retirement: admission stops immediately; rejection waits for storage cleanup');
 } finally {await rm(directory, {recursive: true, force: true});}

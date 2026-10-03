@@ -22,7 +22,9 @@ def generate_policy(root: Path, output: Path, policy: dict) -> None:
     (output / 'wasm-sql-policy.h').write_text(header)
     module = output / 'site/src/protocol/limits.js'
     module.parent.mkdir(parents=True, exist_ok=True)
-    module.write_text('export const limits = Object.freeze(' + json.dumps(limits, sort_keys=True) + ');\n')
+    pool = sum(role['count'] for role in policy['thread_roles'])
+    module.write_text('export const limits = Object.freeze(' + json.dumps(limits, sort_keys=True) + ');\n'
+                      + f'export const pthreadPoolSize = {pool};\n')
 
 
 def summarize(policy: dict, layout: dict, browsers: dict, mode: str) -> dict:

@@ -6,6 +6,28 @@
 // Doctor and kernel linking verify the reviewed SDK files recorded in
 // manifests/profiles/wasm-sdk-contract.json before accepting this override.
 addToLibrary({
+  // Preserve the pinned SDK implementation, including its dependency graph.
+  // A queued self-notification can outlive terminateAllThreads(): it must not
+  // acquire a native mailbox/proxy mutex left behind by a discarded pthread.
+  $checkMailbox__postset: `
+    var postgammaLiveMailbox = checkMailbox;
+    checkMailbox = () => {
+      if (!globalThis.postgammaNativeRetired && !globalThis.postgammaStorageRetired)
+        postgammaLiveMailbox();
+    };
+    if (ENVIRONMENT_IS_PTHREAD) {
+      globalThis.addEventListener('message', ({data, ports}) => {
+        if (data?.postgammaRetirePthread !== true || !ports[0]) return;
+        // This task proves the failed native entry point and its error
+        // propagation returned to the thread's own JS event loop.
+        globalThis.postgammaNativeRetired = true;
+        globalThis.onmessage = () => {};
+        ports[0].postMessage({retired: true});
+        ports[0].close();
+        globalThis.close();
+      });
+    }
+  `,
   _emscripten_thread_mailbox_await: (pthread) => {},
   // Read only while the control Worker still owns this live PThread entry.
   // The pinned wasm32 pthread layout ends in the atomic wait_addr member;

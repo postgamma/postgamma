@@ -34,6 +34,10 @@ class WasmCITests(unittest.TestCase):
                      'wasm/lifecycle/run/firefox-fatal-opfs-abort/browser.json',
                      'wasm/lifecycle/run/webkit-fatal-opfs-trap/browser.log',
                      'wasm/pglite/run/firefox-opfs/browser.json',
+                     'wasm/archive/run/chromium/browser.json',
+                     'wasm/contrib/run/webkit/browser.json',
+                     'wasm/soak/run/chromium/browser.events.jsonl',
+                     'wasm/soak/run/chromium/browser.resources.jsonl',
                      'wasm/upstream/run/report.json',
                      'wasm/upstream/run/project/build/wasm/ci/run/generation.log'):
             self.assertTrue(selected(Path(path)), path)
@@ -59,6 +63,8 @@ class WasmCITests(unittest.TestCase):
         self.assertLess(names.index('pglite'), names.index('storage'))
         self.assertLess(names.index('storage'), names.index('lifecycle'))
         self.assertLess(names.index('lifecycle'), names.index('package'))
+        self.assertLess(names.index('lifecycle'), names.index('soak-smoke'))
+        self.assertLess(names.index('soak-smoke'), names.index('package'))
 
     def test_keep_going_retains_test_failure_and_runs_independent_gates(self):
         with tempfile.TemporaryDirectory() as temporary:

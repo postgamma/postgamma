@@ -5,6 +5,7 @@ import type {SqlModule} from '../bindings/sql.js';
 import {DatabaseError, LIMIT, Op, Reader, VERSION, Writer, response} from '../protocol/wire.js';
 import {limits} from '../protocol/limits.js';
 import {acquire} from '../storage/ownership.js';
+import {installPthreadBroker} from '../runtime/pthreads.js';
 const output: string[] = [];
 let droppedLogs = 0;
 function record(text: string) {
@@ -66,22 +67,57 @@ function sample() {
   peakThreads = Math.max(peakThreads, Object.keys(loaded.PThread.pthreads).length);
 }
 let sampler: ReturnType<typeof setInterval> | undefined;
-async function fail(error: unknown) {
+function retirePthread(worker: Worker, label: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const channel = new MessageChannel();
+    let settled = false;
+    const done = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer); channel.port1.close();
+      if (error) {worker.terminate(); reject(error);}
+      else resolve();
+    };
+    const timer = setTimeout(() => done(new Error(label + ' retirement timed out')), 5000);
+    channel.port1.onmessage = ({data}) => done(data?.retired === true ? undefined : new Error('Invalid pthread retirement acknowledgement'));
+    try {worker.postMessage({postgammaRetirePthread: true}, [channel.port2]);}
+    catch (cause) {channel.port2.close(); done(new Error(label + ' retirement: ' + String(cause)));}
+  });
+}
+async function fail(error: unknown, faultingWorker?: Worker) {
   if (failed) return;
   sample(); clearInterval(sampler);
+  // Queued SDK mailbox timers must never enter native locks after their
+  // owners are terminated. The I/O owner has its own retirement barrier.
+  Object.assign(globalThis, {postgammaNativeRetired: true});
+  // Stop every SDK entry path, including cleanupThread/free and relayed
+  // proxy requests. OPFS quiescence/close uses the independent MessagePort.
+  for (const worker of new Set([...(loaded?.PThread.unusedWorkers ?? []), ...Object.values(loaded?.PThread.pthreads ?? {})]))
+    worker.onmessage = () => {};
   failed = true; stopped.abort();
   const interruptedWorkers = loaded ? Object.keys(loaded.PThread.pthreads).length : null;
   // Quiesce the I/O owner's native callbacks before killing their callers:
   // an in-progress completion could otherwise wait on a killed thread's lock.
   // Keep the owner alive until its physical handles are closed.
   const owner = storageWorker, port = storagePort;
+  let crashedWorkerRetired: boolean | null = faultingWorker ? false : null;
+  let retireCrashed: Promise<void> | undefined;
   let callersStopped = false;
   const stopCallers = () => {
     if (callersStopped) return;
     callersStopped = true;
-    if (loaded && owner) {
+    if (loaded) {
       for (const [id, worker] of Object.entries(loaded.PThread.pthreads))
-        if (worker === owner) delete loaded.PThread.pthreads[id];
+        if (worker === owner || worker === faultingWorker) delete loaded.PThread.pthreads[id];
+      loaded.PThread.unusedWorkers = loaded.PThread.unusedWorkers.filter(worker => worker !== owner && worker !== faultingWorker);
+    }
+    if (faultingWorker && faultingWorker !== owner) {
+      // Error reporting and Worker termination are asynchronous browser
+      // tasks. The failed thread confirms it returned to JS and closes its
+      // own scope, before its parent control Worker can be terminated.
+      retireCrashed = retirePthread(faultingWorker, 'Failed pthread').then(() => {crashedWorkerRetired = true;});
+      // Record rejection immediately; the I/O owner can still be draining.
+      void retireCrashed.catch(() => {});
     }
     loaded?.PThread.terminateAllThreads();
   };
@@ -108,23 +144,38 @@ async function fail(error: unknown) {
     }
   } catch (cause) {failure += '; ' + String(cause);}
   finally {
-    stopCallers(); owner?.terminate(); port?.close();
+    stopCallers();
+    // A released I/O owner closes its own scope. Force termination only when
+    // its close acknowledgement failed; avoid racing two shutdown owners.
+    if (!storageReleased) owner?.terminate();
+    port?.close();
     storageWorker = undefined; storagePort = undefined;
   }
+  try {await retireCrashed;}
+  catch (cause) {failure += '; ' + String(cause);}
+  if (faultingWorker === owner) crashedWorkerRetired = storageReleased;
+  // Yield after the JS retirement receipts before releasing ownership.
+  // Native entry points are gated; physical browser Worker disappearance is
+  // independently checked by the endurance harness, not implied by this turn.
+  await tick();
   try {await release?.();}
   catch (cause) {failure += '; ownership release failed: ' + String(cause);}
   postMessage({fatal: failure, output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
-    ioStackBytes, storageQuiesced, storageReleased, closedStorageHandles,
+    ioStackBytes, storageQuiesced, storageReleased, closedStorageHandles, crashedWorkerRetired,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
-  self.close();
+  // The transport terminates this control Worker after consuming the cleanup
+  // receipt. Keep one owner for termination, as on the orderly shutdown path.
 }
 self.addEventListener('error', event => {event.preventDefault(); fail(event.message);});
 self.addEventListener('unhandledrejection', event => {event.preventDefault(); fail(event.reason);});
 let kernel: Promise<SqlModule> | undefined;
+// A pthread's onAbort proxy reaches us before the SDK registers its crash.
+// Its error event arrives after that bookkeeping; retire from that event.
+// Main-thread/initialization failures reject the loader or command promise.
 function startKernel() {return loadKernel({print: record, printErr: text => {
   record(text); console.error(text.slice(0, limits.logLineCharacters));
-}, onAbort: fail}).then(value => {
+}}).then(value => {
   const module = value as SqlModule;
   loaded = module;
   // The strict SDK pool is fully created before loadKernel resolves. Own its
@@ -133,7 +184,7 @@ function startKernel() {return loadKernel({print: record, printErr: text => {
   for (const worker of new Set([...module.PThread.unusedWorkers, ...Object.values(module.PThread.pthreads)])) {
     worker.onerror = event => {
       event.preventDefault();
-      void fail(event.error ?? event.message);
+      void fail(event.error ?? event.message, worker);
     };
   }
   module.postgammaStorageOwner = worker => {
@@ -165,17 +216,30 @@ async function dispose(module: SqlModule) {
   while (Object.keys(module.PThread.pthreads).length) await tick();
   const returnedWorkers = module.PThread.unusedWorkers.length;
   sample(); clearInterval(sampler);
+  // In the pinned SDK, native exit clears pthread_self before publishing
+  // DT_EXITED, and pool return clears the Worker mapping before freeing the
+  // pthread data. All native owners have exited; terminate their idle Workers
+  // through the API owner, without another round of child acknowledgements.
+  Object.assign(globalThis, {postgammaNativeRetired: true});
+  const workers = module.PThread.unusedWorkers;
+  for (const worker of workers) worker.onmessage = () => {};
   module.PThread.terminateAllThreads();
   await ownership?.(); ownership = undefined;
   return {peakMemory, peakThreads, peakPending, peakQueuedBytes, samples, periodicSamples, samplingIntervalMs,
-    ioStackBytes,
+    ioStackBytes, terminationRequestedWorkers: workers.length,
     driverWakeCount: module._postgamma_wasm_wake_count(), droppedLogs, returnedWorkers,
     runningWorkers: Object.keys(module.PThread.pthreads).length, output};
 }
 let queue = Promise.resolve();
-self.onmessage = ({data}) => {
+let brokerInstalled = false;
+self.onmessage = ({data, ports}) => {
   if (failed) return;
+  if (data?.postgammaPthreadBroker === true) {
+    if (brokerInstalled || kernel || ports.length !== 1) {void fail(new Error('Invalid pthread Worker owner')); return;}
+    installPthreadBroker(ports[0]); brokerInstalled = true; return;
+  }
   if (data && typeof data.discard === 'string') {void fail(new Error(data.discard)); return;}
+  if (!brokerInstalled) {void fail(new Error('Pthread Worker owner must be installed before opening')); return;}
   if (!(data instanceof ArrayBuffer) || data.byteLength > LIMIT || ++pending > limits.maxPendingCommands || queuedBytes + data.byteLength > limits.workerQueueBytes) {
     fail(new Error('Invalid or excessive Worker messages')); return;
   }

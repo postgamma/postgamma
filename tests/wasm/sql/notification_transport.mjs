@@ -8,7 +8,7 @@ const directory = await mkdtemp(join(tmpdir(), 'pgm-notifications-'));
 try {
   await cp(resolve(process.argv[2]), directory, {recursive: true});
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
-  await writeFile(join(directory, 'loader/assets.js'), 'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js"}}); export const verifiedAsset = async () => {};');
+  await writeFile(join(directory, 'loader/assets.js'), 'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
   const {Database, Connection} = await import(pathToFileURL(join(directory, 'api/database.js')));
   const {Op, VERSION, Writer} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   const {limits} = await import(pathToFileURL(join(directory, 'protocol/limits.js')));
@@ -18,6 +18,7 @@ try {
     commands = []; terminated = false;
     constructor() {worker = this;}
     postMessage(data) {
+      if (data.postgammaPthreadBroker) return;
       assert(data instanceof ArrayBuffer);
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
       const command = {sequence, op}; this.commands.push(command);

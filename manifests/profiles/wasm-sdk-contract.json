@@ -3,6 +3,7 @@
   "emscripten_version": "6.0.9",
   "files": {
     "system/lib/pthread/thread_mailbox.c": "f38adb258e51e5ca91ced4e87d804676e0a59870665491a82c00fbfdc4bb4957",
+    "system/lib/pthread/pthread_create.c": "06e10210681c2f0b92c1e98f9185a4faabcd57f053e949c65ff9ad74b12b65cf",
     "src/lib/libpthread.js": "9b762d32a9473f720fe75f64a5bd56108a91654b9833cc8842553c631288d6a9",
     "src/runtime_pthread.js": "706a86c300b3ace58c2a31a7394ea322ff18a63266c0287493287199cf27635b",
     "system/include/emscripten/proxying.h": "a96305ebc27f9df0904f2fd113ef8cec22873e9c61bac4ddba7d65f5f37d86d7",
@@ -13,6 +14,10 @@
     "system/lib/pthread/emscripten_futex_wait.c": "c6ef85fa901a1fda7f23762eb808874675b5062cf0cf7a5cbaeaf646bf65de8e"
   },
   "invariants": [
+    "The SQL API owner creates the control and fixed pthread pool as sibling Workers. Before loading the module, the control installs MessagePort Worker facades that preserve SDK onmessage/onerror properties and transfer lists; the API owner bounds allocations and terminates the entire group on every retirement path.",
+    "Normal native exit completes cleanup and clears pthread_self before publishing DT_EXITED. After native joins and SDK pool return drain all pthread mappings, normal close terminates the idle pool without a second child acknowledgement; browser target gates independently verify physical reclamation.",
+    "The checkMailbox postset preserves SDK dispatch while live and gates queued callbacks before a fatal module or storage owner terminates native lock owners.",
+    "A failed pthread handles a private cmd-less retirement message on its own JS event loop, acknowledges through a MessagePort and closes its scope without native cleanup; its parent excludes it from terminateAllThreads and waits for that acknowledgement.",
     "A clear waiting_async flag selects SDK postMessage mailbox delivery, including pthread cancellation and reuse.",
     "ProxyingQueue.queue identifies the public C queue executed by emscripten_proxy_execute_queue on its target thread.",
     "Async proxy submission publishes work before notifying; duplicate notifications can observe an empty queue.",

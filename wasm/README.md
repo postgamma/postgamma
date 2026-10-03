@@ -89,6 +89,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
 | `make wasm-pglite-check WASM_MODE=release` | Run the pinned PGlite-derived cases in Chromium, Firefox and Linux WebKit, each with ephemeral and OPFS storage. Requires setup and `wasm-kernel-generate` for this mode. |
+| `make wasm-soak-test` | Prepare sources, SDK, browsers and a release build, then run the seeded mixed workload for two hours per browser (about six hours total). |
+| `make wasm-soak-check WASM_MODE=release` | Run the same endurance gate using an already prepared SDK and generated kernel. |
 | `make wasm-lifecycle-check` | Run connection close progress/deadline and OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
@@ -169,6 +171,81 @@ case stays failed and is never retried. Dependent close/reopen cases cannot be
 resumed this way; unfinished cases are listed explicitly. Separate regressions
 retain default materialized-result behavior and streaming after a prior
 collection-limit cancellation, even when a bounded streaming matrix passes.
+
+The mixed-load gate keeps four connections active against an OPFS database.
+Each seeded round combines committed updates, transactional DDL and savepoint
+error recovery, streaming COPY commit/rollback, LISTEN/NOTIFY and query
+cancellation. Every round checks all durable rows against a host-side model,
+checks rolled-back objects are absent and verifies zero outstanding native
+requests. Every 50 rounds it alternates clean close, Wasm trap and abort;
+recovery must preserve acknowledged commits and discard uncommitted changes.
+The SQL sequence is reproducible; native thread interleavings are not fixed.
+
+```sh
+# One command, including preparation; two hours in each of three browsers.
+make wasm-soak-test
+# Two hours in Chromium, or an eight-hour overnight run.
+make wasm-soak-test WASM_SOAK_ENGINES=chromium WASM_SOAK_SECONDS=7200
+make wasm-soak-test WASM_SOAK_ENGINES=chromium WASM_SOAK_SECONDS=28800
+# Reproduce a failing seed through a specified round (not duration evidence).
+make wasm-soak-test WASM_SOAK_ENGINES=chromium WASM_SOAK_SEED=20261003 WASM_SOAK_ROUNDS=150
+```
+
+Reports under `build/wasm/soak/<run>/` retain the seed, parameters, exact asset
+hashes, SQL/COPY event log, recovery counts and resource samples. The latest
+pointer is `build/wasm/reports/soak.json`. Each run serves its own frozen assets,
+so another test rebuilding the shared variant cannot change a reopened module.
+Failure snapshots include the active round and Worker wait state. Missing
+progress, incomplete duration, SQL/model mismatches and resource-budget failures
+fail the command; failed rounds are not silently retried.
+
+On this Linux runner, quiescent samples track browser process-tree RSS/PSS/SwapPss,
+threads, file descriptors, Wasm linear memory and OPFS handles. After a
+60-second warmup, medians of five samples at the beginning and end are compared against
+growth limits: 128 MiB for both RSS and anonymous/shared-memory PSS plus SwapPss
+(`WASM_SOAK_GROWTH_MIB`), 32 browser threads, 128 file descriptors and 8 virtual
+OPFS opens. Physical OPFS handles remain bounded at 63,
+Wasm threads at 13 and linear memory at 512 MiB. Growth comparisons use the same
+point before each reopen, after PostgreSQL's file cache has warmed; cold reopen
+samples are retained but are not compared to a warmed cache. Normal close must release all
+native locks/shared-memory/DSM/pipes and workers; fatal cleanup gates queued
+SDK mailbox/cleanup callbacks before terminating their native lock owners and
+must release the storage owner before immediate reopen. The parent transport
+owns control Worker termination after consuming its cleanup receipt, on both
+orderly and fatal paths. A faulting pthread acknowledges retirement from its
+own JS event loop and closes its scope; the control Worker waits for that
+acknowledgement and records timeouts as cleanup failures. Normal close waits
+for native joins and SDK pool return, then terminates every idle pthread before
+releasing storage ownership. The pinned SDK clears each thread's own pointer
+before publishing native exit. Worker termination counts record requests;
+the browser target checks independently verify physical reclamation. Growth limits are
+checked throughout the run, so a leak stops the workload early. Node driver
+RSS, heap and external buffers are recorded separately from the browser budget.
+These are regression budgets, not a
+proof of zero leaks; RSS includes shared pages more than once. Linux WebKit
+does not establish Safari/iOS behavior.
+Total PSS and file PSS are also recorded. File-backed shared code pages are
+apportioned across all host processes; another browser exiting can raise this
+run's PSS without a new allocation. The allocation trend therefore uses
+`Pss_Anon + Pss_Shmem + SwapPss`, while the RSS gate still includes resident
+file pages. Missing `/proc` components fail the measurement gate.
+The API owner creates the control Worker and all 13 pthread Workers as siblings;
+private MessagePorts preserve the SDK message interface. This avoids retained
+nested Workers during repeated browser teardown. The transport terminates the
+entire group after cleanup, including control failures and cleanup timeouts.
+Closed transports release their Worker references, callback properties and
+MessagePort listeners. Per-instance identities use URL fragments so all
+instances keep the same HTTP asset cache keys.
+The harness counts control and pthread Worker construction and termination independently
+of debugger targets. Retired targets must disappear within ten seconds;
+final close must leave no control or pthread target. These checks run before the
+memory warmup period has completed, catching early retained instances.
+
+`make wasm-test` and `make wasm-check-full` include a 120-second mixed workload
+in each browser. This short gate checks correctness and recovery; reports mark
+the resource trend as `not-run` if there are fewer than ten complete cycles after warmup. A
+duration run of at least 300 seconds requires that resource trend gate to pass.
+Run `wasm-soak-test` separately for endurance acceptance.
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
 two C function results. The harness also requires cross-origin isolation and
@@ -481,7 +558,10 @@ then drains outstanding browser I/O and closes physical OPFS handles without
 entering the failed Wasm module. Only its
 close acknowledgement permits an affirmative `storageReleased` diagnostic;
 cleanup errors and timeouts remain visible. Ownership release and host request
-rejection follow that cleanup attempt. The browser still does not provide a
+rejection follow that cleanup attempt. The faulting pthread independently
+acknowledges retirement through a private channel and closes its own scope.
+Its parent waits for that reply before completing fatal cleanup; it forces
+termination on timeout and reports `crashedWorkerRetired: false`. The browser still does not provide a
 synchronous VM termination acknowledgement. Abrupt Worker and browser crash
 tests bypass this cleanup path and independently exercise WAL recovery.
 

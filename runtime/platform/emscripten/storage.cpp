@@ -105,6 +105,11 @@ EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
           port.postMessage({released: true, handles});
         } catch (cause) {
           port.postMessage({released: false, error: String(cause)});
+        } finally {
+          // This owner has left native code and drained browser I/O. Close
+          // its own scope before the parent control Worker can be retired.
+          port.close();
+          globalThis.close();
         }
       };
     };

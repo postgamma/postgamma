@@ -26,7 +26,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         builder.modules()
         builder.product()
         builder.link(config.root / "wasm/bridge/sql.c",
-                     ("-DPOSTGAMMA_WASM_TESTING",) if action == "check" else ())
+                     ("-DPOSTGAMMA_WASM_TESTING",) if action == "check" or scenario == "soak" else ())
         site = builder.output / "site"
         report["site"] = str(site)
         sources = [(str(p.relative_to(config.root)), "src/" + str(p.relative_to(config.root / "wasm/src").with_suffix(".js")))
@@ -64,6 +64,15 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                 report["harness_sources"][str(origin.relative_to(config.root))] = digest(origin)
                 report["harness"][target] = digest(site / target)
         if action == "check":
+            pthread_test = "tests/wasm/sql/pthreads.mjs"
+            report["harness_sources"][pthread_test] = digest(config.root / pthread_test)
+            run([builder.tools["node"], str(config.root / pthread_test), str(site / "src")],
+                builder.current / "pthreads.log", builder.env, config.root)
+            mailbox_test = "tests/wasm/sql/retired_mailbox.mjs"
+            report["harness_sources"][mailbox_test] = digest(config.root / mailbox_test)
+            run([builder.tools["node"], str(config.root / mailbox_test),
+                 str(config.root / "runtime/platform/emscripten/mailbox.js")],
+                builder.current / "retired-mailbox.log", builder.env, config.root)
             if scenario.startswith("vector"):
                 check_source = "tests/wasm/vector/budget.mjs"
                 report["harness_sources"][check_source] = digest(config.root / check_source)

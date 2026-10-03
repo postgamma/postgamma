@@ -138,6 +138,28 @@ wasm-archive-check:
 wasm-contrib-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario contrib --engines "$(WASM_FEATURE_ENGINES)"
 
+.PHONY: wasm-soak-test wasm-soak-check wasm-soak-smoke
+WASM_SOAK_SECONDS ?= 7200
+WASM_SOAK_ENGINES ?= chromium,firefox,webkit
+WASM_SOAK_SEED ?= 20261003
+WASM_SOAK_ROUNDS ?= 0
+WASM_SOAK_REOPEN_EVERY ?= 50
+WASM_SOAK_GROWTH_MIB ?= 128
+wasm-soak-test:
+	@$(MAKE) source-init JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-setup JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-browser-setup JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-kernel-generate JOBS="$(WASM_TEST_JOBS)" WASM_MODE=release
+	@ulimit -Sn "$$(ulimit -Hn)" && $(MAKE) wasm-soak-check JOBS="$(WASM_TEST_JOBS)" WASM_MODE=release
+
+wasm-soak-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_soak.py" $(POSTGAMMA_WASM_ARGS) --engines "$(WASM_SOAK_ENGINES)" \
+		--seconds "$(WASM_SOAK_SECONDS)" --seed "$(WASM_SOAK_SEED)" --rounds "$(WASM_SOAK_ROUNDS)" \
+		--reopen-every "$(WASM_SOAK_REOPEN_EVERY)" --growth-mib "$(WASM_SOAK_GROWTH_MIB)"
+
+wasm-soak-smoke:
+	@$(MAKE) wasm-soak-check WASM_SOAK_SECONDS=120 WASM_SOAK_ROUNDS=0 WASM_SOAK_ENGINES=chromium,firefox,webkit
+
 .PHONY: wasm-vector-check
 WASM_VECTOR_SCENARIO ?= vector-all
 wasm-vector-check:

@@ -10,6 +10,7 @@ import {assets, verifiedAsset} from '../loader/assets.js';
 import {Readiness} from '../protocol/readiness.js';
 import {buildId} from '../loader/identity.js';
 import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
+import {ownPthreads} from '../runtime/pthreads.js';
 export interface ArchiveOptions {signal?: AbortSignal}
 export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
 const archiveHeader = () => new TextEncoder().encode(JSON.stringify({format: 'postgamma.archive', version: 1, buildId}));
@@ -56,12 +57,13 @@ class Transport {
   metrics: unknown;
   peakHostQueuedBytes = 0;
   hostQueuedBytes = 0;
-  private worker: Worker;
+  private worker: Worker | undefined;
+  private stopPthreads: () => void;
   private notificationHandlers = new Map<string, Set<NotificationHandler>>();
   private eventsPending = false;
   private eventsRunning = false;
   private eventsEnabled = true;
-  constructor(worker: Worker) {
+  constructor(worker: Worker, moduleURL: URL) {
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
@@ -82,6 +84,8 @@ class Transport {
     };
     worker.onerror = event => this.fail(new Error(event.message));
     worker.onmessageerror = () => this.fail(new Error('Worker message could not be decoded'));
+    try {this.stopPthreads = ownPthreads(worker, moduleURL, error => {void this.fail(error);});}
+    catch (error) {worker.terminate(); throw error;}
   }
   subscribe(handle: Handle, handler: NotificationHandler): () => void {
     const key = handleKey(handle);
@@ -144,7 +148,11 @@ class Transport {
     this.readiness.fail(this.failure);
     this.notificationHandlers.clear();
     for (const waiter of this.pending.values()) waiter.reject(this.failure);
-    this.pending.clear(); this.pendingBytes = 0; this.worker.terminate();
+    this.pending.clear(); this.pendingBytes = 0;
+    const worker = this.worker!, stopPthreads = this.stopPthreads;
+    this.worker = undefined; this.stopPthreads = () => {};
+    worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null;
+    stopPthreads(); worker.terminate();
     this.finishRetirement?.();
   }
   private fail(error: Error): Promise<void> {
@@ -158,7 +166,7 @@ class Transport {
       error.message += '; control Worker cleanup acknowledgement timed out';
       this.retire(error);
     }, 10000);
-    try {this.worker.postMessage({discard: String(error)});}
+    try {this.worker!.postMessage({discard: String(error)});}
     catch (cause) {error.cause = cause; this.retire(error);}
     return this.failureWork;
   }
@@ -170,7 +178,7 @@ class Transport {
     const bytes = w.finish();
     if (this.pendingBytes + bytes.byteLength > limits.workerQueueBytes) throw new Error('Worker byte queue is full');
     const reply = await new Promise<ArrayBuffer>((resolve, reject) => {
-      this.pendingBytes += bytes.byteLength; this.pending.set(sequence, {resolve, reject, bytes: bytes.byteLength}); this.worker.postMessage(bytes, [bytes]);
+      this.pendingBytes += bytes.byteLength; this.pending.set(sequence, {resolve, reject, bytes: bytes.byteLength}); this.worker!.postMessage(bytes, [bytes]);
     });
     try {return response(reply, sequence, op);}
     catch (error) {
@@ -200,7 +208,8 @@ export class Database {
     const manifest = await assets(base);
     if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
     await verifiedAsset(base, manifest, manifest.entries.worker);
-    return new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}));
+    return new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}),
+      new URL(manifest.entries.module, base));
   }
   static async open(options: OpenOptions = {}): Promise<Database> {
     const transport = await Database.createTransport(options);
