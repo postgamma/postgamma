@@ -99,7 +99,9 @@ postgamma_platform_notification_wait(uint32_t expected, double milliseconds)
     int status;
     if (!postgamma_platform_thread_can_block()) { errno = EWOULDBLOCK; return -1; }
     status = emscripten_futex_wait((void *) &epoch, expected, milliseconds);
-    if (status == 0 || status == -EWOULDBLOCK || status == -ETIMEDOUT)
+    /* SDK proxy/timer notifications interrupt a futex without changing our
+     * epoch. Let the caller recheck its predicate and remaining deadline. */
+    if (status == 0 || status == -EWOULDBLOCK || status == -ETIMEDOUT || status == -EINTR)
         return 0;
     errno = -status;
     return -1;

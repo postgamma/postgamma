@@ -9,6 +9,9 @@
 #include <string.h>
 #include <time.h>
 
+/* Pinned SDK primitive used by runtime timers and synchronous proxying. */
+extern void _emscripten_thread_notify(pthread_t thread);
+
 struct WaitTest {
     PostgammaWakeTarget *wake;
     pthread_barrier_t barrier;
@@ -45,6 +48,13 @@ postgamma_runtime_wait_test(void)
     assert(postgamma_wake_target_create(&test.wake) == 0);
     fd = (struct pollfd) {.fd = postgamma_wake_target_fd(test.wake), .events = POLLIN};
     assert(postgamma_wake_target_drain(test.wake, &count) == 0 && count == 0);
+    assert(postgamma_platform_poll(&fd, 1, 0) == 0);
+    /* A runtime notification is a spurious wake, not an I/O failure or a
+     * database notification. The old adapter returned -1/EINTR here. */
+    uint32_t sequence = postgamma_platform_notification_sequence();
+    _emscripten_thread_notify(pthread_self());
+    assert(postgamma_platform_notification_wait(sequence, 1000) == 0);
+    assert(postgamma_platform_notification_sequence() == sequence);
     assert(postgamma_platform_poll(&fd, 1, 0) == 0);
     uint64_t before = postgamma_monotonic_now_ns();
     assert(postgamma_platform_poll(&fd, 1, 20) == 0);

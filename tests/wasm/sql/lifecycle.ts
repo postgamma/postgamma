@@ -5,6 +5,12 @@ import {waitLock} from './concurrency.js';
 import {Op, Reader, Writer} from '../src/protocol/wire.js';
 import type {Handle} from '../src/protocol/wire.js';
 
+function fatalStage(phase: string, db?: Database, iteration?: number) {
+  const event = {kind: 'fatal-stage', phase, iteration, at: performance.now(), sample: db?.sample()};
+  (window as unknown as {probeEvents: unknown[]}).probeEvents.push(event);
+  console.debug(JSON.stringify(event));
+}
+
 function recoveryFinished(scenario: string, started: number) {
   const elapsedMs = performance.now() - started;
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'recovery-timing', scenario, elapsedMs});
@@ -214,6 +220,7 @@ export async function disconnectTimeout(db: Database, checks: string[]) {
 }
 export async function fatal(db: Database, checks: string[], fault: number,
                             storage?: {type: 'opfs'; name: string}, retainStorage = false) {
+  fatalStage('connect-original', db);
   const a = await db.connect('fatal-a'), b = await db.connect('fatal-b');
   if (storage) {
     await a.query('CREATE TABLE IF NOT EXISTS fatal_ledger(id int PRIMARY KEY)');
@@ -231,8 +238,10 @@ export async function fatal(db: Database, checks: string[], fault: number,
   // traps/aborts inside the real Wasm host pthread, not a fabricated JS error.
   const transport = (db as unknown as {transport: {call(op: number, handle: undefined, write: (w: Writer) => void): Promise<unknown>}}).transport;
   const started = performance.now();
+  fatalStage('inject', db);
   const injected = transport.call(65535, undefined, w => w.u32(fault)).then(() => 'success', error => error);
   const outcomes = await Promise.all([...settled, injected]);
+  fatalStage('settled', db);
   assert(outcomes.every(value => value instanceof Error) && counts.every(count => count === 1), 'Fatal error settles every in-flight and queued Promise once');
   const metrics = db.diagnostics() as {terminationRequested: boolean; interruptedWorkers: number; runningWorkers: number; storageQuiesced: boolean; storageReleased: boolean};
   assert(metrics.terminationRequested && metrics.interruptedWorkers > 0 && metrics.runningWorkers === 0, 'Fatal path requests termination of all owned SDK workers');
@@ -241,8 +250,13 @@ export async function fatal(db: Database, checks: string[], fault: number,
   let rejected = false; try {await a.query('SELECT 3');} catch {rejected = true;}
   assert(rejected, 'Failed instance rejects subsequent requests');
   // Open immediately, with no sleep or retry to conceal ownership races.
-  const fresh = await Database.open(storage ? {storage, create: false} : {}), connection = await fresh.connect();
+  fatalStage('reopen');
+  const fresh = await Database.open(storage ? {storage, create: false} : {});
+  fatalStage('reopened', fresh);
+  const connection = await fresh.connect();
+  fatalStage('reconnected', fresh);
   assert(scalar(await connection.query('SELECT 8')) === '8', 'Fresh module runs after a fatal instance');
+  fatalStage('query-complete', fresh);
   if (storage) {
     assert(scalar(await connection.query('SELECT count(*) FROM fatal_ledger WHERE id = 1')) === '1', 'Acknowledged commit survives a fatal instance');
     assert(scalar(await connection.query('SELECT count(*) FROM fatal_ledger WHERE id = 2')) === '0', 'Uncommitted transaction rolls back after fatal recovery');
@@ -250,7 +264,9 @@ export async function fatal(db: Database, checks: string[], fault: number,
     checks.push('opfs-fatal-immediate-reopen', 'opfs-fatal-commit-recovery', 'opfs-fatal-rollback');
   }
   recoveryFinished(storage ? 'fatal-opfs' : 'fatal', started);
+  fatalStage('close-replacement', fresh);
   await fresh.close();
+  fatalStage('closed-replacement', fresh);
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'fatal', fault, metrics,
     recreated: fresh.diagnostics(), settlements: counts});
   checks.push(fault === 1 ? 'real-wasm-trap' : 'real-wasm-abort', 'fatal-settles-all', 'fatal-instance-rejected', 'recreate-after-fatal');
@@ -265,7 +281,9 @@ export async function repeatedFatal(checks: string[], metrics: unknown[], fault:
   // Reuse durable data, but create a fresh module for every attempt. The error
   // path still opens its replacement immediately, without sleeps or retries.
   for (let iteration = 1; iteration <= repetitions; iteration++) {
+    fatalStage('open-original', undefined, iteration);
     const db = await Database.open({storage, create: iteration === 1});
+    fatalStage('opened-original', db, iteration);
     await fatal(db, checks, fault, storage, true);
     metrics.push(db.diagnostics());
     (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'fatal-iteration', fault, iteration});
