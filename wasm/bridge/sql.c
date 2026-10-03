@@ -53,6 +53,18 @@ static size_t input_size;
 static Writer reply;
 static em_proxying_queue *notifications;
 static _Atomic uint32_t wake_count;
+/* Lock-free failure snapshots must not call back into the waiting driver. */
+static _Atomic unsigned driver_phase, active_sequence, active_operation, command_started;
+extern uintptr_t postgamma_platform_notification_address(void);
+extern unsigned postgamma_thread_diagnostic(unsigned thread, unsigned field);
+#ifdef POSTGAMMA_WASM_TESTING
+static _Atomic bool diagnostic_hold;
+EMSCRIPTEN_KEEPALIVE void postgamma_wasm_resume_test(void)
+{
+    atomic_store(&diagnostic_hold, false);
+    postgamma_platform_notify();
+}
+#endif
 
 EM_JS(void, postgamma_bridge_event, (unsigned kind, unsigned id, unsigned generation), {
     Module['postgammaBridgeEvent'](kind, id, generation);
@@ -240,10 +252,25 @@ static bool command(void)
     const char *bridge_message = NULL;
     int rollback_error = 0;
     uint32_t version = get(&r), sequence = get(&r), op = get(&r);
+    atomic_store(&active_sequence, sequence);
+    atomic_store(&active_operation, op);
+    atomic_store(&command_started, (unsigned) emscripten_get_now());
     bool stop = false;
     Handle *h = NULL, *slot = NULL;
     if (version != WIRE_VERSION) r.failed = true;
 #ifdef POSTGAMMA_WASM_TESTING
+    if (!r.failed && op == 65530) {
+        if (r.offset != r.size) r.failed = true;
+        else {
+            atomic_store(&diagnostic_hold, true);
+            while (atomic_load(&diagnostic_hold)) {
+                uint32_t expected = postgamma_platform_notification_sequence();
+                if (atomic_load(&diagnostic_hold))
+                    postgamma_platform_notification_wait(expected, __builtin_inf());
+            }
+        }
+        goto done;
+    }
     if (!r.failed && op == 65531) {
         unsigned action = get(&r);
         h = lookup(&r, action == 1 ? INSTANCE : CONNECTING);
@@ -593,18 +620,22 @@ static void *run(void *unused)
 {
     (void)unused;
     for (;;) {
+        atomic_store(&driver_phase, 1); /* readiness */
         uint32_t expected = postgamma_platform_notification_sequence();
         atomic_fetch_add_explicit(&wake_count, 1, memory_order_relaxed);
         double wait_ms = notify_ready();
         if (atomic_load_explicit(&state, memory_order_acquire) != 1) {
+            atomic_store(&driver_phase, 2); /* notification wait */
             if (postgamma_platform_notification_wait(expected, wait_ms) < 0) abort();
             continue;
         }
+        atomic_store(&driver_phase, 3); /* native command */
         bool stop = command();
         bool failed = reply.failed;
         atomic_store_explicit(&state, failed ? -1 : 2, memory_order_release);
+        atomic_store(&driver_phase, 4); /* reply publication */
         notify_control(deliver_event, NULL);
-        if (stop || failed) return NULL;
+        if (stop || failed) {atomic_store(&driver_phase, 5); return NULL;}
     }
 }
 EMSCRIPTEN_KEEPALIVE void *postgamma_wasm_alloc(unsigned size) { return size <= WIRE_LIMIT ? malloc(size) : NULL; }
@@ -632,6 +663,26 @@ EMSCRIPTEN_KEEPALIVE int postgamma_wasm_poll(void) {
     return atomic_load_explicit(&state, memory_order_acquire);
 }
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_wake_count(void) { return atomic_load(&wake_count); }
+EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_diagnostic(unsigned field)
+{
+    switch (field) {
+    case 0: return atomic_load(&driver_phase);
+    case 1: return atomic_load(&active_sequence);
+    case 2: return atomic_load(&active_operation);
+    case 3: return postgamma_platform_notification_sequence();
+    case 4: return postgamma_platform_notification_address();
+    case 5: return (uintptr_t) driver;
+    case 6: return (unsigned) emscripten_get_now() - atomic_load(&command_started);
+#ifdef POSTGAMMA_WASM_TESTING
+    case 7: return atomic_load(&diagnostic_hold);
+#endif
+    default: return 0;
+    }
+}
+EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_thread_diagnostic(unsigned thread, unsigned field)
+{
+    return postgamma_thread_diagnostic(thread, field);
+}
 EMSCRIPTEN_KEEPALIVE void *postgamma_wasm_reply(void) { return reply.data; }
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_reply_size(void) { return reply.size; }
 EMSCRIPTEN_KEEPALIVE void postgamma_wasm_ack(void)

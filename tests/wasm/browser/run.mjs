@@ -4,6 +4,7 @@ import {readFileSync, writeFileSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {parseArgs} from 'node:util';
 import {classifyPageErrors} from './evidence.mjs';
+import {bounded, diagnosticGate, failureSnapshot} from './diagnostics.mjs';
 
 const {values} = parseArgs({options: {
   root: {type: 'string'},
@@ -68,6 +69,8 @@ if (values.describe) {
     });
     if (values.url) {
       await page.goto(values.url, {timeout: 15000});
+      if (new URL(values.url).searchParams.get('scenario') === 'diagnostics')
+        report.diagnosticGate = await diagnosticGate(page, report.initialTimeoutMs);
       const started = performance.now();
       // Bound every round separately. Keep partial progress on disk even if
       // a later renderer crash prevents reading the page's final evidence.
@@ -103,20 +106,22 @@ if (values.describe) {
     report.status = 'passed';
   } catch (error) {
     report.error = String(error.stack || error);
+    if (page && !page.isClosed()) report.failureSnapshot = await failureSnapshot(page);
     process.exitCode = 1;
   } finally {
     if (values.url && page && !page.isClosed()) {
       try {
-        const partial = await page.evaluate(() => ({
+        const partial = await bounded(() => page.evaluate(() => ({
           probe: window.probeResult, events: window.probeEvents || [],
-        }));
-        report.events = partial.events;
+        })));
+        report.events = partial.events || [];
+        if (partial.error) report.evidenceError = partial.error;
         if (partial.probe) report.probe = partial.probe;
       } catch (error) {
         report.evidenceError = String(error);
       }
     }
-    if (context) await context.close();
     writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
+    if (context) await context.close();
   }
 }

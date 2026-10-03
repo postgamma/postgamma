@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {parseArgs} from 'node:util';
+import {failureSnapshot} from '../browser/diagnostics.mjs';
 
 const {values} = parseArgs({options: {
   root: {type: 'string'}, url: {type: 'string'}, output: {type: 'string'}, profile: {type: 'string'},
@@ -70,6 +71,7 @@ try {
 } catch (error) {
   report.error = errorText(error); process.exitCode = 1;
   if (page && !page.isClosed()) {
+    report.controlFailure = await failureSnapshot(page);
     let timer;
     try {report.failureSnapshot = await Promise.race([
       page.evaluate(() => window.pgliteSnapshot?.()),

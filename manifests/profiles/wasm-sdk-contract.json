@@ -7,7 +7,10 @@
     "src/runtime_pthread.js": "706a86c300b3ace58c2a31a7394ea322ff18a63266c0287493287199cf27635b",
     "system/include/emscripten/proxying.h": "a96305ebc27f9df0904f2fd113ef8cec22873e9c61bac4ddba7d65f5f37d86d7",
     "system/lib/pthread/proxying.c": "5f34e8638fa4b38a26437e5d0663c856282d7ee9829e077ee0d0c661022146f4",
-    "src/lib/libcore.js": "e6725c19444bde11549a9f3e9bf280cd98298c3ceb5239f4faab571cb6bc222a"
+    "src/lib/libcore.js": "e6725c19444bde11549a9f3e9bf280cd98298c3ceb5239f4faab571cb6bc222a",
+    "system/lib/libc/musl/src/internal/pthread_impl.h": "5ae4468044cefd934dbf496f2d9836a37d7f2ce1385c72f4474ab8bb47985d2d",
+    "src/struct_info_generated.json": "4a47ba249c726d3b0312732070e6d5609e3bcde223d626fdd2a47e5732adfe8a",
+    "system/lib/pthread/emscripten_futex_wait.c": "c6ef85fa901a1fda7f23762eb808874675b5062cf0cf7a5cbaeaf646bf65de8e"
   },
   "invariants": [
     "A clear waiting_async flag selects SDK postMessage mailbox delivery, including pthread cancellation and reuse.",
@@ -16,6 +19,7 @@
     "The SQL control Worker stays live until replies are delivered; the I/O owner drains independently through its direct channel.",
     "PThread.pthreads maps pthread identities to Worker objects; terminateAllThreads skips an explicitly removed I/O owner and does not free terminated thread data.",
     "The pthread message handler ignores messages without a cmd field, allowing a private MessagePort to close OPFS handles without entering a failed Wasm module.",
-    "MAIN_THREAD_EM_ASM synchronously dispatches to the SQL control Worker; owner registration completes before the I/O thread publishes readiness."
+    "MAIN_THREAD_EM_ASM synchronously dispatches to the SQL control Worker; owner registration completes before the I/O thread publishes readiness.",
+    "For the pinned wasm32 layout pthread is 120 bytes and its final 4-byte atomic member is wait_addr; failure snapshots read it only for live entries owned by the control Worker."
   ]
 }

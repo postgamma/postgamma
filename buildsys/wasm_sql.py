@@ -51,7 +51,8 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         from wasm_assets import generate as asset_manifest
         report["asset_manifest"] = asset_manifest(builder)
         report["harness_sources"].update({name: digest(config.root / name) for name in
-            ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs", "examples/wasm/vector-search.html")})
+            ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs", "examples/wasm/vector-search.html",
+             "tests/wasm/browser/diagnostics.mjs")})
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
                              for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
@@ -125,7 +126,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                     # OPFS initialization uses the storage fixture envelope.
                     # Failure scenarios separately bound recovery to 30 seconds.
                     timeout = 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
-                        "storage", "durability", "storage-errors", "close-audit", "open-failed", "fatal-opfs-trap", "fatal-opfs-abort") else 30000
+                        "storage", "durability", "storage-errors", "close-audit", "open-failed", "fatal-opfs-trap", "fatal-opfs-abort", "diagnostics") else 30000
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
                                           url + "?scenario=" + name + ("&extension=pgvector" if builder.extensions else ""), timeout_ms=timeout)
                     report["browsers"][name] = browser

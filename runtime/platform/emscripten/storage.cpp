@@ -54,7 +54,7 @@ EM_JS(void, postgamma_storage_dispatch,
         if (!globalThis.postgammaStorageRetired) _postgamma_storage_finish(context);
       }
     })();
-    globalThis.postgammaStoragePending.add(work);
+    globalThis.postgammaStoragePending.set(work, {operation: op, id, bytes: length, offset});
     work.finally(() => globalThis.postgammaStoragePending.delete(work));
 });
 
@@ -72,13 +72,22 @@ EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
       if (!globalThis.postgammaStorageRetired) _emscripten_proxy_execute_queue(queue);
     };
     globalThis.postgammaIOListener = channel;
-    globalThis.postgammaStoragePending = new Set();
+    globalThis.postgammaStoragePending = new Map();
     globalThis.postgammaStorageRetired = false;
     const listen = event => {
       if (!event.data?.postgammaStorageControl) return;
       const port = event.ports[0];
       globalThis.postgammaStorageControl = port;
-      port.onmessage = async () => {
+      port.onmessage = async ({data}) => {
+        if (data?.diagnostic !== undefined) {
+          port.postMessage({diagnostic: data.diagnostic, snapshot: {
+            retired: globalThis.postgammaStorageRetired,
+            pending: [...globalThis.postgammaStoragePending.values()],
+            store: globalThis.postgammaStore?.diagnostics(),
+          }});
+          return;
+        }
+        if (data?.discard !== true) return;
         globalThis.postgammaStorageRetired = true;
         channel.onmessage = null;
         channel.close();
@@ -91,7 +100,7 @@ EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
         // inside one of their native completion or proxy-queue locks.
         port.postMessage({quiesced: true});
         try {
-          await Promise.allSettled([...globalThis.postgammaStoragePending]);
+          await Promise.allSettled([...globalThis.postgammaStoragePending.keys()]);
           const handles = await globalThis.postgammaStore?.discard() ?? 0;
           port.postMessage({released: true, handles});
         } catch (cause) {

@@ -14,6 +14,25 @@ from wasm_link import source_snapshot
 
 
 class LifecycleEvidenceTests(unittest.TestCase):
+    def test_diagnostic_requires_waiter_owner_and_unchanged_command(self):
+        snapshot = {'driver': {'testHold': 1, 'state': 1, 'phase': 3, 'sequence': 5, 'thread': 16},
+                    'currentCommand': {'op': 65530}, 'storage': {'store': {'handles': 2}},
+                    'threads': [{'id': 16, 'waitPoint': 'database-notification'}]}
+        row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'diagnostics',
+               'checks': ['timeout-snapshot', 'snapshot-does-not-resume', 'resume-after-snapshot']},
+               'diagnosticGate': {phase: [{'snapshot': copy.deepcopy(snapshot)}] for phase in ('before', 'after')}}
+        validate_case(row, 'diagnostics', 20)
+        for mutation in ('missing', 'resumed', 'sequence', 'waiter', 'owner'):
+            broken = copy.deepcopy(row)
+            observed = broken['diagnosticGate']['after'][0]['snapshot']
+            if mutation == 'missing': del broken['diagnosticGate']
+            if mutation == 'resumed': observed['driver']['testHold'] = 0
+            if mutation == 'sequence': observed['driver']['sequence'] = 6
+            if mutation == 'waiter': observed['threads'] = []
+            if mutation == 'owner': observed['storage'] = {}
+            with self.subTest(mutation=mutation), self.assertRaises(WasmError):
+                validate_case(broken, 'diagnostics', 20)
+
     def test_control_and_startup_require_each_ownership_observation(self):
         required = {
             'control-progress': ['cancel-yields-to-sql', 'cancel-yields-to-cancel', 'release-yields-to-sql', 'release-yields-to-cancel', 'copy-close-yields-to-sql', 'copy-close-yields-to-cancel',

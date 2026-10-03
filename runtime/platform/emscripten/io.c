@@ -93,6 +93,9 @@ postgamma_platform_notification_sequence(void)
     return atomic_load_explicit(&epoch, memory_order_acquire);
 }
 
+/* Diagnostic address only: callers must not mutate the notification word. */
+uintptr_t postgamma_platform_notification_address(void) { return (uintptr_t) &epoch; }
+
 int
 postgamma_platform_notification_wait(uint32_t expected, double milliseconds)
 {

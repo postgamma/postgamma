@@ -19,6 +19,46 @@ let queuedBytes = 0, peakQueuedBytes = 0;
 let failed = false, pending = 0, peakPending = 0, peakMemory = 0, peakThreads = 0;
 let samples = 0, periodicSamples = 0, samplingIntervalMs = 0;
 let ioStackBytes = 0;
+let currentCommand: {sequence: number; op: number; bytes: number; started: number; phase: string} | undefined;
+const recentCommands: {sequence: number; op: number; elapsedMs: number}[] = [];
+let diagnosticSequence = 0;
+// Failure-only inspection: never wait on a native mutex or the command queue.
+async function diagnostic() {
+  const native = loaded;
+  const read = (field: number) => native?._postgamma_wasm_diagnostic(field);
+  const epochAddress = read(4);
+  const threads = Object.keys(native?.PThread.pthreads ?? {}).map(value => {
+    const id = Number(value), wait = native!._postgamma_wasm_thread_diagnostic(id, 0);
+    const address = (wait & ~3) >>> 0;
+    return {id, waitAddress: address, notificationPending: !!(wait & 1),
+      waitingAsync: native!._postgamma_wasm_thread_diagnostic(id, 1),
+      stackBytes: native!._postgamma_wasm_thread_diagnostic(id, 2),
+      waitPoint: address === epochAddress ? 'database-notification' : address ? 'native-futex' : 'not-in-futex'};
+  });
+  const snapshot = {at: performance.now(), failed, pending, queuedBytes,
+    currentCommand: currentCommand ? {...currentCommand, elapsedMs: performance.now() - currentCommand.started} : null,
+    recentCommands: [...recentCommands], driver: {state: native?._postgamma_wasm_poll(), phase: read(0),
+      sequence: read(1), op: read(2), epoch: read(3), thread: read(5), elapsedMs: read(6),
+      testHold: read(7), wakes: native?._postgamma_wasm_wake_count()},
+    memoryBytes: native?.wasmMemory.buffer.byteLength, threads, output: [...output], storage: null as unknown};
+  const port = storagePort;
+  if (port) {
+    snapshot.storage = await new Promise(resolve => {
+      const id = ++diagnosticSequence;
+      const finish = (value: unknown) => {clearTimeout(timer); port.removeEventListener('message', receive); resolve(value);};
+      const receive = ({data}: MessageEvent) => {if (data?.diagnostic === id) finish(data.snapshot);};
+      const timer = setTimeout(() => finish({error: 'OPFS owner diagnostic timed out'}), 1000);
+      port.addEventListener('message', receive); port.start();
+      try {port.postMessage({diagnostic: id});} catch (error) {finish({error: String(error)});}
+    });
+  }
+  return snapshot;
+}
+Object.assign(globalThis, {postgammaDiagnostic: diagnostic,
+  postgammaResumeDiagnostic: () => {
+    if (!loaded?._postgamma_wasm_resume_test) throw new Error('Diagnostic test gate is unavailable');
+    loaded._postgamma_wasm_resume_test();
+  }});
 function sample() {
   if (!loaded) return;
   samples++;
@@ -55,6 +95,7 @@ async function fail(error: unknown) {
         const timer = setTimeout(() => reject(new Error('OPFS owner ' +
           (storageQuiesced ? 'physical close' : 'quiescence') + ' timed out')), 5000);
         port.onmessage = ({data}) => {
+          if (data?.diagnostic !== undefined) return;
           if (data.quiesced === true) {storageQuiesced = true; stopCallers(); return;}
           clearTimeout(timer);
           if (data.released === true && storageQuiesced) resolve(data.handles);
@@ -144,17 +185,21 @@ self.onmessage = ({data}) => {
     const request = new Reader(data);
     if (request.u32() !== VERSION) throw new Error('Unsupported protocol');
     const sequence = request.u32(), op = request.u32();
+    currentCommand = {sequence, op, bytes: data.byteLength, started: performance.now(), phase: 'prepare'};
     if (!kernel) {
       if (op !== Op.open) throw new Error('Instance must be opened first');
       request.u32(); request.u32(); request.text();
       const storage = request.u32(), name = request.text(); request.text();
       samplingIntervalMs = request.u32(); request.end();
       if (samplingIntervalMs > 60000) throw new Error('Invalid diagnostic sampling interval');
-      if (storage === 1) ownership = await acquire(name!);
+      if (storage === 1) {currentCommand.phase = 'storage-ownership'; ownership = await acquire(name!);}
       kernel = startKernel();
     }
+    currentCommand.phase = 'load-kernel';
     const module = await kernel;
+    currentCommand.phase = 'native-exchange';
     const reply = await exchange(module, data, stopped.signal);
+    currentCommand.phase = 'reply';
     if (op === Op.open) ioStackBytes = module._postgamma_wasm_storage_stack_bytes();
     sample();
     if (op === Op.open && new DataView(reply).getUint32(12, true) !== 0) {
@@ -181,5 +226,13 @@ self.onmessage = ({data}) => {
     postMessage({sequence, reply, sample: {memory: module.wasmMemory.buffer.byteLength,
       threads: Object.keys(module.PThread.pthreads).length, queuedBytes, periodicSamples,
       driverWakeCount: module._postgamma_wasm_wake_count()}}, [reply]);
-  }).catch(fail).finally(() => {pending--; queuedBytes -= data.byteLength;});
+  }).catch(fail).finally(() => {
+    if (currentCommand) {
+      recentCommands.push({sequence: currentCommand.sequence, op: currentCommand.op,
+        elapsedMs: performance.now() - currentCommand.started});
+      if (recentCommands.length > 32) recentCommands.shift();
+      currentCommand = undefined;
+    }
+    pending--; queuedBytes -= data.byteLength;
+  });
 };

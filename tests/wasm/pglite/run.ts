@@ -27,9 +27,8 @@ const storage = storageName === 'opfs' ? {type: 'opfs' as const, name: 'pglite-'
 const caseResults: CaseResult[] = [], metrics: unknown[] = [];
 let database: Database | undefined, vectorOid = '', phase = 'load';
 page.pgliteSnapshot = async () => {
-  const telemetry = database ? await Promise.race([database.telemetry().catch(error => ({error: errorText(error)})),
-    new Promise(resolve => setTimeout(() => resolve({error: 'telemetry timeout'}), 2000))]) : undefined;
-  return JSON.parse(JSON.stringify({phase, telemetry, sample: database?.sample(), metrics: database?.diagnostics()},
+  // Failure observation must not submit a command to the stalled driver.
+  return JSON.parse(JSON.stringify({phase, sample: database?.sample(), metrics: database?.diagnostics()},
     (_, value) => typeof value === 'bigint' ? String(value) : value));
 };
 function assert(value: unknown, message: string): asserts value {if (!value) throw new Error(message);}

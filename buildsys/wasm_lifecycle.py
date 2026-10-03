@@ -11,7 +11,7 @@ from wasm_sql import startup
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
 
-SCENARIOS = ('lifecycle', 'disconnect-timeout', 'control-progress', 'control-timeout', 'connect-progress', 'close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort')
+SCENARIOS = ('lifecycle', 'disconnect-timeout', 'control-progress', 'control-timeout', 'connect-progress', 'close-audit', 'open-failed', 'fatal-opfs-trap', 'fatal-opfs-abort', 'diagnostics')
 ENGINES = ('chromium', 'firefox', 'webkit')
 
 
@@ -41,6 +41,7 @@ def validate_case(row, scenario, repetitions):
         raise WasmError('lifecycle case failed: ' + scenario)
     events = row.get('events', [])
     progress_checks = {
+        'diagnostics': {'timeout-snapshot', 'snapshot-does-not-resume', 'resume-after-snapshot'},
         'lifecycle': {'disconnect-yields-to-sql', 'disconnect-yields-to-cancel', 'disconnect-waits-for-backend-release'},
         'disconnect-timeout': {'disconnect-bounded-deadline', 'disconnect-timeout-retry',
                                'disconnect-rejects-new-work', 'disconnect-stale-generation'},
@@ -64,6 +65,26 @@ def validate_case(row, scenario, repetitions):
             timings = [event for event in events if event.get('kind') == 'control-timeout']
             if len(timings) != 1 or not 9900 <= timings[0].get('elapsedMs', 0) < 15000:
                 raise WasmError('missing or out-of-budget control deadline evidence')
+        if scenario == 'diagnostics':
+            held = []
+            for phase in ('before', 'after'):
+                rows = row.get('diagnosticGate', {}).get(phase, [])
+                matches = [item.get('snapshot', {}) for item in rows
+                           if item.get('snapshot', {}).get('driver', {}).get('testHold') == 1]
+                if len(matches) != 1:
+                    raise WasmError('missing held driver diagnostic')
+                snapshot = matches[0]
+                driver = snapshot['driver']
+                if (driver.get('state') != 1 or driver.get('phase') != 3 or
+                        snapshot.get('currentCommand', {}).get('op') != 65530 or
+                        not snapshot.get('storage', {}).get('store') or
+                        not any(thread.get('id') == driver.get('thread') and
+                                thread.get('waitPoint') == 'database-notification'
+                                for thread in snapshot.get('threads', []))):
+                    raise WasmError('incomplete held driver diagnostic')
+                held.append(driver.get('sequence'))
+            if held[0] is None or held[0] != held[1]:
+                raise WasmError('diagnostic observation changed the held command')
         return
     timings = [e['elapsedMs'] for e in events if e.get('kind') == 'recovery-timing']
     expected = repetitions if scenario.startswith('fatal-') else 1
@@ -87,7 +108,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
     current = config.build / 'wasm/lifecycle' / run_id()
     current.mkdir(parents=True)
     sources = {name: digest(config.root / name) for name in (
-        'buildsys/wasm_lifecycle.py', 'tests/wasm/browser/run.mjs', 'tests/wasm/browser/evidence.mjs')}
+        'buildsys/wasm_lifecycle.py', 'tests/wasm/browser/run.mjs', 'tests/wasm/browser/evidence.mjs', 'tests/wasm/browser/diagnostics.mjs')}
     report = {'kind': 'postgamma.wasm-lifecycle-matrix', 'status': 'failed',
         'sql_receipt': str(sql_receipt), 'sql_receipt_sha256': digest(sql_receipt),
         'harness_sources': sources, 'mode': config.mode, 'repetitions': repetitions,
@@ -104,7 +125,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
                     case.mkdir()
                     query = '?scenario=' + scenario
                     timeout = 90000
-                    initial_timeout = 180000 if scenario in ('close-audit', 'open-failed') or scenario.startswith('fatal-opfs-') else timeout
+                    initial_timeout = 180000 if scenario in ('close-audit', 'open-failed', 'diagnostics') or scenario.startswith('fatal-opfs-') else timeout
                     if scenario.startswith('fatal-'):
                         query += '&repetitions=' + str(repetitions)
                     command = [tools['node'], str(config.root / 'tests/wasm/browser/run.mjs'),

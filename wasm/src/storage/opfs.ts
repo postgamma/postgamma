@@ -45,6 +45,11 @@ export class Store {
     physicalFlushes: 0, cleanFlushes: 0,
     peakHandles: 0, discardedJournalBytes: 0, collectedOrphans: 0,
     compactions: 0, journalBytes: 0, peakJournalBytes: 0, journalGeneration: 0};
+  diagnostics() {
+    return {retired: this.retired, poisoned: this.poisoned, handles: this.handles.size,
+      virtualOpens: this.opens.size, dirty: this.dirty.size, removed: this.removed.size,
+      metrics: {...this.metrics}};
+  }
   async mount(name: string, testChannel: string) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) throw error('TypeError', 'Invalid database name');
     const origin = await navigator.storage.getDirectory() as unknown as StorageDirectory;

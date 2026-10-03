@@ -15,6 +15,9 @@ export interface SqlModule extends KernelModule {
   _postgamma_wasm_join(): number;
   _postgamma_wasm_wake_count(): number;
   _postgamma_wasm_storage_stack_bytes(): number;
+  _postgamma_wasm_diagnostic(field: number): number;
+  _postgamma_wasm_thread_diagnostic(thread: number, field: number): number;
+  _postgamma_wasm_resume_test?(): void;
 }
 export const tick = () => new Promise<void>(resolve => setTimeout(resolve, 1));
 export async function exchange(module: SqlModule, message: ArrayBuffer, signal?: AbortSignal): Promise<ArrayBuffer> {

@@ -74,7 +74,8 @@ try {
     await repeatedFatal(checks, metrics, scenario.endsWith('trap') ? 1 : 2, repetitions);
   }
   else {
-  const storage = scenario.startsWith('fatal-opfs-') ? {type: 'opfs' as const, name: 'fatal-' + crypto.randomUUID()} : undefined;
+  const storage = scenario.startsWith('fatal-opfs-') || scenario === 'diagnostics' ?
+    {type: 'opfs' as const, name: 'fatal-' + crypto.randomUUID()} : undefined;
   const db = await Database.open({storage});
   if (scenario === 'abi') await abi(db);
   else if (scenario === 'bindings') await bindings(db, checks);
@@ -84,6 +85,16 @@ try {
   else if (scenario === 'errors') await errors(db, checks);
   else if (scenario === 'results') await results(db, checks);
   else if (scenario === 'budget') await budget(db, checks);
+  else if (scenario === 'diagnostics') {
+    const transport = (db as unknown as {transport: {call(op: number): Promise<Reader>}}).transport;
+    const held = transport.call(65530);
+    page.probeEvents.push({kind: 'diagnostic-hold'});
+    (await held).end();
+    const c = await db.connect();
+    assert(scalar(await c.query('SELECT 11')) === '11', 'Driver resumes after read-only diagnostic');
+    await c.close();
+    checks.push('timeout-snapshot', 'snapshot-does-not-resume', 'resume-after-snapshot');
+  }
   else if (scenario === 'lifecycle') await lifecycle(db, checks);
   else if (scenario === 'disconnect-timeout') await disconnectTimeout(db, checks);
   else if (scenario === 'control-progress') await controlProgress(db, checks);

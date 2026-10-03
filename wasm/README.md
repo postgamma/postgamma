@@ -495,6 +495,17 @@ transaction. Test-only ticket gates are excluded from production builds.
 Reused receipts include the native C test fixture identities as well as the
 kernel, bridge, TypeScript harness and generated assets.
 
+Browser failures retain a control-Worker snapshot before context teardown:
+active command metadata, native driver phase, live pthread wait addresses,
+and the OPFS owner's pending operations and handle counts. Inspection uses
+atomic reads and a separate owner port; it submits no SQL and does not wake
+the native driver. An unresponsive target has its own diagnostic timeout.
+The `diagnostics` lifecycle fixture holds the driver on its notification word,
+checks two snapshots without releasing it, then explicitly resumes SQL. It
+runs in all three engines through `make wasm-check-full`. This validates
+observability; it does not establish the cause of the earlier intermittent
+WebKit reopen stall.
+
 The accepted SQL limits are generated for both C and JavaScript from
 `manifests/profiles/wasm-resource-budget.json`: four live connections, 256 KiB
 native result buffers, 128 KiB values, 16 KiB COPY fragments, 2 MiB pending

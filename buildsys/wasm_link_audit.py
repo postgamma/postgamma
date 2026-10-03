@@ -17,7 +17,7 @@ PROVIDERS = {
         "emscripten_asm_const_int_sync_on_main_thread",
     "shared-memory": "memory emscripten_get_heap_max emscripten_resize_heap",
     "recovery-and-fatal-diagnostics": "exit proc_exit __assert_fail __cxa_throw _abort_js "
-        "_emscripten_throw_longjmp __handle_stack_overflow emscripten_err emscripten_out",
+        "_emscripten_throw_longjmp __handle_stack_overflow emscripten_err emscripten_out postgamma_thread_diagnostic",
     "environment-and-clock": "environ_sizes_get environ_get _tzset_js clock_time_get "
         "emscripten_get_now emscripten_date_now _mktime_js _localtime_js _gmtime_js",
     "pthread-lifecycle": "_emscripten_thread_set_strongref emscripten_exit_with_live_runtime "
