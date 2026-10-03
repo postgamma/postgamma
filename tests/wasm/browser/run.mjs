@@ -14,6 +14,7 @@ const {values} = parseArgs({options: {
   engine: {type: 'string', default: 'chromium'},
   profile: {type: 'string'},
   'timeout-ms': {type: 'string'},
+  'initial-timeout-ms': {type: 'string'},
   repetitions: {type: 'string'},
 }});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
@@ -30,11 +31,14 @@ const report = {
   pageErrorDetails: [],
   failedRequests: [],
   timeoutMs: Number(values['timeout-ms'] || 30000),
+  initialTimeoutMs: Number(values['initial-timeout-ms'] || values['timeout-ms'] || 30000),
   repetitions: Number(values.repetitions || 0),
   completedIterations: 0,
 };
 if (!Number.isSafeInteger(report.timeoutMs) || report.timeoutMs < 1 || report.timeoutMs > 120000)
   throw new Error('Invalid browser case timeout');
+if (!Number.isSafeInteger(report.initialTimeoutMs) || report.initialTimeoutMs < report.timeoutMs || report.initialTimeoutMs > 180000)
+  throw new Error('Invalid browser initial fixture timeout');
 if (!Number.isSafeInteger(report.repetitions) || report.repetitions < 0 || report.repetitions > 100)
   throw new Error('Invalid browser repetition count');
 if (values.describe) {
@@ -70,14 +74,15 @@ if (values.describe) {
       for (let iteration = 1; iteration <= report.repetitions; iteration++) {
         await page.waitForFunction(n => window.probeResult !== null ||
           (window.probeEvents || []).filter(e => e.kind === 'fatal-iteration').length >= n,
-          iteration, {timeout: report.timeoutMs});
+          iteration, {timeout: iteration === 1 ? report.initialTimeoutMs : report.timeoutMs});
         const progress = await page.evaluate(() => ({done: window.probeResult !== null,
           count: (window.probeEvents || []).filter(e => e.kind === 'fatal-iteration').length}));
         report.completedIterations = progress.count;
         writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
         if (progress.done) break;
       }
-      await page.waitForFunction(() => window.probeResult !== null, undefined, {timeout: report.timeoutMs});
+      await page.waitForFunction(() => window.probeResult !== null, undefined,
+        {timeout: report.repetitions ? report.timeoutMs : report.initialTimeoutMs});
       report.elapsedMs = performance.now() - started;
       report.probe = await page.evaluate(() => window.probeResult);
       if (report.probe.status !== 'passed' || !report.probe.isolated ||

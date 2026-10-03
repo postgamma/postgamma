@@ -563,8 +563,22 @@ The profile does not provide symlinks
 or external tablespaces. It requires OPFS and Web Locks and never falls back to
 an ephemeral database when persistent storage cannot be opened.
 
-Storage cases include cold target initdb and reopen with a separate 90-second
-case deadline and record the observed duration. The durability case keeps fsync
+Wasm cluster creation has a 120-second native startup budget because OPFS
+initialization creates and synchronizes more than a thousand files. Opening an
+existing cluster with `create: false` retains its 60-second budget. Connection
+startup retains its 60-second admission and 30-second handshake budgets.
+Cross-browser lifecycle and PGlite startup fixtures allow
+180 seconds for cold loading, creation and cleanup; SQL case deadlines remain
+90 seconds and fatal cleanup plus immediate recovery must still finish within
+30 seconds. Subsequent fatal iterations retain their 90-second fixture deadline.
+File lengths are cached under WasmFS file locks; a failed write or truncate
+invalidates the cache.
+Repeated fsync skips browser I/O only after this owner has successfully flushed
+the same file and no intervening mutation occurred. Recovered files begin with
+unknown durability and require a real flush.
+
+Chromium storage cases include cold target initdb and reopen with a separate
+90-second case deadline and record the observed duration. The durability case keeps fsync
 and synchronous commit enabled, pauses actual WAL flush before COMMIT acknowledgement
 and lock release, and checks unrelated session progress. Short writes, quota,
 file/directory sync and teardown failures propagate to callers. A missing namespace

@@ -73,6 +73,7 @@ static int storage_filesystem_probe(unsigned phase)
             a = open("/persistent/faults/data", O_CREAT | O_RDWR, 0600);
             STORAGE_CHECK(a >= 0 && pwrite(a, "short-write", 11, 0) == 7);
             STORAGE_CHECK(pread(a, buffer, sizeof(buffer), 0) == 7 && memcmp(buffer, "short-w", 7) == 0);
+            STORAGE_CHECK(fstat(a, &current) == 0 && current.st_size == 7);
         } else if (phase == 5) {
             a = open("/persistent/faults/quota", O_CREAT | O_RDWR, 0600);
             STORAGE_CHECK(a < 0 && errno == ENOSPC);
@@ -89,7 +90,10 @@ static int storage_filesystem_probe(unsigned phase)
             STORAGE_CHECK(a >= 0);
             if (phase == 6) {STORAGE_CHECK(fsync(a) < 0 && errno == EIO);}
             if (phase == 7) {STORAGE_CHECK(fdatasync(a) < 0 && errno == EIO);}
-            if (phase == 8) {STORAGE_CHECK(truncate("/persistent/faults/data", 1) < 0 && errno == EIO);}
+            if (phase == 8) {
+                STORAGE_CHECK(truncate("/persistent/faults/data", 1) < 0 && errno == EIO);
+                STORAGE_CHECK(fstat(a, &current) == 0 && current.st_size == 7);
+            }
             if (phase == 9) {STORAGE_CHECK(fsync(a) < 0 && errno == EIO);}
         }
         STORAGE_CHECK(close(a) == 0);

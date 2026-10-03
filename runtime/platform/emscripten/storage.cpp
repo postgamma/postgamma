@@ -7,6 +7,7 @@
 #include <emscripten/proxying.h>
 #include <emscripten/wasmfs.h>
 #include <cerrno>
+#include <algorithm>
 #include <atomic>
 #include <cstdarg>
 #include <cstdio>
@@ -233,22 +234,32 @@ public:
         return !dispatched ? -EIO : error ? -error : result;
     }
     double call(PostgammaStorageOperation operation, int id = 0) {return call(StorageRequest{operation, id});}
-    std::shared_ptr<File> node(const uint32_t *info);
+    std::shared_ptr<File> node(const uint32_t *info, off_t known_size = -1);
     std::shared_ptr<DataFile> createFile(mode_t) override {return nullptr;}
     std::shared_ptr<Directory> createDirectory(mode_t mode) override;
     std::shared_ptr<Symlink> createSymlink(std::string) override {return nullptr;}
 };
 
 class Data : public DataFile {
+    // WasmFS preserves File identity in its dcache and holds File::mutex for
+    // these methods. The exclusive storage owner has no out-of-band writers.
+    // Avoid an owner roundtrip for every stat/seek of an unchanged file.
+    off_t size;
 public:
     Storage &storage;
     int id;
-    Data(Storage &storage, int id, mode_t mode) : DataFile(mode, &storage), storage(storage), id(id) {}
-    off_t getSize() override {return storage.call(PGW_STORAGE_SIZE, id);}
+    Data(Storage &storage, int id, mode_t mode, off_t known_size)
+        : DataFile(mode, &storage), size(known_size), storage(storage), id(id) {}
+    off_t getSize() override {
+        if (size < 0) size = storage.call(PGW_STORAGE_SIZE, id);
+        return size;
+    }
     int setSize(off_t size) override {
         StorageRequest request{PGW_STORAGE_TRUNCATE, id};
         request.offset = size;
-        return storage.call(request);
+        int result = storage.call(request);
+        this->size = result == 0 ? size : -1;
+        return result;
     }
     int open(oflags_t) override {return storage.call(PGW_STORAGE_OPEN, id);}
     int close() override {return storage.call(PGW_STORAGE_CLOSE, id);}
@@ -260,7 +271,12 @@ public:
     ssize_t write(const uint8_t *buffer, size_t length, off_t offset) override {
         StorageRequest request{PGW_STORAGE_WRITE, id};
         request.data = const_cast<uint8_t *>(buffer); request.length = length; request.offset = offset;
-        return storage.call(request);
+        ssize_t result = storage.call(request);
+        // A failed browser write can have changed the file before throwing.
+        // Refresh on the next stat rather than retaining an uncertain length.
+        if (result < 0) size = -1;
+        else if (size >= 0 && result > 0) size = std::max(size, offset + result);
+        return result;
     }
     int flush() override {return storage.call(PGW_STORAGE_FLUSH, id);}
 };
@@ -284,7 +300,7 @@ public:
         request.name = name.c_str(); request.data = info; request.length = sizeof(info); request.mode = mode;
         double result = storage.call(request);
         if (result < 0) {creation_error = -result; return nullptr;}
-        return storage.node(info);
+        return storage.node(info, op == PGW_STORAGE_CREATE_FILE ? 0 : -1);
     }
     std::shared_ptr<DataFile> insertDataFile(const std::string &name, mode_t mode) override {
         return std::static_pointer_cast<DataFile>(insert(PGW_STORAGE_CREATE_FILE, name, mode));
@@ -332,8 +348,8 @@ public:
     }
 };
 
-std::shared_ptr<File> Storage::node(const uint32_t *info) {
-    if (info[1] == 1) return std::make_shared<Data>(*this, info[0], info[2]);
+std::shared_ptr<File> Storage::node(const uint32_t *info, off_t known_size) {
+    if (info[1] == 1) return std::make_shared<Data>(*this, info[0], info[2], known_size);
     return std::make_shared<Dir>(*this, info[0], info[2]);
 }
 std::shared_ptr<Directory> Storage::createDirectory(mode_t mode) {return std::make_shared<Dir>(*this, 1, mode);}

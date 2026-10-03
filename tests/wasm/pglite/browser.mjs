@@ -17,7 +17,7 @@ const startIndex = Number(values['start-index']);
 if (!Number.isSafeInteger(startIndex) || startIndex < 0 || startIndex >= allIds.length) throw new Error('Invalid case start index');
 const ids = allIds.slice(startIndex);
 const report = {status: 'failed', engine: values.engine, playwright: require('playwright/package.json').version,
-  expectedCases: ids, startupTimeoutMs: 90000, caseTimeoutMs: 90000, cases: [], events: [], console: [], pageErrors: [], failedRequests: []};
+  expectedCases: ids, startupTimeoutMs: 180000, caseTimeoutMs: 90000, cases: [], events: [], console: [], pageErrors: [], failedRequests: []};
 const errorText = error => [String(error), error?.stack].filter(Boolean).join('\n');
 const save = () => {
   writeFileSync(values.output + '.tmp', JSON.stringify(report, null, 2) + '\n');

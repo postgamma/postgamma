@@ -42,6 +42,14 @@
 #endif
 
 #define PGM_OPEN_TIMEOUT_NS UINT64_C(60000000000)
+#ifdef __EMSCRIPTEN__
+/* Browser-backed initdb creates and syncs more than a thousand files. Keep a
+ * separate creation budget; existing-instance and connection waits retain
+ * their ordinary deadline. This does not skip initdb's publication checks. */
+#define PGM_CREATE_TIMEOUT_NS UINT64_C(120000000000)
+#else
+#define PGM_CREATE_TIMEOUT_NS PGM_OPEN_TIMEOUT_NS
+#endif
 #define PGM_CONNECT_TIMEOUT_NS INT64_C(30000000000)
 #define PGM_CANCEL_PROPAGATION_TIMEOUT_NS UINT64_C(1000000000)
 #define PGM_CANCEL_REDISPATCH_INTERVAL_NS UINT64_C(10000000)
@@ -302,7 +310,8 @@ instance_open(
 		return return_simple_error(
 			error, PGM_STATUS_UNSUPPORTED,
 			"cluster creation currently requires logical_umask 0077");
-	status = deadline_after(PGM_OPEN_TIMEOUT_NS, &deadline_ns);
+	status = deadline_after(mode == PGM_OPEN_EXISTING ?
+		PGM_OPEN_TIMEOUT_NS : PGM_CREATE_TIMEOUT_NS, &deadline_ns);
 	if (status != 0)
 		return return_simple_error(
 			error, status_from_errno(status),

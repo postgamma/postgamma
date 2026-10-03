@@ -7,6 +7,7 @@ const {Journal, journalNames} = await import(source('journal'));
 const {Namespace, encode, journalLimit} = await import(source('namespace'));
 const {snapshot, restore, slotLimit} = await import(source('checkpoint'));
 const {Store} = await import(source('opfs'));
+const {StorageOp} = await import(source('protocol'));
 
 // Ordinary I/O and unrelated injection points must not walk parent paths.
 const store = new Store();
@@ -122,6 +123,61 @@ const remove = (journal, name, parent = 1) => journal.append({op: 'remove', pare
 const state = journal => ({nextId: journal.namespace.nextId,
   nodes: [...journal.namespace.nodes.values()].map(node => ({...node})).sort((a, b) => a.id - b.id)});
 const hooks = point => ({point, partial: async () => {throw new Error('interrupted tail');}});
+
+// Mount must validate every published object while using handles supplied by
+// enumeration. A recovered file starts with unknown durability; only our own
+// successful flush permits later redundant barriers to be skipped.
+{
+  const files = new Directory();
+  const metadata = await Journal.open(files);
+  await files.getFileHandle('file-2', {create: true});
+  await create(metadata, 'data', 1, 1); metadata.close();
+  files.getDirectoryHandle = async () => files;
+  files.removeEntry = async name => files.files.delete(name);
+  await files.getFileHandle('file-999', {create: true});
+  const getFile = files.getFileHandle.bind(files);
+  files.getFileHandle = async (name, options) => {
+    assert(!name.startsWith('file-'), 'Mount uses the enumerated handles without duplicate file IPC');
+    return getFile(name, options);
+  };
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: {storage: {getDirectory: async () => files}}});
+  try {
+    const mounted = new Store();
+    await mounted.mount('database', '');
+    assert.equal(mounted.metrics.collectedOrphans, 1);
+    const request = {id: 2, parent: 1, name: '', data: new Uint8Array([1, 2, 3]), offset: 0, mode: 384};
+    await mounted.call(StorageOp.flush, request);
+    assert.equal(mounted.metrics.physicalFlushes, 1, 'Unknown recovered contents need a real flush');
+    await mounted.call(StorageOp.flush, request);
+    assert.equal(mounted.metrics.physicalFlushes, 1);
+    assert.equal(mounted.metrics.cleanFlushes, 1);
+    await mounted.call(StorageOp.write, request);
+    await mounted.call(StorageOp.flush, request);
+    assert.equal(mounted.metrics.physicalFlushes, 2, 'A write invalidates known durability');
+    await mounted.call(StorageOp.truncate, {...request, offset: 1});
+    await mounted.call(StorageOp.flush, request);
+    assert.equal(mounted.metrics.physicalFlushes, 3, 'Truncation requires a new barrier');
+    files.failAt = files.operations + 1;
+    await assert.rejects(mounted.call(StorageOp.write, request), /injected/);
+    files.failAt = Infinity;
+    await mounted.call(StorageOp.flush, request);
+    assert.equal(mounted.metrics.physicalFlushes, 4, 'A failed write invalidates known durability too');
+    mounted.fault = {operation: 'flush-before', path: '/data', action: 'error', remaining: 1};
+    await assert.rejects(mounted.call(StorageOp.flush, request), /Injected OPFS failure/);
+    await mounted.discard();
+
+    const dataFile = files.files.get('file-2');
+    files.files.delete('file-2');
+    await assert.rejects(new Store().mount('database', ''), /Missing data object/);
+    files.files.set('file-2', {});
+    await assert.rejects(new Store().mount('database', ''), /not a file/);
+    files.files.set('file-2', dataFile);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor);
+    else delete globalThis.navigator;
+  }
+}
 
 let root = new Directory(), journal = await Journal.open(root);
 await create(journal, 'old');

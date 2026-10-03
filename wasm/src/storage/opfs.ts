@@ -32,6 +32,9 @@ export class Store {
   // handle eviction; querying the browser on every fstat is an IPC roundtrip.
   private sizes = new Map<number, number>();
   private dirty = new Set<number>();
+  // Only a successful flush in this mount proves a file clean. Files found
+  // during recovery start unknown, even if this owner has not written them.
+  private synced = new Set<number>();
   private opens = new Map<number, number>();
   private removed = new Set<number>();
   private tail: Promise<unknown> = Promise.resolve();
@@ -39,6 +42,7 @@ export class Store {
   private fault: {operation: string; path: string; action: string; remaining: number} | undefined;
   private resume: (() => void) | undefined;
   metrics = {reads: 0, writes: 0, flushes: 0, directoryFlushes: 0, namespaceCommits: 0,
+    physicalFlushes: 0, cleanFlushes: 0,
     peakHandles: 0, discardedJournalBytes: 0, collectedOrphans: 0,
     compactions: 0, journalBytes: 0, peakJournalBytes: 0, journalGeneration: 0};
   async mount(name: string, testChannel: string) {
@@ -58,14 +62,21 @@ export class Store {
       });
       this.namespace = this.journal.namespace;
       this.journalMetrics();
-      // A published namespace must never silently create a missing data object.
-      for (const node of this.namespace.nodes.values()) if (node.kind === 1)
-        this.files.set(node.id, await this.root.getFileHandle('file-' + node.id));
-      for await (const [entry] of this.root.entries()) {
-        if (/^file-[0-9]+$/.test(entry) && !this.namespace.nodes.has(Number(entry.slice(5)))) {
-          await this.root.removeEntry(entry); this.metrics.collectedOrphans++;
+      // Directory enumeration already supplies the file handles. Avoid a
+      // second browser lookup per published file during every reopen.
+      for await (const [entry, handle] of this.root.entries()) {
+        if (!/^file-[0-9]+$/.test(entry)) continue;
+        const id = Number(entry.slice(5)), node = this.namespace.nodes.get(id);
+        if (!node) {await this.root.removeEntry(entry); this.metrics.collectedOrphans++;}
+        else if (node.kind === 1 && entry === 'file-' + id) {
+          if (typeof (handle as StorageFile)?.createSyncAccessHandle !== 'function')
+            throw error('TypeMismatchError', 'Data object is not a file: ' + entry);
+          this.files.set(id, handle as StorageFile);
         }
       }
+      // A published namespace must never silently create a missing data object.
+      for (const node of this.namespace.nodes.values()) if (node.kind === 1 && !this.files.has(node.id))
+        throw error('NotFoundError', 'Missing data object: file-' + node.id);
       if (testChannel) {
         this.channel = new BroadcastChannel(testChannel);
         this.channel.onmessage = ({data}) => {
@@ -122,13 +133,16 @@ export class Store {
     // ceiling, including while a checkpoint replaces the previous log.
     if (this.handles.size >= 63) {
       const [old, access] = this.handles.entries().next().value!;
-      if (this.dirty.has(old)) access.flush();
+      if (this.dirty.has(old)) this.flushHandle(old, access);
       access.close(); this.handles.delete(old); this.dirty.delete(old);
     }
   }
   private keepHandle(id: number, h: AccessHandle, size: number) {
     this.sizes.set(id, size);
     this.handles.set(id, h); this.metrics.peakHandles = Math.max(this.metrics.peakHandles, this.handles.size);
+  }
+  private flushHandle(id: number, h: AccessHandle) {
+    h.flush(); this.dirty.delete(id); this.synced.add(id); this.metrics.physicalFlushes++;
   }
   private async file(id: number, create = false) {
     let file = this.files.get(id);
@@ -154,7 +168,7 @@ export class Store {
     if (!this.removed.has(id) || this.opens.has(id)) return;
     const h = this.handles.get(id);
     if (h) {h.close(); this.handles.delete(id); this.dirty.delete(id);}
-    this.sizes.delete(id); this.files.delete(id);
+    this.sizes.delete(id); this.files.delete(id); this.synced.delete(id);
     try {await this.root.removeEntry('file-' + id); this.removed.delete(id);}
     catch { /* A failed deletion remains an orphan for the next owned mount. */ }
   }
@@ -173,7 +187,7 @@ export class Store {
     // A poisoned journal is recovered on the next mount, without a new flush.
     for (const [id, h] of this.handles) {
       try {
-        if (!this.poisoned && this.dirty.has(id)) h.flush();
+        if (!this.poisoned && this.dirty.has(id)) this.flushHandle(id, h);
       } catch (cause) {failure ??= cause;}
       try {
         h.close(); this.handles.delete(id);
@@ -182,6 +196,7 @@ export class Store {
     this.files.clear();
     this.sizes.clear();
     this.dirty.clear();
+    this.synced.clear();
     this.journalMetrics();
     try {
       if (!this.poisoned) this.journal!.flush();
@@ -209,7 +224,7 @@ export class Store {
     for (const [id, handle] of this.handles) {
       try {handle.close(); this.handles.delete(id); closed++;} catch (cause) {failure ??= cause;}
     }
-    this.files.clear(); this.sizes.clear(); this.dirty.clear();
+    this.files.clear(); this.sizes.clear(); this.dirty.clear(); this.synced.clear();
     try {this.journal?.close(); this.journal = undefined;} catch (cause) {failure ??= cause;}
     this.channel?.close(); this.channel = undefined;
     if (failure) throw failure;
@@ -242,7 +257,7 @@ export class Store {
       if (node.kind === 1) {
         this.reserveHandle();
         const h = await (await this.file(node.id, true)).createSyncAccessHandle();
-        try {h.truncate(0); h.flush(); this.keepHandle(node.id, h, 0);}
+        try {h.truncate(0); this.flushHandle(node.id, h); this.keepHandle(node.id, h, 0);}
         catch (cause) {h.close(); throw cause;}
       }
       await this.commit({op: 'create', node}); putNode(node); return node.id;
@@ -284,28 +299,32 @@ export class Store {
     }
     if (!Number.isSafeInteger(offset) || offset < 0) throw error('TypeError', 'Invalid file offset');
     if (op === StorageOp.size && this.sizes.has(id)) return this.sizes.get(id)!;
+    if (op === StorageOp.flush) {
+      let gate = this.point('flush-before', id); if (gate) await gate;
+      // Eviction already flushes dirty data. Initdb's final fsync pass should
+      // not reacquire thousands of clean access handles just to flush again.
+      if (!this.synced.has(id)) this.flushHandle(id, await this.handle(id));
+      else this.metrics.cleanFlushes++;
+      this.metrics.flushes++;
+      gate = this.point('flush-after', id); if (gate) await gate;
+      return 0;
+    }
     const h = await this.handle(id);
     if (op === StorageOp.read) {this.metrics.reads++; return h.read(data, {at: offset});}
     if (op === StorageOp.write) {
       let gate = this.point('write', id);
       const action = gate ? await gate : ''; this.metrics.writes++;
+      this.synced.delete(id);
       let n: number;
       try {n = h.write(action === 'short' ? data.subarray(0, Math.min(7, data.length)) : data, {at: offset});}
       catch (cause) {this.sizes.delete(id); this.dirty.add(id); throw cause;}
       if (n > 0) {this.sizes.set(id, Math.max(this.sizes.get(id)!, offset + n)); this.dirty.add(id);}
       gate = this.point('written', id); if (gate) await gate; return n;
     }
-    if (op === StorageOp.flush) {
-      let gate = this.point('flush-before', id); if (gate) await gate;
-      h.flush();
-      this.dirty.delete(id);
-      this.metrics.flushes++;
-      gate = this.point('flush-after', id); if (gate) await gate;
-      return 0;
-    }
     if (op === StorageOp.size) return this.sizes.get(id)!;
     if (op === StorageOp.truncate) {
       const gate = this.point('truncate', id); if (gate) await gate;
+      this.synced.delete(id);
       try {h.truncate(offset); this.sizes.set(id, offset);}
       catch (cause) {this.sizes.delete(id); throw cause;}
       finally {this.dirty.add(id);}

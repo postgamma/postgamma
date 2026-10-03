@@ -91,7 +91,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
     report = {'kind': 'postgamma.wasm-lifecycle-matrix', 'status': 'failed',
         'sql_receipt': str(sql_receipt), 'sql_receipt_sha256': digest(sql_receipt),
         'harness_sources': sources, 'mode': config.mode, 'repetitions': repetitions,
-        'fixtureBudgetMs': 90000, 'recoveryBudgetMs': 30000, 'engines': {},
+        'fixtureBudgetMs': 90000, 'initialOpfsFixtureBudgetMs': 180000, 'recoveryBudgetMs': 30000, 'engines': {},
         'scope': 'Fresh connection-progress/deadline and OPFS recovery runs in Chromium, Firefox and Linux WebKit. Fatal iterations reuse durable data '
                  'with fresh modules. Immediate reopen has no sleep or retry; initial creation is timed separately. '
                  'Repeated success is empirical evidence, not a synchronous pthread termination guarantee.'}
@@ -104,11 +104,13 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
                     case.mkdir()
                     query = '?scenario=' + scenario
                     timeout = 90000
+                    initial_timeout = 180000 if scenario in ('close-audit', 'open-failed') or scenario.startswith('fatal-opfs-') else timeout
                     if scenario.startswith('fatal-'):
                         query += '&repetitions=' + str(repetitions)
                     command = [tools['node'], str(config.root / 'tests/wasm/browser/run.mjs'),
                         '--root', str(config.root), '--url', url + query, '--engine', engine,
-                        '--output', str(case / 'browser.json'), '--timeout-ms', str(timeout)]
+                        '--output', str(case / 'browser.json'), '--timeout-ms', str(timeout),
+                        '--initial-timeout-ms', str(initial_timeout)]
                     if scenario.startswith('fatal-'):
                         command += ['--repetitions', str(repetitions)]
                     launcher = config.deps / 'browser-libs/launch-webkit.sh'
@@ -121,7 +123,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
                         with tempfile.TemporaryDirectory(prefix='pgm-lifecycle-') as temporary:
                             run(command + ['--profile', str(Path(temporary) / 'profile')],
                                 case / 'browser.log', dict(browser_environment(config, env), TMPDIR=temporary),
-                                config.root, timeout=timeout / 1000 * (repetitions + 1 if scenario.startswith('fatal-') else 1) + 30)
+                                config.root, timeout=(initial_timeout + timeout * (repetitions if scenario.startswith('fatal-') else 0)) / 1000 + 30)
                         row = read_json(case / 'browser.json')
                         validate_case(row, scenario, repetitions)
                         report['engines'][engine][scenario] = row
