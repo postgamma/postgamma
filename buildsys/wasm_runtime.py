@@ -39,7 +39,7 @@ def check(config, longjmp: str) -> Path:
     layouts, layout_files = target_layouts(config, longjmp)
     sdk_headers = config.sdk / "upstream/emscripten/system/lib/wasmfs"
     sources = ["runtime/platform/emscripten/locale.c", "tests/wasm/runtime/libc.c", "runtime/platform/emscripten/filesystem.cpp", "embedded-c/src/data_directory_lock.c",
-               "runtime/src/path_runtime.c", "runtime/src/execution_context.c", "runtime/src/backend_state_runtime.c",
+               "runtime/src/path_runtime.c", "runtime/src/execution_context.c", "runtime/src/backend_state_runtime.c", "runtime/src/virtual_signal.c",
                "tests/wasm/runtime/filesystem.c", "runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
                "runtime/platform/emscripten/dsm.c", "runtime/platform/emscripten/semaphore.c",
                "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c", "tests/wasm/runtime/dsm.c"]
@@ -64,11 +64,9 @@ def check(config, longjmp: str) -> Path:
     report = {"kind": "postgamma.wasm-runtime", "status": "failed", "inputs": inputs,
               "kernel_validated": False, "sql_validated": False}
     try:
-        # Compile the shared timer implementation, with only its clock/context dependencies supplied by the fixture.
+        # Compile the PostgreSQL timer wrappers with the shared timer module;
+        # the fixture supplies only clock and current-session dependencies.
         backend = (config.root / "runtime/src/postgres_backend_runtime.c").read_text()
-        begin = backend.index("typedef struct PostgammaVirtualTimer")
-        end = backend.index("} PostgammaVirtualTimer;", begin) + len("} PostgammaVirtualTimer;")
-        (site / "timer-type.inc").write_text(backend[begin:end] + "\n")
         begin = backend.index("long\npostgamma_backend_adjust_wait_timeout")
         end = backend.index("\n\nbool\npostgamma_postgres_quantum_begin", begin)
         (site / "timer-wait.inc").write_text(backend[begin:end] + "\n")

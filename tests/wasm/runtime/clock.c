@@ -5,11 +5,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+#include "postgamma/virtual_signal.h"
 
 typedef int64_t TimestampTz;
-typedef int64_t int64;
-typedef uint64_t uint64;
-#include "timer-type.inc"
 static PostgammaVirtualTimer timer;
 static bool supplied_clock;
 static TimestampTz clock_value;
