@@ -6,7 +6,7 @@ import re
 from wasm_toolchain import WasmError, write_json
 
 SCENARIOS = ('abi', 'bindings', 'concurrency', 'errors', 'results', 'lifecycle', 'disconnect-timeout', 'control-progress', 'control-timeout', 'connect-progress', 'close-audit', 'open-failed',
-             'fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort', 'budget', 'diagnostics', 'scripts', 'notifications')
+             'fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort', 'budget', 'diagnostics', 'scripts', 'notifications', 'capacity')
 
 
 def generate_policy(root: Path, output: Path, policy: dict) -> None:

@@ -59,8 +59,8 @@
     },
     {
       "name": "request_and_result_queues",
-      "bytes": 8388608,
-      "basis": "aggregate estimate for all carriers"
+      "bytes": 134217728,
+      "basis": "Aggregate estimate for four bounded results, private libpq buffers and bridge copies; measured peaks and rejection/reuse are checked by the capacity scenario."
     },
     {
       "name": "allocator_and_runtime_reserve",
@@ -91,12 +91,12 @@
   "sql_limits": {
     "maxConnections": 4,
     "maxPendingCommands": 64,
-    "commandBytes": 2097152,
-    "workerQueueBytes": 8388608,
-    "connectionQueueBytes": 2097152,
-    "collectedResultBytes": 4194304,
-    "resultBufferBytes": 262144,
-    "maximumValueBytes": 131072,
+    "commandBytes": 33554432,
+    "workerQueueBytes": 67108864,
+    "connectionQueueBytes": 33554432,
+    "collectedResultBytes": 33554432,
+    "resultBufferBytes": 25165824,
+    "maximumValueBytes": 16777216,
     "copyChunkBytes": 16384,
     "maximumChunkRows": 1024,
     "logLines": 512,
@@ -110,7 +110,7 @@
     "data_end_includes_control_stack": true,
     "isolated_static_payload_measured": false
   },
-  "validation": {
+  "previous_validation": {
     "scope": {
       "browser": "chromium",
       "mode": "debug",
@@ -149,5 +149,43 @@
       "synchronous_fatal_vm_reclamation_verified": false,
       "worker_queue_peak_bytes": 614482
     }
+  },
+  "validation": {
+    "scope": {
+      "browser": "chromium",
+      "mode": "release",
+      "storage": "ephemeral-wasmfs",
+      "target": "wasm32-emscripten-pthreads",
+      "scenario": "capacity"
+    },
+    "receipt": "build/wasm/wasm32-emscripten-pthreads/release/9c457df34fe4c120/runs/link-20261003T121700Z-91ce0bff/sql.json",
+    "sql_limits": {
+      "maxConnections": 4,
+      "maxPendingCommands": 64,
+      "commandBytes": 33554432,
+      "workerQueueBytes": 67108864,
+      "connectionQueueBytes": 33554432,
+      "collectedResultBytes": 33554432,
+      "resultBufferBytes": 25165824,
+      "maximumValueBytes": 16777216,
+      "copyChunkBytes": 16384,
+      "maximumChunkRows": 1024,
+      "logLines": 512,
+      "logLineCharacters": 4096
+    },
+    "measurements": {
+      "peakMemory": 481165312,
+      "peakThreads": 11,
+      "peakQueuedBytes": 16777284,
+      "peakHostQueuedBytes": 20971960,
+      "resources": {
+        "dsm": 0,
+        "locks": 0,
+        "pipes": 0,
+        "shmem": 0
+      }
+    },
+    "full_acceptance_command": "make wasm-check-full WASM_MODE=release JOBS=2",
+    "note": "Targeted expanded-capacity evidence; a fresh full receipt matching all sources is required for release. previous_validation applies only to the earlier limits."
   }
 }

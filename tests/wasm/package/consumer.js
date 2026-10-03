@@ -53,6 +53,24 @@ try {
     timings.cancelMs = performance.now() - cancelStart;
     assert(canceled instanceof DatabaseError && canceled.sqlstate === '57014', 'Cancellation');
     await request.close(); checks.push('sql-error-and-cancel-reuse');
+    stage('scripts-notifications-capacity');
+    const script = await a.exec('SELECT 21; SELECT 22');
+    assert(script.length === 2 && script[0].rows[0][0] === '21' && script[1].rows[0][0] === '22', 'Installed script API');
+    await a.query('LISTEN package_notification');
+    let remove, deadlineTimer;
+    const notification = new Promise((resolve, reject) => {
+      deadlineTimer = setTimeout(() => reject(new Error('Installed notification timeout')), 5000);
+      remove = a.onNotification(resolve, reject);
+    });
+    try {
+      await b.exec("NOTIFY package_notification, 'installed'");
+      const value = await notification;
+      assert(value.channel === 'package_notification' && value.payload === 'installed', 'Installed idle notification API');
+    } finally {clearTimeout(deadlineTimer); remove();}
+    await a.query('UNLISTEN package_notification');
+    const large = 'p'.repeat(5 * 1024 * 1024);
+    assert(scalar(await a.query('SELECT $1::text', {parameters: [{typeOid: 25, value: large}]})) === large, 'Installed large-value contract');
+    checks.push('script-api', 'notification-api', 'large-value-api');
     if (manifest.extensions.pgvector) {
       stage('vector');
       await a.query('CREATE EXTENSION vector');

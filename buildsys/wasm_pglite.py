@@ -100,7 +100,7 @@ def matrix(config, longjmp, engines=ENGINES, storage_profiles=STORAGE, receipt=N
               'upstream': upstream, 'expected_cases': ids, 'profiles': {},
               'complete_matrix': tuple(engines) == ENGINES and tuple(storage_profiles) == STORAGE,
               'scope': 'Adapted PGlite SQL/API scenarios on the PostGamma kernel. Linux WebKit is not Safari/iOS evidence. '
-                       'Large collected results assert the PostGamma limit; iterator transfers are bounded to 16 MiB per case.'}
+                       'Original 5/12 MiB values must succeed; a dedicated stream transfers 128 MiB. Larger collected results assert the PostGamma limit.'}
     sources = {str(p.relative_to(config.root)): digest(p) for p in sorted((config.root / 'tests/wasm/pglite').iterdir()) if p.is_file()}
     sources['tests/wasm/browser/diagnostics.mjs'] = digest(config.root / 'tests/wasm/browser/diagnostics.mjs')
     report['test_sources'] = sources

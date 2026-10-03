@@ -131,11 +131,15 @@ COPY continuation and cancellation. Parameterized `query()` remains a single
 statement. These adaptations do not validate PGlite-specific JavaScript APIs.
 
 The upstream large-result fixtures are adapted to the published PostGamma
-limits: collected results above 4 MiB must reject and leave the session usable;
+limits: collected results above 32 MiB must reject and leave the session usable;
 iterator checks transfer at most 16 MiB per case. The 8 KiB payload cases retain
-their original data size. The 5/12/128 MiB single-value success expectations
-are replaced by an explicit 128 KiB value-boundary rejection check; this is not
-evidence of GiB-scale capacity. The MessageContext regression retains all 300
+their original data size, and 5 MiB/12 MiB cases require successful full data
+roundtrips through exec, literal and parameter queries, plus generated values.
+Dedicated cases check exact 16 MiB UTF-8/binary values, rejection above the
+value and materialized-result bounds, a full 128 MiB cumulative stream,
+cancellation and reuse. The 128 MiB single-value expectation remains outside
+the 16 MiB value contract; this is not evidence of GiB-scale capacity.
+The MessageContext regression retains all 300
 100 KiB inserts and its original 5 MiB bound, and is not a browser VM leak test.
 Unsupported extensions, XML, live queries, archive/clone APIs, JS formatting,
 custom codecs, startup options, Node/Deno wrappers and IndexedDB are outside
@@ -306,7 +310,7 @@ budget and points to its immutable run report. The policy is in
 It reserves a control Worker plus 13 pthread slots (supervisor, six background,
 four carriers, I/O owner, and one spare), with 74 MiB of C stacks in total.
 The capacity probe starts all slots together, touches synthetic static/TLS
-reserves and 144 MiB of allocations, grows shared memory, verifies refreshed
+reserves and 264 MiB of estimated allocations, grows shared memory, verifies refreshed
 views in JS and pthreads, rejects an excessive allocation with ENOMEM, and
 releases allocations across two rounds. The candidate starts at 128 MiB and
 allows growth to 512 MiB. The SQL gate now validates these bounds for debug
@@ -440,7 +444,10 @@ request cancellation, SQL timeouts and real crossed-row deadlocks. Bounded
 streaming and COPY are checked with `WASM_SQL_SCENARIO=results`, including a
 native PostgreSQL oracle (requires the existing `build/reference/tmp_install`
 installation). Iterator/COPY delivery grants one batch of credit at a time.
-Collected queries are limited to 4 MiB; larger results use async iteration.
+Collected queries are limited to 32 MiB including bridge metadata; larger
+results use async iteration. A materialized native result has a separate
+24 MiB cap: use `chunkRows` when a statement exceeds that cap. Each value
+is limited to 16 MiB of encoded data.
 Exact text values stay strings, binary values stay owned byte buffers, and
 SQL errors expose SQLSTATE plus the native diagnostic fields.
 
@@ -508,9 +515,11 @@ observability; it does not establish the cause of the earlier intermittent
 WebKit reopen stall.
 
 The accepted SQL limits are generated for both C and JavaScript from
-`manifests/profiles/wasm-resource-budget.json`: four live connections, 256 KiB
-native result buffers, 128 KiB values, 16 KiB COPY fragments, 2 MiB pending
-query bytes per connection, and 8 MiB queued Worker messages. `budget` checks
+`manifests/profiles/wasm-resource-budget.json`: four live connections, 24 MiB
+native result buffers, 16 MiB values, 16 KiB COPY fragments, 32 MiB pending
+query bytes per connection, and 64 MiB queued Worker messages. Commands are
+limited to 32 MiB. Admission counts actual UTF-8 bytes without allocating an
+encoded copy. `budget` checks
 all four carriers and admission/queue limits. The full run writes
 `sql-resource-budget.json` beside its `sql.json`; the latter includes all
 scenario results and source/asset identities. Diagnostics sample on commands
@@ -519,6 +528,10 @@ pass `diagnostics: {sampleIntervalMs: 10}` to `Database.open()`; `0` disables
 periodic sampling. Sampling can miss transient peaks; the 13-slot SDK pool
 supplies the hard pthread bound. Caller-retained results
 and the browser's VM/code memory are outside managed queue accounting.
+The `capacity` scenario additionally checks four simultaneous 5 MiB
+roundtrips and a paused large-result consumer while another connection runs.
+The linear-memory maximum remains 512 MiB; these limits are separate bounds,
+not a promise that every connection can saturate every bound simultaneously.
 
 The host driver sleeps on notifications between commands. Replies and
 per-connection result/COPY readiness use events. Pending lifecycle steps use

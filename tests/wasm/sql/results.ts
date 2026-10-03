@@ -3,6 +3,7 @@ import {DatabaseError} from '../src/api/database.js';
 import type {Database, Result} from '../src/api/database.js';
 import {assert, scalar, errorState} from './helpers.js';
 import {collect} from './errors.js';
+import {limits} from '../src/protocol/limits.js';
 export async function results(db: Database, checks: string[]) {
   const fixture = await (await fetch(new URL('../fixtures.json', import.meta.url))).json();
   const oracle = await (await fetch(new URL('../oracle.json', import.meta.url))).json();
@@ -74,7 +75,7 @@ export async function results(db: Database, checks: string[]) {
   }
   assert(total === 20000, 'Bounded iterator drains all rows');
   let collectionBound = false;
-  try {await c.query("SELECT repeat('q', 1024) FROM generate_series(1, 10000)", {chunkRows: 32});}
+  try {await c.query(`SELECT repeat('q', 1024) FROM generate_series(1, ${Math.ceil(limits.collectedResultBytes / 1024) + 1})`, {chunkRows: 32});}
   catch (error) {collectionBound = error instanceof Error && error.message.includes('Collected results exceed');}
   assert(collectionBound && scalar(await c.query('SELECT 4')) === '4', 'Collected-result limit cancels safely');
   const canceled = await c.execute('SELECT generate_series(1, 10000000)', {chunkRows: 32});

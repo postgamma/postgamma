@@ -56,6 +56,12 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+Values are bounded to 16 MiB, native materialized results to 24 MiB, and collected
+results to 32 MiB including metadata. Set `chunkRows` to stream larger results.
+Commands and each connection's query queue are bounded to 32 MiB of encoded
+data; all Worker messages together are bounded to 64 MiB. Caller-retained
+results are outside queue accounting.
+
 Use `connection.onNotification(({channel, payload, pid}) => { ... }, onError)`
 and SQL LISTEN/UNLISTEN for asynchronous notifications. The returned function
 removes the callback. Idle listeners release their carriers, and delivery

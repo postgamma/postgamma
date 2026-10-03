@@ -15,7 +15,7 @@ export async function budget(db: Database, checks: string[]) {
   while (live.running < BigInt(limits.maxConnections) && performance.now() < deadline) live = await db.telemetry();
   assert(live.running === BigInt(limits.maxConnections), 'All admitted sessions run on independent carriers');
   await Promise.all(work);
-  const c = connections[0], payload = new Uint8Array(600 * 1024);
+  const c = connections[0], payload = new Uint8Array(Math.floor((limits.connectionQueueBytes - 1024) / 3));
   const queued = await Promise.allSettled(Array.from({length: 4}, () => c.query('SELECT octet_length($1::bytea)', {
     parameters: [{typeOid: 17, value: payload}],
   })));

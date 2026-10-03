@@ -24,8 +24,8 @@ class ResourceBudgetTests(unittest.TestCase):
         self.assertEqual((plan["pthread_count"], plan["worker_count"]), (13, 14))
         self.assertEqual(plan["stack_bytes"], 74 * mib)
         self.assertEqual(plan["tls_reserve_bytes"], 14 * mib)
-        self.assertEqual(plan["estimated_linear_peak_bytes"], 248 * mib)
-        self.assertEqual(plan["maximum_headroom_bytes"], 264 * mib)
+        self.assertEqual(plan["estimated_linear_peak_bytes"], 368 * mib)
+        self.assertEqual(plan["maximum_headroom_bytes"], 144 * mib)
         policy["outside_linear_memory"]["estimated_bytes"] *= 2
         self.assertEqual(plan, budget.plan(policy))
 

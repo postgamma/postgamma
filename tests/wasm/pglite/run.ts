@@ -7,6 +7,7 @@ import type {Connection, Parameter, Result} from '../src/api/database.js';
 import {limits} from '../src/protocol/limits.js';
 import {scriptSemantics} from '../tests/scripts.js';
 import {notificationCase} from '../tests/notifications.js';
+import {capacityValues, capacityStream} from '../tests/capacity.js';
 
 type Value = string | number | null;
 interface Step {
@@ -115,6 +116,8 @@ async function special(c: Connection, test: Case) {
   if (test.kind === 'copy') return copy(c);
   if (test.kind === 'script') return scriptSemantics(c);
   if (test.kind === 'notification') return notificationCase(database!, c, test.mode!);
+  if (test.kind === 'capacity-values') return capacityValues(c);
+  if (test.kind === 'capacity-stream') return capacityStream(c);
   if (test.kind === 'closed') {
     const other = await database!.connect(); await other.close();
     await rejected(() => other.query('SELECT 1'), e => e instanceof ClosedError, 'closed connection rejects query');
@@ -130,14 +133,15 @@ async function special(c: Connection, test: Case) {
     await c.query('CREATE TABLE size_test(id SERIAL PRIMARY KEY,data TEXT)');
     let result: Result[];
     if (test.mode === 'exec') {
-      await c.query(`INSERT INTO size_test(data) VALUES('${data}')`);
-      result = await c.query('SELECT data FROM size_test');
+      result = await c.exec(`INSERT INTO size_test(data) VALUES('${data}'); SELECT data FROM size_test`);
+      equal(result.length, 2, 'original two-statement exec results');
     }
     else if (test.mode === 'generated') result = await c.query(`SELECT repeat('a',${test.bytes})`);
     else {
       await c.query(test.mode === 'literal' ? `INSERT INTO size_test(data) VALUES('${data}')` :
         'INSERT INTO size_test(data) VALUES($1)', test.mode === 'parameter' ? {parameters: [{typeOid: 25, value: data}]} : {});
-      result = await c.query('SELECT data FROM size_test');
+      result = await c.query('SELECT data FROM size_test' + (test.mode === 'parameter' ? ' WHERE data = $1' : ''),
+        test.mode === 'parameter' ? {parameters: [{typeOid: 25, value: data}]} : {});
     }
     equal(rows(result), [[data]], 'payload roundtrip');
   } else if (test.kind === 'rows') {
@@ -145,7 +149,7 @@ async function special(c: Connection, test: Case) {
     const sql = `SELECT g AS id, '${data}' AS data FROM generate_series(1,${count}) g`;
     const chunkRows = Math.max(1, Math.min(128, Math.floor(64 * 1024 / (test.bytes! + 256))));
     // Exercise the iterator as well. Bound transferred payload to 16 MiB per
-    // case; larger upstream matrices above test rejection, not GiB capacity.
+    // case. A separate regression streams 128 MiB; this is not GiB capacity.
     const streamed = Math.min(count, Math.floor(16 * 1024 * 1024 / test.bytes!));
     await event('step', {id: test.id, operation: 'stream', streamedRows: streamed, chunkRows});
     const request = await c.execute(`SELECT g, '${data}' FROM generate_series(1,${streamed}) g`, {chunkRows});
@@ -171,7 +175,8 @@ async function special(c: Connection, test: Case) {
     equal(result.length, test.count, 'default materialized row count');
     for (let i = 0; i < result.length; i++) equal(result[i], [String(i + 1), 'a'.repeat(test.bytes!)], 'default materialized row');
   } else if (test.kind === 'stream-after-limit') {
-    const sql = "SELECT g,repeat('a',10240) FROM generate_series(1,1000) g";
+    const count = Math.ceil(limits.collectedResultBytes / 10240) + 1;
+    const sql = `SELECT g,repeat('a',10240) FROM generate_series(1,${count}) g`;
     await event('step', {id: test.id, operation: 'collect-over-limit'});
     await rejected(() => c.query(sql, {chunkRows: 6}), e => e instanceof Error && e.message.includes('Collected results exceed'), 'collection limit');
     equal(rows(await c.query('SELECT 7')), [['7']], 'small query after cancellation');
@@ -180,7 +185,7 @@ async function special(c: Connection, test: Case) {
     try {for await (const batch of request) for (const row of batch.rows) {
       seen++; equal(row, [String(seen), 'a'.repeat(10240)], 'stream after collection limit');
     }} finally {await request.close();}
-    equal(seen, 1000, 'all rows after prior cancellation');
+    equal(seen, count, 'all rows after prior cancellation');
   } else if (test.kind === 'value-limit') {
     await rejected(() => c.query(`SELECT repeat('a',${limits.maximumValueBytes + 1})`),
       e => e instanceof DatabaseError && e.sqlstate === '54000', 'maximum value SQLSTATE');

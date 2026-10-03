@@ -1,11 +1,20 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {Database, version, type OpenOptions, type Parameter, type Result} from '@postgamma/wasm';
+import {Database, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
+  type ScriptOptions, type Notification} from '@postgamma/wasm';
 const options: OpenOptions = {storage: {type: 'opfs', name: 'typed-consumer'}};
 const parameter: Parameter = {typeOid: 20, value: '9223372036854775807'};
 async function typedConsumer(): Promise<Result[]> {
   const db = await Database.open(options);
   const c = await db.connect(version);
-  try {return await c.query('SELECT $1::int8', {parameters: [parameter]});}
+  try {
+    const script: ScriptOptions = {chunkRows: 4};
+    const stop = c.onNotification((value: Notification) => {console.log(value.channel, value.payload);}, error => {
+      if (error instanceof NotificationOverflowError) console.log(error.dropped);
+    });
+    await c.exec('SELECT 1; SELECT 2', script); stop();
+    for await (const _ of await c.executeScript('SELECT 3', script)) {}
+    return await c.query('SELECT $1::int8', {parameters: [parameter]});
+  }
   finally {await c.close(); await db.close();}
 }
 void typedConsumer;

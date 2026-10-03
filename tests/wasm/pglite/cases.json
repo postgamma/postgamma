@@ -2861,6 +2861,92 @@
       "bytes": 8192
     },
     {
+      "id": "sizes/exec-5mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 5mb data size",
+      "kind": "size",
+      "mode": "exec",
+      "bytes": 5242880,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/literal-5mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 5mb data size",
+      "kind": "size",
+      "mode": "literal",
+      "bytes": 5242880,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/parameter-5mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 5mb data size",
+      "kind": "size",
+      "mode": "parameter",
+      "bytes": 5242880,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/generated-5mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 5mb data size",
+      "kind": "size",
+      "mode": "generated",
+      "bytes": 5242880,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/exec-12mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 12mb data size",
+      "kind": "size",
+      "mode": "exec",
+      "bytes": 12582912,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/literal-12mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 12mb data size",
+      "kind": "size",
+      "mode": "literal",
+      "bytes": 12582912,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/parameter-12mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 12mb data size",
+      "kind": "size",
+      "mode": "parameter",
+      "bytes": 12582912,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/generated-12mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 12mb data size",
+      "kind": "size",
+      "mode": "generated",
+      "bytes": 12582912,
+      "adaptation": "Original payload size and successful full roundtrip; generated mode is an additional native result-path check."
+    },
+    {
+      "id": "sizes/value-boundaries",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "oversized data sizes",
+      "kind": "capacity-values",
+      "adaptation": "Additional exact 16 MiB UTF-8 and binary boundary, 16 MiB + 1 rejection, native result-buffer and input admission checks."
+    },
+    {
+      "id": "sizes/stream-128mb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "query with combinations of row counts and data sizes",
+      "kind": "capacity-stream",
+      "adaptation": "Additional 128 MiB cumulative stream of 64 KiB values, collection-cap rejection and cancellation/reuse. This is not a 128 MiB single-value success claim."
+    },
+    {
       "id": "sizes/rows-1000-100",
       "source": "packages/pglite/tests/query-sizes.test.ts",
       "upstreamTest": "handles 1000 rows with 100 bytes per row",
@@ -2986,7 +3072,7 @@
       "source": "packages/pglite/tests/query-sizes.test.ts",
       "upstreamTest": "handles 1k rows with 10kb per row",
       "kind": "stream-after-limit",
-      "adaptation": "Additional regression discovered during migration: stream the full 10 MiB after a collection-limit cancellation and small-query reuse."
+      "adaptation": "Additional regression: transfer all rows of a result just above the current collection cap after cancellation and small-query reuse."
     }
   ]
 }

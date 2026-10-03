@@ -1,5 +1,5 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {DatabaseError, Op, Reader, VERSION, Writer, response} from '../protocol/wire.js';
+import {DatabaseError, Op, Reader, VERSION, Writer, response, utf8Length} from '../protocol/wire.js';
 import type {Handle} from '../protocol/wire.js';
 import {result} from '../codecs/results.js';
 import type {Result} from '../codecs/results.js';
@@ -327,9 +327,9 @@ export class Connection {
   private collect(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
     if (this.closing) return Promise.reject(new ClosedError());
     if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
-    let bytes = sql.length * 3 + 64;
+    let bytes = utf8Length(sql) + 64;
     for (const p of options.parameters ?? [])
-      bytes += 16 + (typeof p.value === 'string' ? p.value.length * 3 : p.value?.byteLength ?? 0);
+      bytes += 16 + (typeof p.value === 'string' ? utf8Length(p.value) : p.value?.byteLength ?? 0);
     if (bytes > limits.commandBytes || this.queuedBytes + bytes > limits.connectionQueueBytes)
       return Promise.reject(new Error('Connection query byte queue is full'));
     this.queuedBytes += bytes; this.transport.hostQueuedBytes += bytes;
@@ -342,13 +342,16 @@ export class Connection {
         const batch = await request.next(); if (batch === null) return results;
         if (batch.copy) throw new Error('Use execute() or executeScript() for COPY streams');
         bytes += batch.byteLength;
-        if (bytes > limits.collectedResultBytes) throw new Error('Collected results exceed 4 MiB; consume an iterator');
+        if (bytes > limits.collectedResultBytes) throw new Error(`Collected results exceed ${limits.collectedResultBytes} bytes; consume an iterator`);
         results.push(batch);
       }}
       finally {await request.close();}
     });
-    this.queryTail = work.then(() => {}, () => {}).finally(() => {this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;});
-    return work;
+    // Releasing admission is part of completion. An awaiting caller may
+    // immediately submit another large query using the same byte allowance.
+    const completed = work.finally(() => {this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;});
+    this.queryTail = completed.then(() => {}, () => {});
+    return completed;
   }
   async status() {
     const r = await this.transport.call(Op.status, this.handle);
