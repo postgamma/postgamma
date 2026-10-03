@@ -366,7 +366,7 @@ class Builder:
     def modules(self):
         from bundle_embedded_static_modules import render_facts
         manifest = target_static_modules(read_json(self.root / "manifests/extensions/embedded-static.json"),
-            ("dict_snowball", "plpgsql", *self.extensions), int(self.postgres_major), self.candidate_probe)
+            ("dict_snowball", "plpgsql", "utf8_and_iso8859_1", *self.extensions), int(self.postgres_major), self.candidate_probe)
         facts = render_facts(manifest)
         for module in manifest["modules"]:
             for symbol in module["symbols"]:
@@ -393,11 +393,16 @@ class Builder:
                 sources = [Path(row["file"]) for row in self.rows if "/src/pl/plpgsql/src/" in row["file"]]
                 sources = [self.target_source(src) for src in sources]
                 extra = ["-I" + str(self.source / "src/pl/plpgsql/src"), "-I" + str(self.artifacts / "src/pl/plpgsql/src")]
-            else:
+            elif name == "dict_snowball":
                 directory = self.source / "src/backend/snowball"
                 sources = [directory / "dict_snowball.c", *sorted((directory / "libstemmer").glob("*.c"))]
                 extra = ["-I" + str(self.source / "src/include/snowball"),
                          "-I" + str(self.source / "src/include/snowball/libstemmer")]
+            elif name == "utf8_and_iso8859_1":
+                sources = [self.source / "src/backend/utils/mb/conversion_procs" / name / (name + ".c")]
+                extra = []
+            else:
+                raise WasmError("unsupported Wasm static module: " + name)
             jobs = [(src, "modules/" + name + "/" + src.stem, ["-DPOSTGAMMA_BACKEND", *extra]) for src in sources]
             mapping = {entry["logical_name"]: entry["linker_name"] for entry in module["symbols"]}
             self.namespace_group(name, jobs, mapping=mapping)

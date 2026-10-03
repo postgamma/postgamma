@@ -52,6 +52,41 @@
       ]
     },
     {
+      "id": "utf8_and_iso8859_1",
+      "logical_name": "utf8_and_iso8859_1",
+      "version": "19",
+      "postgresql_major": 19,
+      "sdk_contract": false,
+      "sdk_abi_version": 0,
+      "build": {
+        "kind": "postgres-link-output",
+        "link_output_suffix": "src/backend/utils/mb/conversion_procs/utf8_and_iso8859_1/utf8_and_iso8859_1.so"
+      },
+      "capabilities": {
+        "thread-safe": true,
+        "multi-instance-safe": true,
+        "session-mobility-safe": true,
+        "parallel-worker-safe": true,
+        "instance-shmem": false,
+        "background-worker": false,
+        "filesystem-read": false,
+        "filesystem-write": false,
+        "host-library-dependency": false,
+        "process-global-state": false
+      },
+      "lifecycle": [],
+      "state_policy": null,
+      "resources": [],
+      "dependencies": [],
+      "symbols": [
+        {"logical_name": "Pg_magic_func", "linker_name": "postgamma_module_utf8_and_iso8859_1_magic"},
+        {"logical_name": "iso8859_1_to_utf8", "linker_name": "postgamma_module_utf8_and_iso8859_1_to_utf8"},
+        {"logical_name": "utf8_to_iso8859_1", "linker_name": "postgamma_module_utf8_and_iso8859_1_from_utf8"},
+        {"logical_name": "pg_finfo_iso8859_1_to_utf8", "linker_name": "postgamma_module_utf8_and_iso8859_1_finfo_to_utf8"},
+        {"logical_name": "pg_finfo_utf8_to_iso8859_1", "linker_name": "postgamma_module_utf8_and_iso8859_1_finfo_from_utf8"}
+      ]
+    },
+    {
       "id": "plpgsql",
       "logical_name": "plpgsql",
       "version": "1.0",

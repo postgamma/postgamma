@@ -14,10 +14,10 @@ class StaticModuleTargetTests(unittest.TestCase):
         document=read_json(ROOT/'manifests/extensions/embedded-static.json')
         original=copy.deepcopy(document)
         for major,candidate in ((19,False),(20,True)):
-            target=target_static_modules(document,('dict_snowball','plpgsql','pgvector'),major,candidate)
+            target=target_static_modules(document,('dict_snowball','plpgsql','utf8_and_iso8859_1','pgvector'),major,candidate)
             self.assertEqual(target['postgresql_major'],major)
             self.assertEqual({m['postgresql_major'] for m in target['modules']},{major})
-            self.assertEqual({m['id'] for m in target['modules']},{'dict_snowball','plpgsql','pgvector'})
+            self.assertEqual({m['id'] for m in target['modules']},{'dict_snowball','plpgsql','utf8_and_iso8859_1','pgvector'})
         self.assertEqual(document,original)
         with self.assertRaisesRegex(WasmError,'pinned contract'):
             target_static_modules(document,('pgvector',),20,False)

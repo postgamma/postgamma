@@ -62,6 +62,15 @@ async function values(c: Connection, checks: string[]) {
   assert(scalar(await c.query('SELECT 29')) === '29', 'Text encoding failure leaves the connection usable');
   checks.push('sqlite-text-nul-rejected');
 
+  equal(rows(await c.query("SELECT encode(convert_to('caf\u00e9\u00ff', 'LATIN1'), 'hex'), " +
+    "convert_from(decode('636166e9ff', 'hex'), 'LATIN1')")), [['636166e9ff', 'caf\u00e9\u00ff']],
+    'Statically bundled conversions preserve non-ASCII Latin-1 bytes in both directions');
+  await errorState(() => c.query("SELECT convert_to('\u03c0', 'LATIN1')"), '22P05');
+  await errorState(() => c.query("SELECT convert_from(decode('ff', 'hex'), 'UTF8')"), '22021');
+  assert(scalar(await c.query("SELECT convert_from(convert_to('r\u00e9utilis\u00e9', 'LATIN1'), 'LATIN1')")) === 'r\u00e9utilis\u00e9',
+    'Encoding errors preserve the connection and conversion cache');
+  checks.push('latin1-conversion-roundtrip', 'encoding-error-reuse');
+
   const empty = await c.query('SELECT NULL::text AS repeated, 1::int8 AS repeated WHERE false');
   assert(rows(empty).length === 0, 'Empty results have no phantom row');
   const metadata = empty.find(result => result.columns.length > 0);
