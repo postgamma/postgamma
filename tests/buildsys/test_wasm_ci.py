@@ -33,6 +33,7 @@ class WasmCITests(unittest.TestCase):
                      'wasm/lifecycle/run/report.json',
                      'wasm/lifecycle/run/firefox-fatal-opfs-abort/browser.json',
                      'wasm/lifecycle/run/webkit-fatal-opfs-trap/browser.log',
+                     'wasm/pglite/run/firefox-opfs/browser.json',
                      'wasm/upstream/run/report.json',
                      'wasm/upstream/run/project/build/wasm/ci/run/generation.log'):
             self.assertTrue(selected(Path(path)), path)
@@ -54,8 +55,44 @@ class WasmCITests(unittest.TestCase):
 
     def test_release_and_weekly_require_lifecycle_before_package(self):
         names = [name for name, _ in stages('weekly')]
+        self.assertLess(names.index('vector'), names.index('pglite'))
+        self.assertLess(names.index('pglite'), names.index('storage'))
         self.assertLess(names.index('storage'), names.index('lifecycle'))
         self.assertLess(names.index('lifecycle'), names.index('package'))
+
+    def test_keep_going_retains_test_failure_and_runs_independent_gates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root/'buildsys').mkdir()
+            (root/'buildsys/wasm_ci.py').write_text('driver')
+            config = SimpleNamespace(root=root, build=root/'build', deps=root/'.deps',
+                profile_path=root/'profile.json', target='wasm32-emscripten-pthreads',
+                mode='release', jobs=1, node_override='', browser_override='', external_sdk=False)
+            for failed in ('generation', 'pglite', 'lifecycle', 'package'):
+                def execute(command, log, *args, **kwargs):
+                    if 'wasm-pglite-check' in command:
+                        self.assertIn('WASM_PGLITE_ENGINES=chromium,firefox,webkit', command)
+                        self.assertIn('WASM_PGLITE_STORAGE=ephemeral,opfs', command)
+                    if Path(log).stem == failed: raise WasmError('injected ' + failed)
+                with self.subTest(failed=failed), patch('wasm_ci.capture', return_value='a'*40), \
+                     patch('wasm_ci.run', side_effect=execute), \
+                     patch('wasm_ci.read_json', return_value={'run_report':'matrix-report', 'observedFailures':[]}):
+                    with self.assertRaises(WasmError): run_suite(config, 'weekly', 'emscripten', keep_going=True)
+                pointer = json.loads((root/'build/wasm/reports/ci.json').read_text())
+                report = json.loads(Path(pointer['run_report']).read_text())
+                rows = {row['name']:row for row in report['stages']}
+                self.assertEqual(report['status'], 'failed')
+                self.assertEqual(rows[failed]['status'], 'failed')
+                self.assertEqual(len(rows), len(stages('weekly')))
+                if failed in ('pglite', 'lifecycle'):
+                    self.assertEqual(rows['package']['status'], 'passed')
+                    self.assertEqual(rows['matrix']['status'], 'passed')
+                    self.assertEqual(report['not_run'], [])
+                else:
+                    self.assertEqual(rows['matrix']['status'], 'not-run')
+                    self.assertIn('matrix', report['not_run'])
+                    if failed == 'generation':
+                        self.assertEqual(rows['pglite']['status'], 'not-run')
+                        self.assertEqual(rows['oracle-install']['status'], 'passed')
 
     def test_platform_changes_select_probes_and_full_suite_always_runs_them(self):
         for path in ('runtime/platform/emscripten/io.c', 'wasm/bridge/sql.c',

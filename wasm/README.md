@@ -18,6 +18,27 @@ tools only; generated consumer metadata has no runtime dependencies.
 From the repository root:
 
 ```sh
+make wasm-test
+```
+
+This is the one-command local Wasm acceptance entry point. It initializes the
+pinned source, installs/reuses the pinned SDK and browsers, builds in release
+mode, and runs the existing SQL/vector/storage/lifecycle/package gates plus the
+PGlite-derived regression matrix. Its default build width is one job;
+`JOBS=2` (or `WASM_TEST_JOBS=2`) explicitly changes it. Existing
+`WASM_EMSDK_DIR` and `WASM_DEPS_DIR` overrides still work. Host C/C++/LLVM and
+PostgreSQL build prerequisites are checked by the existing doctor.
+
+Independent stages continue after a test failure. A failed prerequisite marks
+its dependent stages `not-run`; any failure or unexecuted stage makes the final
+command exit nonzero. The summary pointer is
+`build/wasm/reports/ci.json`, and its `run_report` names the complete stage
+report and sibling logs. No command publishes a package. This is Wasm
+acceptance, not the separate full native PostgreSQL product regression suite.
+
+For individual checks:
+
+```sh
 make wasm-setup
 make wasm-probe-check
 make wasm-platform-check
@@ -67,6 +88,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-pglite-check WASM_MODE=release` | Run the pinned PGlite-derived cases in Chromium, Firefox and Linux WebKit, each with ephemeral and OPFS storage. Requires setup and `wasm-kernel-generate` for this mode. |
 | `make wasm-lifecycle-check` | Run connection close progress/deadline and OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
@@ -78,11 +100,61 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
 | `make wasm-ci` | Run tool/unit/generation/shared-runtime/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
-| `make wasm-release` | Build an optimized package and run all SQL, vector, storage, package and browser gates. |
+| `make wasm-test` | Set up and run all release Wasm gates, including the PGlite-derived matrix; retain independent failures in one report. |
+| `make wasm-release` | Build an optimized package and run SQL, vector, PGlite-derived, storage, lifecycle, package and browser gates. |
 | `make wasm-check-full` | Run the pinned source through platform and shared-runtime probes, SQL, vector, OPFS recovery, installed package and browser matrix gates. |
 | `make wasm-weekly` | Run the full suite against current PostgreSQL master in an isolated candidate checkout; `PG_BRANCH` and `PG_REPOSITORY` are configurable. |
 | `make wasm-matrix-check` | Validate and measure the last package on Chromium, Firefox and Linux WebKit; every engine must pass. |
 | `make wasm-clean` | Remove Wasm build output and retain installed tools. |
+
+The PGlite migration is pinned to commit
+`faa505ad2ea0d14dfb1c99ab9614361c39d2c7e2` of `electric-sql/pglite`.
+[`cases.json`](../tests/wasm/pglite/cases.json) records each executed case's
+source and original test name;
+[`upstream.json`](../tests/wasm/pglite/upstream.json) records source hashes and
+the inventory of adapted and inapplicable files. The Apache-2.0 license and
+attribution are retained alongside the tests. Running them does not need a
+PGlite checkout or the PGlite npm package.
+
+The migrated cases cover SQL commands and metadata, typed parameters and
+arrays, transactions and error reuse, simple/English full-text search,
+PL/pgSQL, row/event triggers, roles, database creation, SQL large objects,
+COPY, pgvector, MessageContext reset, payload sizes and close/reopen behavior.
+They execute the real PostGamma `Database`/`Connection` API. Expected values
+use exact text and OIDs instead of PGlite's JavaScript decoding; transaction
+callbacks become explicit SQL, `/dev/blob` COPY becomes streaming COPY, and
+trigger delivery uses SQL audit rows. These adaptations do not validate
+PGlite-specific JavaScript APIs or LISTEN/NOTIFY callback delivery.
+Multi-statement `exec` fixtures use explicit sequential query calls; a separate
+case checks that a multi-statement query is rejected without poisoning the
+connection. This does not claim multi-statement transaction atomicity.
+
+The upstream large-result fixtures are adapted to the published PostGamma
+limits: collected results above 4 MiB must reject and leave the session usable;
+iterator checks transfer at most 16 MiB per case. The 8 KiB payload cases retain
+their original data size. The 5/12/128 MiB single-value success expectations
+are replaced by an explicit 128 KiB value-boundary rejection check; this is not
+evidence of GiB-scale capacity. The MessageContext regression retains all 300
+100 KiB inserts and its original 5 MiB bound, and is not a browser VM leak test.
+Unsupported extensions, XML, live queries, archive/clone APIs, JS formatting,
+custom codecs, startup options, Node/Deno wrappers and IndexedDB are outside
+this migration. Linux WebKit coverage does not replace Safari/iOS testing.
+
+Use `WASM_PGLITE_ENGINES=chromium WASM_PGLITE_STORAGE=ephemeral` with
+`wasm-pglite-check` for a targeted run. The full release gate fixes all six
+profiles regardless of these overrides. Reports under `build/wasm/pglite/`
+contain per-case results, timings, SQL-step progress, browser errors and native
+close-resource counts; the latest pointer is `build/wasm/reports/pglite.json`.
+`--build-receipt` on `buildsys/wasm_pglite.py` can reuse a matching build for
+diagnosis: source and artifact hashes must still match before and after the
+run. Each case has a 90-second browser deadline, and each profile has a
+20-minute outer bound. Timeouts remain failures and completed results survive
+a subsequent browser crash. After an ordinary case stalls, the runner closes
+that browser and continues at the next case in a fresh database. The stalled
+case stays failed and is never retried. Dependent close/reopen cases cannot be
+resumed this way; unfinished cases are listed explicitly. Separate regressions
+retain default materialized-result behavior and streaming after a prior
+collection-limit cancellation, even when a bounded streaming matrix passes.
 
 The smoke probe loads Wasm in a Worker, creates and joins a pthread, and checks
 two C function results. The harness also requires cross-origin isolation and

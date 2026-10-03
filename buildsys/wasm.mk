@@ -26,7 +26,15 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-target-check
 .PHONY: wasm-kernel-configure wasm-kernel-capture wasm-kernel-generate wasm-runtime-check
 .PHONY: wasm-kernel-link
-.PHONY: wasm wasm-check wasm-check-full wasm-release wasm-serve
+.PHONY: wasm wasm-check wasm-check-full wasm-release wasm-serve wasm-test
+WASM_KEEP_GOING ?= 0
+# This convenience entry point is deliberately serial by default on small hosts.
+# Explicit JOBS or WASM_TEST_JOBS remains caller-owned.
+WASM_TEST_JOBS ?= $(if $(filter command line environment override,$(origin JOBS)),$(JOBS),1)
+wasm-test:
+	@$(MAKE) source-init JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-setup JOBS="$(WASM_TEST_JOBS)"
+	@ulimit -Sn "$$(ulimit -Hn)" && $(MAKE) wasm-release JOBS="$(WASM_TEST_JOBS)" WASM_KEEP_GOING=1
 
 wasm-setup:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" setup $(POSTGAMMA_WASM_ARGS)
@@ -98,7 +106,13 @@ wasm-release:
 
 # Keep the extension comparison before storage relinks the base artifacts.
 wasm-check-full:
-	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite weekly $(VERIFY_UPSTREAM_PROBE_ARG)
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_ci.py" $(POSTGAMMA_WASM_ARGS) --suite weekly $(VERIFY_UPSTREAM_PROBE_ARG) $(if $(filter 1 true,$(WASM_KEEP_GOING)),--keep-going)
+
+.PHONY: wasm-pglite-check
+WASM_PGLITE_ENGINES ?= chromium,firefox,webkit
+WASM_PGLITE_STORAGE ?= ephemeral,opfs
+wasm-pglite-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_pglite.py" $(POSTGAMMA_WASM_ARGS) --engines "$(WASM_PGLITE_ENGINES)" --storage "$(WASM_PGLITE_STORAGE)"
 
 .PHONY: wasm-sql-check
 WASM_SQL_SCENARIO ?= all

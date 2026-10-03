@@ -540,9 +540,17 @@ the generated npm package, serving its assets and choosing ephemeral or OPFS
 storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
 validated package in Chromium, Firefox and Linux WebKit.
 
-`make wasm-release JOBS=2` builds an optimized browser package and runs the full
-SQL, pgvector, OPFS recovery and three-engine acceptance suite. It reuses the
-installed toolchain and keeps release artifacts separate from debug builds.
+`make wasm-test` sets up the pinned source, SDK and browsers, then builds and
+runs the release Wasm acceptance suite in one command. It includes the
+PGlite-derived SQL regression cases across Chromium, Firefox and Linux WebKit,
+each with ephemeral and OPFS storage. Independent stages continue after a
+failure, and the command exits nonzero with all failures and unexecuted stages
+in the report referenced by `build/wasm/reports/ci.json`. It defaults to one
+build job; use `JOBS=2` to increase parallelism.
+
+`make wasm-release JOBS=2` reuses installed tools and runs the same release
+gates with fail-fast stage handling. Release artifacts remain separate from
+debug builds. Neither entry point publishes the generated package.
 
 `make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
 Every run includes shared runtime regression. The Browser kernel workflow uses

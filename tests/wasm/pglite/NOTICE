@@ -1,0 +1,10 @@
+This directory contains tests adapted from PGlite (electric-sql/pglite),
+commit faa505ad2ea0d14dfb1c99ab9614361c39d2c7e2, under the Apache License 2.0.
+Original work: PGlite contributors. A copy of the license is in LICENSE.
+Source file hashes, original test names and migration decisions are recorded
+in upstream.json and cases.json.
+
+Modifications by PostGamma contributors: use the PostGamma browser API,
+explicit parameter OIDs and wire values, deterministic SQL ordering, bounded
+result/stream checks, SQL audit rows for triggers, and a browser matrix runner.
+These adaptations do not claim compatibility with PGlite's JavaScript API.

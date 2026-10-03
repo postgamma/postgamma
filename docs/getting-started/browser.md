@@ -12,11 +12,17 @@ for the accepted scope, data compatibility and release gates.
 From a source checkout with the native build prerequisites installed:
 
 ```sh
-make source-init
-make wasm-release JOBS=2
+make wasm-test
 ```
 
-The full-suite report is under `build/wasm/ci/`. Its sibling `package.log`
+This initializes the source and pinned Wasm tools, uses a serial release build
+by default, and runs the full Wasm gates including the PGlite-derived tests in
+three browsers with ephemeral and OPFS storage. Use `JOBS=2` to increase build
+parallelism. Independent tests continue after failures; the final exit status
+stays nonzero if any gate fails or cannot run. No package is published.
+
+The summary pointer is `build/wasm/reports/ci.json`; its `run_report` names
+the full-suite report under `build/wasm/ci/`. Its sibling `package.log`
 records the exact `postgamma-wasm-*.tgz` path. Install that file in your application:
 
 ```sh

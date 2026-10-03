@@ -1,6 +1,7 @@
 PostGamma Third-Party Notices
 
-PostGamma release artifacts include software from the following projects.
+PostGamma release artifacts and source-tree tests use software from the
+following projects. Test-only entries are identified explicitly.
 Their original copyright notices and license terms remain in effect.
 
 PostgreSQL
@@ -14,3 +15,11 @@ Source: https://github.com/pgvector/pgvector.git
 Revision: 8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
 License: PostgreSQL License
 License text: licenses/LICENSE.pgvector
+
+PGlite (test fixtures only)
+Source: https://github.com/electric-sql/pglite
+Revision: faa505ad2ea0d14dfb1c99ab9614361c39d2c7e2
+License: Apache License 2.0
+License text: tests/wasm/pglite/LICENSE
+Attribution and modifications: tests/wasm/pglite/NOTICE
+Source inventory: tests/wasm/pglite/upstream.json

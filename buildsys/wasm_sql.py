@@ -37,6 +37,9 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         sources += [(str(p.relative_to(config.root)), "vector-tests/" + p.with_suffix(".js").name)
                     for p in sorted((config.root / "tests/wasm/vector").glob("*.ts"))]
         sources.append(("examples/wasm/vector-search.ts", "vector-example.js"))
+        if scenario == "pglite":
+            sources += [(str(p.relative_to(config.root)), "pglite-tests/" + p.with_suffix(".js").name)
+                        for p in sorted((config.root / "tests/wasm/pglite").glob("*.ts"))]
         report["harness_sources"] = {source: digest(config.root / source) for source, _ in sources}
         for source, target in sources:
             run([builder.tools["node"], str(config.root / "buildsys/wasm_typescript.mjs"),
@@ -52,6 +55,12 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
                              for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
+        if scenario == "pglite":
+            for source, target in (("index.html", "pglite.html"), ("cases.json", "pglite-tests/cases.json")):
+                origin = config.root / "tests/wasm/pglite" / source
+                (site / target).write_bytes(origin.read_bytes())
+                report["harness_sources"][str(origin.relative_to(config.root))] = digest(origin)
+                report["harness"][target] = digest(site / target)
         if action == "check":
             if scenario.startswith("vector"):
                 check_source = "tests/wasm/vector/budget.mjs"

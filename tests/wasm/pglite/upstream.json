@@ -1,0 +1,548 @@
+{
+  "repository": "https://github.com/electric-sql/pglite",
+  "commit": "faa505ad2ea0d14dfb1c99ab9614361c39d2c7e2",
+  "license": "Apache-2.0",
+  "scope": "Core packages/pglite/tests and packages/pglite-pgvector/tests. Runtime wrappers, UI integrations and other extension packages are not imported.",
+  "files": [
+    {
+      "path": "packages/pglite/tests/array-types.test.ts",
+      "sha256": "e2a227e69bc4245057f129c91a239447d788d61ab190e5f8e7d4218cf34ad8b0",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "arrays/enum",
+        "arrays/malformed-enum"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/basic.test.ts",
+      "sha256": "4468304a5e27eeed099b0b2ea3b2a6b25e19004a30e562de8521f6678cb20615",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "basic/exec",
+        "basic/multi-statement-rejected",
+        "basic/query",
+        "basic/params",
+        "basic/array-params",
+        "basic/error-reuse",
+        "basic/transaction-rollback",
+        "basic/transaction-error",
+        "basic/merge-delete",
+        "basic/repeated-param",
+        "basic/timezone",
+        "basic/default-identity",
+        "basic/array-nulls",
+        "basic/json-recordset-exact-int8",
+        "basic/untyped-params",
+        "basic/encoding-reuse",
+        "types/mixed-row",
+        "basic/copy-stream",
+        "basic/closed-connection",
+        "lifecycle/close"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/clone.test.js",
+      "sha256": "c935ea7c6d14e55e7bf145113f2ed1de11cfa59221cfb6d03dc0b8f7f17577b3",
+      "status": "not-applicable",
+      "reason": "No clone API; independent modules and OPFS reopen have separate PostGamma tests.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/describe-query.test.ts",
+      "sha256": "083b6f340bc33397a770dc01819dfe756ef2a6adb5eb49943bf448b56f48a651",
+      "status": "not-applicable",
+      "reason": "No describeQuery API; migrated query fixtures assert actual result metadata.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/drop-database.test.ts",
+      "sha256": "24ca12eee63660b90eda8dfcd31690d78a703dd7e55f01d215465d40ea146f68",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "databases/create-drop"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/dump.test.js",
+      "sha256": "69fff6e18a28511e08dee4e7943c75bce866868b49d4d35d84201e163004b5fc",
+      "status": "not-applicable",
+      "reason": "No dumpDataDir/loadDataDir archive API.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/exec-protocol.test.ts",
+      "sha256": "6bfc5e47b9a0116e3a86ca7437e8dc1709427da487a99861910c8c2ae2e1a633",
+      "status": "not-applicable",
+      "reason": "No raw PostgreSQL wire-protocol entry point; PostGamma uses its own versioned bridge.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/format.test.js",
+      "sha256": "cd849a6849bf085cfa9d7ee21d2e0fcff2dc06dbaf7c8097eb39f04900481fd4",
+      "status": "not-applicable",
+      "reason": "No formatQuery API; typed parameter behavior is covered through actual SQL execution.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/fts.english.test.js",
+      "sha256": "66e7aaf9634c33c9c55339df49f870b9495fd318a75c3d180dcf6cf76c89311a",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "fts-english/basic-01",
+        "fts-english/basic-02",
+        "fts-english/basic-03",
+        "fts-english/basic-04",
+        "fts-english/basic-05",
+        "fts-english/basic-06",
+        "fts-english/basic-07",
+        "fts-english/basic-08",
+        "fts-english/basic-09",
+        "fts-english/basic-10",
+        "fts-english/basic-11",
+        "fts-english/ranking-1",
+        "fts-english/ranking-2",
+        "fts-english/ranking-3",
+        "fts-english/ranking-4"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/fts.simple.test.js",
+      "sha256": "27bca8a6575347f40a94ca0452c0f6a138b7ecebb063ff5fc0c71da9b86b49c0",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "fts-simple/basic-01",
+        "fts-simple/basic-02",
+        "fts-simple/basic-03",
+        "fts-simple/basic-04",
+        "fts-simple/basic-05",
+        "fts-simple/basic-06",
+        "fts-simple/basic-07",
+        "fts-simple/basic-08",
+        "fts-simple/basic-09",
+        "fts-simple/basic-10",
+        "fts-simple/basic-11",
+        "fts-simple/ranking-1",
+        "fts-simple/ranking-2",
+        "fts-simple/ranking-3",
+        "fts-simple/ranking-4"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/initdb-fs-option.test.ts",
+      "sha256": "d92a724c101585fafc65d291a496ecdd91d67cdd5759369d1be1df57f22e8454",
+      "status": "not-applicable",
+      "reason": "No PGlite initdb filesystem bundle option.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/instantiation.test.ts",
+      "sha256": "4c2491eb8e355ddcc7127d5ab0ab50e593c41458f48cc5a5ae139b32df9dd9ab",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "instantiation/defaults"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/largeobjects.test.js",
+      "sha256": "c772b807b160c8197ddcbf301002898524de14a5750d656b809edd5e23117b47",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "largeobjects/sql-roundtrip"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/live.test.ts",
+      "sha256": "5cde67ca94fa7dd7699e881c4df4f40179d2a669a62669354789843f47abca2b",
+      "status": "not-applicable",
+      "reason": "PGlite live-query plugin is not implemented.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/message-context-leak.test.ts",
+      "sha256": "5c05f70c60634206941c16beb5b650c409f1744bed1207e02fff207fde423f55",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "message-context/reset"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/notify.test.ts",
+      "sha256": "4f6916e0f4f74d231d3dd0a1001c836dae60c6817aa905e548ce2b6f16650852",
+      "status": "not-applicable",
+      "reason": "No public listen/unlisten/notification callback API.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/plpgsql.test.js",
+      "sha256": "9905a25d79cb2442ac72936a64c34accd064da474ece0cae18e025d1520965b6",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "plpgsql/function",
+        "plpgsql/factorial",
+        "plpgsql/exception-reuse"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/query-sizes.test.ts",
+      "sha256": "bfdea0f2e81600b9ec7cd502eaf65eff67b1f4c7ad45d328d32d4853b377cc25",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "sizes/exec-8kb",
+        "sizes/literal-8kb",
+        "sizes/parameter-8kb",
+        "sizes/generated-8kb",
+        "sizes/rows-1000-100",
+        "sizes/rows-1000-1024",
+        "sizes/rows-1000-10240",
+        "sizes/rows-1000-102400",
+        "sizes/rows-10000-100",
+        "sizes/rows-10000-1024",
+        "sizes/rows-10000-10240",
+        "sizes/rows-10000-102400",
+        "sizes/rows-100000-100",
+        "sizes/rows-100000-1024",
+        "sizes/rows-100000-10240",
+        "sizes/value-limit",
+        "sizes/default-materialized",
+        "sizes/stream-after-collection-limit"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/templating.test.js",
+      "sha256": "5a6ff5d0d17a052db2323299a619917c79ba68cfb67f407664fd4819695a81d1",
+      "status": "not-applicable",
+      "reason": "No SQL tagged-template/identifier helper API.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/triggers.test.js",
+      "sha256": "51f1ca3a89cb8ac3263f5a1a21daf4ff1b3281623271b6e5163dea95c8c3460a",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "triggers/row",
+        "triggers/ddl_command_end",
+        "triggers/ddl_command_start",
+        "triggers/sql_drop"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/types.test.ts",
+      "sha256": "894e5946c82cdbe55e06f0ec194ba916302d8ef157c36c2eabfe43bf8d729787",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "types/text",
+        "types/varchar",
+        "types/int2",
+        "types/int4",
+        "types/oid",
+        "types/float4",
+        "types/float8",
+        "types/int8",
+        "types/json",
+        "types/jsonb",
+        "types/bool-true",
+        "types/bool-false",
+        "types/date",
+        "types/timestamp",
+        "types/timestamptz",
+        "types/bytea",
+        "types/bool-literals-true",
+        "types/bool-literals-false",
+        "types/bool-invalid"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/user.test.ts",
+      "sha256": "41a930df726661480209d94c8ab1b59ee064ce15f710edaccf0bfc88e1589e49",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "users/role-permissions"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/utils.test.ts",
+      "sha256": "193db4bb035024bcda3951c79d716e05fd8f2c0f66da908c9e997f4cb9f885de",
+      "status": "not-applicable",
+      "reason": "PGlite-specific utility functions are not dependencies.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/xml.test.ts",
+      "sha256": "3806a4f640deaf62f4cf9a0cfae1e0ea8a7a04841deebc7ee6b20e7312623ce8",
+      "status": "not-applicable",
+      "reason": "Current Wasm kernel is built without libxml/XML support.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/amcheck.test.js",
+      "sha256": "92136a20d164e2cebe8f2bfc7999dd75e846c80fafc6e44878c4ce5f6d8027da",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/auto_explain.test.js",
+      "sha256": "77ceb5ea84a6e5f45d8542b87355601d493982b428b68d7308f8555ebd309095",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/bloom.test.js",
+      "sha256": "413e8b6526783d71aaad408b20f12cea7d224e3309f67235d13263f15b106e1e",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/btree_gin.test.js",
+      "sha256": "b6cd7ca3fef090a37ff8fedbcb5fdcceaa3a8ce47f20903d0cd1c63b037aef9a",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/btree_gist.test.js",
+      "sha256": "4d51a98a49351281640bc1219e287e5f4f3f5916938f7d4829d80249fb20c22a",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/citext.test.js",
+      "sha256": "4a037921fc6f760b66acf7fcb6b8647a374e5d3ac5f33bda8920ab3a4a83a3ab",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/cube.test.js",
+      "sha256": "f05aee480f805180e962593f8232b2ddd8a078aecadc367fd14de9e1a3b6b54d",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/dict_int.test.js",
+      "sha256": "7baf9568fb1fda170ef1cbb6f9509fae1d06b4ea359dc49daf2f7f10bff2f797",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/dict_xsyn.test.ts",
+      "sha256": "3aeee114db23c567a405ea2c1c791c3aa25dfbe59203dfac31730c106467fe7c",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/earthdistance.test.js",
+      "sha256": "7ca4b4eb9ba10e888125838368e814889360d0e542ba492da1a8081828e05a4f",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/file_fdw.test.ts",
+      "sha256": "fa724f3df8af14bd80540afcfca8551bb7b638575779f150d0d836a17a86027d",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/fuzzystrmatch.test.js",
+      "sha256": "303c1d7ee2e1d399641c44a787ea1b1d9096196926f8d6d01ae61fc0df0b713f",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/hstore.test.js",
+      "sha256": "fe995b679a9daba55ee773c5fdd0f34370ea39cfc30e755337e340b933b8d260",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/intarray.test.js",
+      "sha256": "ade12d72283e62c1820f42d10e79a887f34bbfc1480c52e682f979a449eec806",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/isn.test.js",
+      "sha256": "87ab105975e3adae27078f7f750269a5a636588e4c5237e9fcbce85f5831a011",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/lo.test.js",
+      "sha256": "d7d834015de421126e43bd0c4b41dc8b55730185c7bb187f3c0d9ed1cf682d01",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/ltree.test.js",
+      "sha256": "871b369f96db6e1898200625bec9dbcc945c8695b40bbebc7bc8e555acc1a9f4",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/moddatetime.test.ts",
+      "sha256": "50ef275ef8407aacda3901e1222c2ced735246aa29f59cf263898caf5125d211",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pageinspect.test.js",
+      "sha256": "94f3658e82b9daf3fa440a7138dce91fdec6588f9af0029c0500e642161549a9",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_buffercache.test.js",
+      "sha256": "e042744c073e933f93c3b48afb3939d011cab403e382a2a23a02da9cfb6c6067",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_freespacemap.test.ts",
+      "sha256": "e44b6c5d7c33d3e0ed7baf1eb88c4a6c0f9aafb05b7c296afad7def2a02f0e98",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_stat_statements.test.ts",
+      "sha256": "e2ed11a866f36930ae3d61b3d555e8974bb46983581c2f0a489246b48d7ca5c3",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_surgery.test.js",
+      "sha256": "76334e27cc8f8dcff9996e6006a45593d72e02d77e8a48c06f2f6a83046af090",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_trgm.test.js",
+      "sha256": "0843f03a936a3baf5c3664283bf79a96306d35fe46313c3ba37764917b376f80",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_visibility.test.js",
+      "sha256": "7b892eecdef96332dfc7271663439b27fc27b8a0e57bda0e5a48c77966ffbcbe",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pg_walinspect.test.js",
+      "sha256": "c9c39738523e9d9f54e6678bc2ed3c3cccf65e1800424ffe03b0eb1d71e1d608",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/pgcrypto.test.ts",
+      "sha256": "edc30d416e18e99e9bede83e03c25eac16ba52f05035c566420e7afc6e959941",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/seg.test.js",
+      "sha256": "cd0a47ae7c0588bc90174f48a98ae60ce727bc821a96a6a32182c630cbbda63e",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/tablefunc.test.js",
+      "sha256": "2d6b297aa4c24f75758697e9e54c3e8e38bb2772138ac5b2fc9543e328601c25",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/tcn.test.js",
+      "sha256": "a16043c5ab4756786a20e0eb4e5b87b5c247774f2e434e3ce3e3d0e4aa8eea21",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/tsm_system_rows.test.js",
+      "sha256": "92fcc28f473ba989ef5b0b4fb83525121c676f2d3429c2b20e5b0e139d22b7ef",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/tsm_system_time.test.js",
+      "sha256": "ae91dd3961431ee6c3c5647b6dddde300d1da3ffb02a8c0d527f1fafc8a8dd3a",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/unaccent.test.js",
+      "sha256": "216a385cb5995de6007634e58a8b392bf9d92d459948fc98893b4ac4842f03b9",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite/tests/contrib/uuid_ossp.test.ts",
+      "sha256": "5f684efac03d3c93d56cf88baf693e685c25eeb8d24e732afa852ba319b082f5",
+      "status": "not-applicable",
+      "reason": "This contributed extension is not in the current Wasm static-module profile.",
+      "cases": []
+    },
+    {
+      "path": "packages/pglite-pgvector/tests/pgvector.test.ts",
+      "sha256": "a3e3fd8e54dae188c33be6b1c52d26e560478be836b805afd0a66b9d16d29bf9",
+      "status": "adapted",
+      "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
+      "cases": [
+        "vector/basic",
+        "vector/catalog-oid",
+        "vector/reopen-oid"
+      ]
+    },
+    {
+      "path": "packages/pglite/tests/targets/web/base.js",
+      "sha256": "11f6882c9221bd2be9b88240265dde0fc20c8c6aac340953e4bfb57b62e601cf",
+      "status": "adapted",
+      "reason": "Browser memory/OPFS close-reopen behavior; no IndexedDB or multi-tab shared-worker API claim.",
+      "cases": [
+        "lifecycle/reopen"
+      ]
+    }
+  ]
+}

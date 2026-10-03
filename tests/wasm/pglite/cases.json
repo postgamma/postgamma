@@ -1,0 +1,2943 @@
+{
+  "schemaVersion": 1,
+  "attribution": "Adapted from electric-sql/pglite under Apache-2.0; see NOTICE and LICENSE.",
+  "cases": [
+    {
+      "id": "instantiation/defaults",
+      "source": "packages/pglite/tests/instantiation.test.ts",
+      "upstreamTest": "should instantiate with defaults",
+      "steps": [
+        {
+          "sql": "SELECT 1 AS one",
+          "rows": [
+            [
+              "1"
+            ]
+          ],
+          "columns": [
+            "one"
+          ],
+          "oids": [
+            23
+          ]
+        }
+      ],
+      "adaptation": "Database.open with the selected ephemeral/OPFS profile replaces PGlite constructor overloads."
+    },
+    {
+      "id": "basic/exec",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "exec",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)"
+        },
+        {
+          "sql": [
+            "INSERT INTO test(name) VALUES ('test')",
+            "UPDATE test SET name='test2'",
+            "SELECT * FROM test"
+          ],
+          "rows": [
+            [
+              "1",
+              "test2"
+            ]
+          ],
+          "commands": [
+            "INSERT 0 1",
+            "UPDATE 1",
+            "SELECT 1"
+          ]
+        }
+      ],
+      "adaptation": " Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim."
+    },
+    {
+      "id": "basic/multi-statement-rejected",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "exec",
+      "steps": [
+        {
+          "sql": "SELECT 1; SELECT 2",
+          "sqlstate": "42601"
+        },
+        {
+          "sql": "SELECT 3",
+          "rows": [
+            [
+              "3"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "PostGamma uses extended-query single-statement execution. Explicitly check this boundary; the exec fixture runs its statements sequentially."
+    },
+    {
+      "id": "basic/query",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "query",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)"
+        },
+        {
+          "sql": "INSERT INTO test(name) VALUES ('test')",
+          "commands": [
+            "INSERT 0 1"
+          ]
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "rows": [
+            [
+              "1",
+              "test"
+            ]
+          ],
+          "columns": [
+            "id",
+            "name"
+          ],
+          "oids": [
+            23,
+            25
+          ]
+        },
+        {
+          "sql": "UPDATE test SET name='test2'",
+          "commands": [
+            "UPDATE 1"
+          ]
+        },
+        {
+          "sql": "SELECT name FROM test",
+          "rows": [
+            [
+              "test2"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/params",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "params",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)"
+        },
+        {
+          "sql": "INSERT INTO test(name) VALUES ($1)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "test2"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "rows": [
+            [
+              "1",
+              "test2"
+            ]
+          ],
+          "oids": [
+            23,
+            25
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/array-params",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "array params",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(id SERIAL PRIMARY KEY, json JSONB, array_text TEXT[])"
+        },
+        {
+          "sql": "INSERT INTO test(json,array_text) VALUES($1,$2)",
+          "parameters": [
+            {
+              "typeOid": 3802,
+              "value": "[\"hello\",\"world\"]"
+            },
+            {
+              "typeOid": 1009,
+              "value": "{yolo,fam}"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT * FROM test WHERE id = ANY($1)",
+          "rows": [
+            [
+              "1",
+              "[\"hello\", \"world\"]",
+              "{yolo,fam}"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1007,
+              "value": "{0,1,2,3}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/error-reuse",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "error",
+      "steps": [
+        {
+          "sql": "SELECT * FROM absent_table",
+          "sqlstate": "42P01"
+        },
+        {
+          "sql": "SELECT 42",
+          "rows": [
+            [
+              "42"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/transaction-rollback",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "transaction",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT)"
+        },
+        {
+          "sql": "INSERT INTO test(name) VALUES ('test')"
+        },
+        {
+          "sql": "BEGIN"
+        },
+        {
+          "sql": "INSERT INTO test(name) VALUES ('test2')"
+        },
+        {
+          "sql": "SELECT * FROM test ORDER BY id",
+          "rows": [
+            [
+              "1",
+              "test"
+            ],
+            [
+              "2",
+              "test2"
+            ]
+          ]
+        },
+        {
+          "sql": "ROLLBACK"
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "rows": [
+            [
+              "1",
+              "test"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/transaction-error",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "closes the transaction handle when the callback rejects",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(id INT PRIMARY KEY)"
+        },
+        {
+          "sql": "BEGIN"
+        },
+        {
+          "sql": "INSERT INTO test VALUES(1)"
+        },
+        {
+          "sql": "INSERT INTO test VALUES(1)",
+          "sqlstate": "23505"
+        },
+        {
+          "sql": "SELECT 1",
+          "sqlstate": "25P02"
+        },
+        {
+          "sql": "ROLLBACK"
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "rows": []
+        },
+        {
+          "sql": "INSERT INTO test VALUES(2)"
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "rows": [
+            [
+              "2"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "SQL transaction failure/rollback/reuse; PostGamma has no transaction callback handle."
+    },
+    {
+      "id": "basic/merge-delete",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "merge delete",
+      "steps": [
+        {
+          "sql": "CREATE TABLE employees(id SERIAL PRIMARY KEY, name TEXT, department TEXT, salary NUMERIC)"
+        },
+        {
+          "sql": "INSERT INTO employees VALUES(1,'Alice','Engineering',75000),(2,'Bob','Sales',50000),(3,'Charlie','Engineering',80000)"
+        },
+        {
+          "sql": "CREATE TEMP TABLE employees_updates(id INT,name TEXT,department TEXT,salary NUMERIC)"
+        },
+        {
+          "sql": "INSERT INTO employees_updates VALUES(2,'Bob','Sales',55000),(3,'Charlie','Product',80000),(4,'Diana','Engineering',70000)"
+        },
+        {
+          "sql": "MERGE INTO employees AS target USING employees_updates AS source ON target.id=source.id WHEN MATCHED THEN DELETE",
+          "commands": [
+            "MERGE 2"
+          ]
+        },
+        {
+          "sql": "SELECT id,name FROM employees",
+          "rows": [
+            [
+              "1",
+              "Alice"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/repeated-param",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "use same param multiple times",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(id SERIAL PRIMARY KEY,first_name TEXT,last_name TEXT)"
+        },
+        {
+          "sql": "INSERT INTO test(first_name,last_name) VALUES($1,$1)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "Duck"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT first_name,last_name FROM test WHERE first_name=$1 AND last_name=$1",
+          "rows": [
+            [
+              "Duck",
+              "Duck"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "Duck"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/timezone",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "timezone",
+      "steps": [
+        {
+          "sql": "SELECT count(*) FROM pg_timezone_names WHERE name=current_setting('TIMEZONE')",
+          "rows": [
+            [
+              "1"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/default-identity",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "default database, user and role should be \"postgres\"",
+      "steps": [
+        {
+          "sql": "SELECT current_database(),current_user,current_role",
+          "rows": [
+            [
+              "postgres",
+              "postgamma",
+              "postgamma"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "PostGamma initializes its bootstrap role as postgamma."
+    },
+    {
+      "id": "basic/array-nulls",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "arrays with NULL elements should return null, not string 'NULL'",
+      "steps": [
+        {
+          "sql": "CREATE TABLE t(id SERIAL, str_val TEXT,arr_val TEXT[])"
+        },
+        {
+          "sql": "INSERT INTO t(str_val,arr_val) VALUES($1,$2)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": null
+            },
+            {
+              "typeOid": 1009,
+              "value": "{NULL,hello,\"NULL\"}"
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO t(str_val,arr_val) VALUES($1,$2)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": null
+            },
+            {
+              "typeOid": 1009,
+              "value": "{\"NULL\",NULL,\"NULL\"}"
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO t(str_val,arr_val) VALUES($1,$2)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": null
+            },
+            {
+              "typeOid": 1009,
+              "value": "{\"NULL\",hello,NULL}"
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO t(str_val,arr_val) VALUES($1,$2)",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": null
+            },
+            {
+              "typeOid": 1009,
+              "value": "{NULL,NULL,NULL}"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT str_val,arr_val FROM t ORDER BY id",
+          "rows": [
+            [
+              null,
+              "{NULL,hello,\"NULL\"}"
+            ],
+            [
+              null,
+              "{\"NULL\",NULL,\"NULL\"}"
+            ],
+            [
+              null,
+              "{\"NULL\",hello,NULL}"
+            ],
+            [
+              null,
+              "{NULL,NULL,NULL}"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT $1::int[]",
+          "rows": [
+            [
+              "{NULL,123,0}"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1007,
+              "value": "{NULL,123,0}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/json-recordset-exact-int8",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "serialize and parse Array<int> and Array<bigint>",
+      "steps": [
+        {
+          "sql": [
+            "CREATE TABLE myint(id INT NOT NULL)",
+            "CREATE TABLE mybigint(id BIGINT NOT NULL)"
+          ]
+        },
+        {
+          "sql": "INSERT INTO myint SELECT x.* FROM json_to_recordset($1) AS x(id INT)",
+          "parameters": [
+            {
+              "typeOid": 114,
+              "value": "[{\"id\":1},{\"id\":2}]"
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO mybigint SELECT x.* FROM json_to_recordset($1) AS x(id BIGINT)",
+          "parameters": [
+            {
+              "typeOid": 114,
+              "value": "[{\"id\":9007199254740992},{\"id\":9007199254740993}]"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT * FROM myint ORDER BY id",
+          "rows": [
+            [
+              "1"
+            ],
+            [
+              "2"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT * FROM mybigint ORDER BY id",
+          "rows": [
+            [
+              "9007199254740992"
+            ],
+            [
+              "9007199254740993"
+            ]
+          ],
+          "oids": [
+            20
+          ]
+        }
+      ],
+      "adaptation": " Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim."
+    },
+    {
+      "id": "basic/untyped-params",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "serialize with no concrete type",
+      "steps": [
+        {
+          "sql": "SELECT $1 AS number,$2 AS date,$3 AS bool",
+          "rows": [
+            [
+              "42",
+              "2024-01-15T12:34:56.000Z",
+              "true"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 0,
+              "value": "42"
+            },
+            {
+              "typeOid": 0,
+              "value": "2024-01-15T12:34:56.000Z"
+            },
+            {
+              "typeOid": 0,
+              "value": "true"
+            }
+          ],
+          "oids": [
+            25,
+            25,
+            25
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic/encoding-reuse",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "serialize with no concrete type (convert_to)",
+      "steps": [
+        {
+          "sql": "SELECT 1",
+          "rows": [
+            [
+              "1"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT convert_to('abc','LATIN1')",
+          "rows": [
+            [
+              "\\x616263"
+            ]
+          ],
+          "oids": [
+            17
+          ]
+        },
+        {
+          "sql": "SELECT 1",
+          "rows": [
+            [
+              "1"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "types/text",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize text",
+      "steps": [
+        {
+          "sql": "SELECT $1::text AS value",
+          "rows": [
+            [
+              "test"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "test"
+            }
+          ],
+          "oids": [
+            25
+          ]
+        },
+        {
+          "sql": "SELECT $1::text AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": null
+            }
+          ],
+          "oids": [
+            25
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/varchar",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize varchar",
+      "steps": [
+        {
+          "sql": "SELECT $1::varchar AS value",
+          "rows": [
+            [
+              "test"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1043,
+              "value": "test"
+            }
+          ],
+          "oids": [
+            1043
+          ]
+        },
+        {
+          "sql": "SELECT $1::varchar AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1043,
+              "value": null
+            }
+          ],
+          "oids": [
+            1043
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/int2",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize int2",
+      "steps": [
+        {
+          "sql": "SELECT $1::int2 AS value",
+          "rows": [
+            [
+              "1"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 21,
+              "value": "1"
+            }
+          ],
+          "oids": [
+            21
+          ]
+        },
+        {
+          "sql": "SELECT $1::int2 AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 21,
+              "value": null
+            }
+          ],
+          "oids": [
+            21
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/int4",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize int4",
+      "steps": [
+        {
+          "sql": "SELECT $1::int4 AS value",
+          "rows": [
+            [
+              "1"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 23,
+              "value": "1"
+            }
+          ],
+          "oids": [
+            23
+          ]
+        },
+        {
+          "sql": "SELECT $1::int4 AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 23,
+              "value": null
+            }
+          ],
+          "oids": [
+            23
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/oid",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize oid",
+      "steps": [
+        {
+          "sql": "SELECT $1::oid AS value",
+          "rows": [
+            [
+              "1"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 26,
+              "value": "1"
+            }
+          ],
+          "oids": [
+            26
+          ]
+        },
+        {
+          "sql": "SELECT $1::oid AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 26,
+              "value": null
+            }
+          ],
+          "oids": [
+            26
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/float4",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize float4",
+      "steps": [
+        {
+          "sql": "SELECT $1::float4 AS value",
+          "rows": [
+            [
+              "1.1"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 700,
+              "value": "1.1"
+            }
+          ],
+          "oids": [
+            700
+          ]
+        },
+        {
+          "sql": "SELECT $1::float4 AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 700,
+              "value": null
+            }
+          ],
+          "oids": [
+            700
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/float8",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize float8",
+      "steps": [
+        {
+          "sql": "SELECT $1::float8 AS value",
+          "rows": [
+            [
+              "1.1"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 701,
+              "value": "1.1"
+            }
+          ],
+          "oids": [
+            701
+          ]
+        },
+        {
+          "sql": "SELECT $1::float8 AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 701,
+              "value": null
+            }
+          ],
+          "oids": [
+            701
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/int8",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize int8",
+      "steps": [
+        {
+          "sql": "SELECT $1::int8 AS value",
+          "rows": [
+            [
+              "9223372036854775807"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 20,
+              "value": "9223372036854775807"
+            }
+          ],
+          "oids": [
+            20
+          ]
+        },
+        {
+          "sql": "SELECT $1::int8 AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 20,
+              "value": null
+            }
+          ],
+          "oids": [
+            20
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/json",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize json",
+      "steps": [
+        {
+          "sql": "SELECT $1::json AS value",
+          "rows": [
+            [
+              "{\"test\":1}"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 114,
+              "value": "{\"test\":1}"
+            }
+          ],
+          "oids": [
+            114
+          ]
+        },
+        {
+          "sql": "SELECT $1::json AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 114,
+              "value": null
+            }
+          ],
+          "oids": [
+            114
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/jsonb",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize jsonb",
+      "steps": [
+        {
+          "sql": "SELECT $1::jsonb AS value",
+          "rows": [
+            [
+              "{\"test\": 1}"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 3802,
+              "value": "{\"test\":1}"
+            }
+          ],
+          "oids": [
+            3802
+          ]
+        },
+        {
+          "sql": "SELECT $1::jsonb AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 3802,
+              "value": null
+            }
+          ],
+          "oids": [
+            3802
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/bool-true",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize bool-true",
+      "steps": [
+        {
+          "sql": "SELECT $1::boolean AS value",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "t"
+            }
+          ],
+          "oids": [
+            16
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": null
+            }
+          ],
+          "oids": [
+            16
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/bool-false",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize bool-false",
+      "steps": [
+        {
+          "sql": "SELECT $1::boolean AS value",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "f"
+            }
+          ],
+          "oids": [
+            16
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": null
+            }
+          ],
+          "oids": [
+            16
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/date",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize date",
+      "steps": [
+        {
+          "sql": "SELECT $1::date AS value",
+          "rows": [
+            [
+              "2021-01-01"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1082,
+              "value": "2021-01-01"
+            }
+          ],
+          "oids": [
+            1082
+          ]
+        },
+        {
+          "sql": "SELECT $1::date AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1082,
+              "value": null
+            }
+          ],
+          "oids": [
+            1082
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/timestamp",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize timestamp",
+      "steps": [
+        {
+          "sql": "SELECT $1::timestamp AS value",
+          "rows": [
+            [
+              "2021-01-01 12:00:00"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1114,
+              "value": "2021-01-01T12:00:00"
+            }
+          ],
+          "oids": [
+            1114
+          ]
+        },
+        {
+          "sql": "SELECT $1::timestamp AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1114,
+              "value": null
+            }
+          ],
+          "oids": [
+            1114
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/timestamptz",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize timestamptz",
+      "steps": [
+        {
+          "sql": "SELECT $1::timestamptz AS value",
+          "rows": [
+            [
+              "2021-01-01 12:00:00+00"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1184,
+              "value": "2021-01-01T12:00:00Z"
+            }
+          ],
+          "oids": [
+            1184
+          ]
+        },
+        {
+          "sql": "SELECT $1::timestamptz AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 1184,
+              "value": null
+            }
+          ],
+          "oids": [
+            1184
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/bytea",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "parse/serialize bytea",
+      "steps": [
+        {
+          "sql": "SELECT $1::bytea AS value",
+          "rows": [
+            [
+              "\\x010203"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 17,
+              "value": "\\x010203"
+            }
+          ],
+          "oids": [
+            17
+          ]
+        },
+        {
+          "sql": "SELECT $1::bytea AS value",
+          "rows": [
+            [
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 17,
+              "value": null
+            }
+          ],
+          "oids": [
+            17
+          ]
+        }
+      ],
+      "adaptation": "Wire text and OID assertions replace PGlite JS parser/serializer assertions; int8 retains exact precision."
+    },
+    {
+      "id": "types/bool-literals-true",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "bool from string true literals",
+      "steps": [
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "true"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "t"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "yes"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "y"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "on"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "TRUE"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "t"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": " t "
+            }
+          ]
+        }
+      ],
+      "adaptation": "PostgreSQL input conversion, not a JavaScript serializer."
+    },
+    {
+      "id": "types/bool-literals-false",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "bool from string false literals",
+      "steps": [
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "f"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "no"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "n"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "off"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "FALSE"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "rows": [
+            [
+              "f"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": " f "
+            }
+          ]
+        }
+      ],
+      "adaptation": "PostgreSQL input conversion, not a JavaScript serializer."
+    },
+    {
+      "id": "types/bool-invalid",
+      "source": "packages/pglite/tests/types.test.ts",
+      "upstreamTest": "bool from unrecognized string throws",
+      "steps": [
+        {
+          "sql": "SELECT $1::boolean",
+          "sqlstate": "22P02",
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "ture"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "sqlstate": "22P02",
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "maybe"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "sqlstate": "22P02",
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": ""
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "sqlstate": "22P02",
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "2"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT $1::boolean",
+          "sqlstate": "22P02",
+          "parameters": [
+            {
+              "typeOid": 16,
+              "value": "-1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT true",
+          "rows": [
+            [
+              "t"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Invalid wire input must produce SQLSTATE and preserve session reuse."
+    },
+    {
+      "id": "types/mixed-row",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "types",
+      "steps": [
+        {
+          "sql": "SELECT $1::text,$2::int,$3::float8,$4::bigint,$5::boolean,$6::date,$7::timestamp,$8::jsonb,$9::bytea,$10::text[],$11::int[],$12::float8[][],$13::int",
+          "rows": [
+            [
+              "test",
+              "1",
+              "1.5",
+              "9223372036854775807",
+              "t",
+              "2021-01-01",
+              "2021-01-01 12:00:00",
+              "{\"test\": \"test\"}",
+              "\\x010203",
+              "{test1,test2,\"test,3\"}",
+              "{1,2,3}",
+              "{{1.1,2.2},{3.3,4.4}}",
+              null
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "test"
+            },
+            {
+              "typeOid": 23,
+              "value": "1"
+            },
+            {
+              "typeOid": 701,
+              "value": "1.5"
+            },
+            {
+              "typeOid": 20,
+              "value": "9223372036854775807"
+            },
+            {
+              "typeOid": 16,
+              "value": "t"
+            },
+            {
+              "typeOid": 1082,
+              "value": "2021-01-01"
+            },
+            {
+              "typeOid": 1114,
+              "value": "2021-01-01T12:00:00"
+            },
+            {
+              "typeOid": 3802,
+              "value": "{\"test\":\"test\"}"
+            },
+            {
+              "typeOid": 17,
+              "value": [
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "typeOid": 1009,
+              "value": "{test1,test2,\"test,3\"}"
+            },
+            {
+              "typeOid": 1007,
+              "value": "{1,2,3}"
+            },
+            {
+              "typeOid": 1022,
+              "value": "{{1.1,2.2},{3.3,4.4}}"
+            },
+            {
+              "typeOid": 23,
+              "value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "arrays/enum",
+      "source": "packages/pglite/tests/array-types.test.ts",
+      "upstreamTest": "works with new array types after calling refreshArrayTypes",
+      "steps": [
+        {
+          "sql": "CREATE TYPE mood AS ENUM ('sad','happy')"
+        },
+        {
+          "sql": "CREATE TABLE test(id SERIAL,name TEXT,moods mood[])"
+        },
+        {
+          "sql": "INSERT INTO test(name,moods) VALUES($1,$2::mood[])",
+          "parameters": [
+            {
+              "typeOid": 25,
+              "value": "test2"
+            },
+            {
+              "typeOid": 0,
+              "value": "{sad,happy}"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id,name,moods,pg_typeof(moods)::text FROM test",
+          "rows": [
+            [
+              "1",
+              "test2",
+              "{sad,happy}",
+              "mood[]"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Explicit PostgreSQL array wire syntax and inferred enum-array OID; no refreshArrayTypes API or fixed user OID."
+    },
+    {
+      "id": "arrays/malformed-enum",
+      "source": "packages/pglite/tests/array-types.test.ts",
+      "upstreamTest": "throws for array params enum when not calling refreshArrayTypes",
+      "steps": [
+        {
+          "sql": "CREATE TYPE mood AS ENUM ('sad','happy')"
+        },
+        {
+          "sql": "SELECT $1::mood[]",
+          "parameters": [
+            {
+              "typeOid": 0,
+              "value": "sad,happy"
+            }
+          ],
+          "sqlstate": "22P02"
+        },
+        {
+          "sql": "SELECT $1::mood[]",
+          "rows": [
+            [
+              "{sad,happy}"
+            ]
+          ],
+          "parameters": [
+            {
+              "typeOid": 0,
+              "value": "{sad,happy}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-01",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT 'a fat cat sat on a mat and ate a fat rat'::tsvector @@ 'cat & rat'::tsquery AS match;",
+          "rows": [
+            [
+              "t"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-02",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsvector('simple', 'fat cats ate fat rats') @@ to_tsquery('simple', 'fat & rat') AS match;",
+          "rows": [
+            [
+              "f"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-03",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('simple', 'The & Fat & Rats') as value;",
+          "rows": [
+            [
+              "'the' & 'fat' & 'rats'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-04",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('simple', 'Fat | Rats:AB') as value;",
+          "rows": [
+            [
+              "'fat' | 'rats':AB"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-05",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('simple', 'supern:*A & star:A*B') as value;",
+          "rows": [
+            [
+              "'supern':*A & 'star':*AB"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-06",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT plainto_tsquery('simple', 'The Fat Rats') as value;",
+          "rows": [
+            [
+              "'the' & 'fat' & 'rats'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-07",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT plainto_tsquery('simple', 'The Fat & Rats:C') as value;",
+          "rows": [
+            [
+              "'the' & 'fat' & 'rats' & 'c'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-08",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT phraseto_tsquery('simple', 'The Fat Rats') as value;",
+          "rows": [
+            [
+              "'the' <-> 'fat' <-> 'rats'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-09",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('simple', '\"supernovae stars\" -crab') as value;",
+          "rows": [
+            [
+              "'supernovae' <-> 'stars' & !'crab'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-10",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('simple', '\"sad cat\" or \"fat rat\"') as value;",
+          "rows": [
+            [
+              "'sad' <-> 'cat' | 'fat' <-> 'rat'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/basic-11",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('simple', 'signal -\"segmentation fault\"') as value;",
+          "rows": [
+            [
+              "'signal' & !( 'segmentation' <-> 'fault' )"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-simple/ranking-1",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('simple', body), to_tsquery('simple', 'fat & rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Rats",
+              "0"
+            ],
+            [
+              "The Fat Cats",
+              "0"
+            ],
+            [
+              "The Fat Cats and Rats",
+              "0"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-simple/ranking-2",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('simple', body), to_tsquery('simple', 'fat | rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Rats",
+              "0.2"
+            ],
+            [
+              "The Fat Cats",
+              "0.2"
+            ],
+            [
+              "The Fat Cats and Rats",
+              "0.2"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-simple/ranking-3",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('simple', body), to_tsquery('simple', 'fat & rat | cat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Rats",
+              "0"
+            ],
+            [
+              "The Fat Cats",
+              "0"
+            ],
+            [
+              "The Fat Cats and Rats",
+              "0"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-simple/ranking-4",
+      "source": "packages/pglite/tests/fts.simple.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('simple', body), to_tsquery('simple', 'fat & rat | cat & rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Rats",
+              "0"
+            ],
+            [
+              "The Fat Cats",
+              "0"
+            ],
+            [
+              "The Fat Cats and Rats",
+              "0"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-english/basic-01",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT 'a fat cat sat on a mat and ate a fat rat'::tsvector @@ 'cat & rat'::tsquery AS match;",
+          "rows": [
+            [
+              "t"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-02",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsvector('english', 'fat cats ate fat rats') @@ to_tsquery('english', 'fat & rat') AS match;",
+          "rows": [
+            [
+              "t"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-03",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('english', 'The & Fat & Rats') as value;",
+          "rows": [
+            [
+              "'fat' & 'rat'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-04",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('english', 'Fat | Rats:AB') as value;",
+          "rows": [
+            [
+              "'fat' | 'rat':AB"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-05",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT to_tsquery('english', 'supern:*A & star:A*B') as value;",
+          "rows": [
+            [
+              "'supern':*A & 'star':*AB"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-06",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT plainto_tsquery('english', 'The Fat Rats') as value;",
+          "rows": [
+            [
+              "'fat' & 'rat'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-07",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT plainto_tsquery('english', 'The Fat & Rats:C') as value;",
+          "rows": [
+            [
+              "'fat' & 'rat' & 'c'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-08",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT phraseto_tsquery('english', 'The Fat Rats') as value;",
+          "rows": [
+            [
+              "'fat' <-> 'rat'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-09",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('english', '\"supernovae stars\" -crab') as value;",
+          "rows": [
+            [
+              "'supernova' <-> 'star' & !'crab'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-10",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('english', '\"sad cat\" or \"fat rat\"') as value;",
+          "rows": [
+            [
+              "'sad' <-> 'cat' | 'fat' <-> 'rat'"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/basic-11",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "SELECT websearch_to_tsquery('english', 'signal -\"segmentation fault\"') as value;",
+          "rows": [
+            [
+              "'signal' & !( 'segment' <-> 'fault' )"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fts-english/ranking-1",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('english', body), to_tsquery('english', 'fat & rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Cats and Rats",
+              "0.16666667"
+            ],
+            [
+              "The Fat Rats",
+              "0.13333334"
+            ],
+            [
+              "The Fat Cats",
+              "0.1"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-english/ranking-2",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('english', body), to_tsquery('english', 'fat | rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Cats and Rats",
+              "0.4"
+            ],
+            [
+              "The Fat Rats",
+              "0.3"
+            ],
+            [
+              "The Fat Cats",
+              "0.3"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-english/ranking-3",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('english', body), to_tsquery('english', 'fat & rat | cat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Cats and Rats",
+              "0.33333334"
+            ],
+            [
+              "The Fat Rats",
+              "0.23333333"
+            ],
+            [
+              "The Fat Cats",
+              "0.2"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "fts-english/ranking-4",
+      "source": "packages/pglite/tests/fts.english.test.js",
+      "upstreamTest": "ranking",
+      "steps": [
+        {
+          "sql": "CREATE TABLE fts_ranking (\n      id serial PRIMARY KEY,\n      title text,\n      body text\n    );"
+        },
+        {
+          "sql": "INSERT INTO fts_ranking (title, body)\n    VALUES\n      ('The Fat Rats', 'The fat rats ate the fat cats.'),\n      ('The Fat Cats', 'The fat cats ate the fat rats.'),\n      ('The Fat Cats and Rats', 'The fat cats and rats ate the fat rats and cats.');"
+        },
+        {
+          "sql": "SELECT title, ts_rank_cd(to_tsvector('english', body), to_tsquery('english', 'fat & rat | cat & rat')) as rank\n    FROM fts_ranking\n    ORDER BY rank DESC, id;",
+          "rows": [
+            [
+              "The Fat Cats and Rats",
+              "0.23333333"
+            ],
+            [
+              "The Fat Rats",
+              "0.13333334"
+            ],
+            [
+              "The Fat Cats",
+              "0.1"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Added id as tie breaker to make equal ranks deterministic."
+    },
+    {
+      "id": "plpgsql/function",
+      "source": "packages/pglite/tests/plpgsql.test.js",
+      "upstreamTest": "can create and call function",
+      "steps": [
+        {
+          "sql": "CREATE OR REPLACE FUNCTION test_func() RETURNS TEXT AS $$ BEGIN RETURN 'test'; END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "SELECT test_func()",
+          "rows": [
+            [
+              "test"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "plpgsql/factorial",
+      "source": "packages/pglite/tests/plpgsql.test.js",
+      "upstreamTest": "can create and call complex function",
+      "steps": [
+        {
+          "sql": "CREATE FUNCTION calculate_factorial(n INT) RETURNS INT AS $$ DECLARE result INT := 1; BEGIN IF n < 0 THEN RAISE EXCEPTION 'The input cannot be negative.'; ELSIF n = 0 OR n = 1 THEN RETURN result; ELSE FOR i IN 2..n LOOP result := result * i; END LOOP; RETURN result; END IF; END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "SELECT calculate_factorial(5),calculate_factorial(0)",
+          "rows": [
+            [
+              "120",
+              "1"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT calculate_factorial(-1)",
+          "sqlstate": "P0001"
+        },
+        {
+          "sql": "SELECT calculate_factorial(3)",
+          "rows": [
+            [
+              "6"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "plpgsql/exception-reuse",
+      "source": "packages/pglite/tests/plpgsql.test.js",
+      "upstreamTest": "plpgsql usable after exception",
+      "steps": [
+        {
+          "sql": "CREATE PROCEDURE raise_exception() LANGUAGE plpgsql AS $$ BEGIN RAISE 'exception'; END; $$"
+        },
+        {
+          "sql": "CALL raise_exception()",
+          "sqlstate": "P0001"
+        },
+        {
+          "sql": "SELECT 42",
+          "rows": [
+            [
+              "42"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Require the exception SQLSTATE and a successful subsequent query; upstream catch alone does not require a throw."
+    },
+    {
+      "id": "triggers/row",
+      "source": "packages/pglite/tests/triggers.test.js",
+      "upstreamTest": "should detect insert on table",
+      "steps": [
+        {
+          "sql": [
+            "CREATE TABLE foo_table(id TEXT,value TEXT)",
+            "CREATE TABLE audit(event TEXT)"
+          ]
+        },
+        {
+          "sql": "CREATE FUNCTION foo() RETURNS trigger AS $$ BEGIN INSERT INTO audit VALUES(TG_OP); RETURN NULL; END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "CREATE TRIGGER table_trigger AFTER INSERT OR UPDATE OR DELETE ON foo_table FOR EACH STATEMENT EXECUTE FUNCTION foo()"
+        },
+        {
+          "sql": [
+            "INSERT INTO foo_table VALUES('foo','bar')",
+            "UPDATE foo_table SET value='baz'",
+            "DELETE FROM foo_table"
+          ]
+        },
+        {
+          "sql": "SELECT event FROM audit ORDER BY event",
+          "rows": [
+            [
+              "DELETE"
+            ],
+            [
+              "INSERT"
+            ],
+            [
+              "UPDATE"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Observe durable audit rows; LISTEN/NOTIFY callback delivery is not supported or claimed. Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim. Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim."
+    },
+    {
+      "id": "triggers/ddl_command_end",
+      "source": "packages/pglite/tests/triggers.test.js",
+      "upstreamTest": "should detect ddl_command_end",
+      "steps": [
+        {
+          "sql": "CREATE TABLE audit(tag TEXT)"
+        },
+        {
+          "sql": "CREATE FUNCTION foo() RETURNS event_trigger AS $$ BEGIN INSERT INTO audit VALUES(TG_TAG); END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "CREATE EVENT TRIGGER pglite_event ON ddl_command_end EXECUTE FUNCTION foo()"
+        },
+        {
+          "sql": "CREATE TABLE foo_table(id TEXT,value TEXT)"
+        },
+        {
+          "sql": "SELECT tag FROM audit",
+          "rows": [
+            [
+              "CREATE TABLE"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP TABLE foo_table"
+        },
+        {
+          "sql": "SELECT tag FROM audit ORDER BY tag",
+          "rows": [
+            [
+              "CREATE TABLE"
+            ],
+            [
+              "DROP TABLE"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP EVENT TRIGGER pglite_event"
+        }
+      ],
+      "adaptation": "Observe SQL audit rows rather than a PGlite notification callback; SQL-drop negative assertion retained.",
+      "cleanup": [
+        "DROP EVENT TRIGGER IF EXISTS pglite_event"
+      ]
+    },
+    {
+      "id": "triggers/ddl_command_start",
+      "source": "packages/pglite/tests/triggers.test.js",
+      "upstreamTest": "should detect ddl_command_start",
+      "steps": [
+        {
+          "sql": "CREATE TABLE audit(tag TEXT)"
+        },
+        {
+          "sql": "CREATE FUNCTION foo() RETURNS event_trigger AS $$ BEGIN INSERT INTO audit VALUES(TG_TAG); END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "CREATE EVENT TRIGGER pglite_event ON ddl_command_start EXECUTE FUNCTION foo()"
+        },
+        {
+          "sql": "CREATE TABLE foo_table(id TEXT,value TEXT)"
+        },
+        {
+          "sql": "SELECT tag FROM audit",
+          "rows": [
+            [
+              "CREATE TABLE"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP TABLE foo_table"
+        },
+        {
+          "sql": "SELECT tag FROM audit ORDER BY tag",
+          "rows": [
+            [
+              "CREATE TABLE"
+            ],
+            [
+              "DROP TABLE"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP EVENT TRIGGER pglite_event"
+        }
+      ],
+      "adaptation": "Observe SQL audit rows rather than a PGlite notification callback; SQL-drop negative assertion retained.",
+      "cleanup": [
+        "DROP EVENT TRIGGER IF EXISTS pglite_event"
+      ]
+    },
+    {
+      "id": "triggers/sql_drop",
+      "source": "packages/pglite/tests/triggers.test.js",
+      "upstreamTest": "should detect sql_drop",
+      "steps": [
+        {
+          "sql": "CREATE TABLE audit(tag TEXT)"
+        },
+        {
+          "sql": "CREATE FUNCTION foo() RETURNS event_trigger AS $$ BEGIN INSERT INTO audit VALUES(TG_TAG); END; $$ LANGUAGE plpgsql"
+        },
+        {
+          "sql": "CREATE EVENT TRIGGER pglite_event ON sql_drop EXECUTE FUNCTION foo()"
+        },
+        {
+          "sql": "CREATE TABLE foo_table(id TEXT,value TEXT)"
+        },
+        {
+          "sql": "SELECT tag FROM audit",
+          "rows": []
+        },
+        {
+          "sql": "DROP TABLE foo_table"
+        },
+        {
+          "sql": "SELECT tag FROM audit ORDER BY tag",
+          "rows": [
+            [
+              "DROP TABLE"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP EVENT TRIGGER pglite_event"
+        }
+      ],
+      "adaptation": "Observe SQL audit rows rather than a PGlite notification callback; SQL-drop negative assertion retained.",
+      "cleanup": [
+        "DROP EVENT TRIGGER IF EXISTS pglite_event"
+      ]
+    },
+    {
+      "id": "users/role-permissions",
+      "source": "packages/pglite/tests/user.test.ts",
+      "upstreamTest": "user switching",
+      "steps": [
+        {
+          "sql": "CREATE ROLE pglite_user"
+        },
+        {
+          "sql": "GRANT USAGE ON SCHEMA {{schema}} TO pglite_user"
+        },
+        {
+          "sql": [
+            "CREATE TABLE test(number INT)",
+            "INSERT INTO test VALUES(42)",
+            "CREATE TABLE test2(number INT)",
+            "INSERT INTO test2 VALUES(42)"
+          ]
+        },
+        {
+          "sql": "ALTER TABLE test2 OWNER TO pglite_user"
+        },
+        {
+          "sql": "SET ROLE pglite_user"
+        },
+        {
+          "sql": "SELECT current_user",
+          "rows": [
+            [
+              "pglite_user"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT * FROM test",
+          "sqlstate": "42501"
+        },
+        {
+          "sql": "SELECT * FROM test2",
+          "rows": [
+            [
+              "42"
+            ]
+          ]
+        },
+        {
+          "sql": "RESET ROLE"
+        },
+        {
+          "sql": "SET ROLE no_such_user",
+          "sqlstate": "22023"
+        }
+      ],
+      "adaptation": "SET ROLE checks SQL ownership/ACLs; username-at-open and authentication are not supported by this API. Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim.",
+      "cleanup": [
+        "RESET ROLE",
+        "DROP OWNED BY pglite_user",
+        "DROP ROLE pglite_user"
+      ]
+    },
+    {
+      "id": "databases/create-drop",
+      "source": "packages/pglite/tests/drop-database.test.ts",
+      "upstreamTest": "should create and drop database",
+      "steps": [
+        {
+          "sql": "CREATE DATABASE pglite_database TEMPLATE template1"
+        },
+        {
+          "sql": "SELECT datname FROM pg_database WHERE datname='pglite_database'",
+          "rows": [
+            [
+              "pglite_database"
+            ]
+          ]
+        },
+        {
+          "sql": "DROP DATABASE pglite_database"
+        },
+        {
+          "sql": "SELECT datname FROM pg_database WHERE datname='pglite_database'",
+          "rows": []
+        }
+      ],
+      "cleanup": [
+        "DROP DATABASE IF EXISTS pglite_database"
+      ]
+    },
+    {
+      "id": "largeobjects/sql-roundtrip",
+      "source": "packages/pglite/tests/largeobjects.test.js",
+      "upstreamTest": "blob",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(data OID)"
+        },
+        {
+          "sql": "INSERT INTO test VALUES(lo_from_bytea(0,convert_to('hello world','UTF8')))"
+        },
+        {
+          "sql": "SELECT convert_from(lo_get(data),'UTF8') FROM test",
+          "rows": [
+            [
+              "hello world"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT lo_unlink(data) FROM test",
+          "rows": [
+            [
+              "1"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "Native SQL large-object byte roundtrip replaces the PGlite-specific /dev/blob device."
+    },
+    {
+      "id": "vector/basic",
+      "source": "packages/pglite-pgvector/tests/pgvector.test.ts",
+      "upstreamTest": "basic",
+      "steps": [
+        {
+          "sql": "CREATE TABLE test(id SERIAL PRIMARY KEY,name TEXT,vec public.vector(3))"
+        },
+        {
+          "sql": "INSERT INTO test(name,vec) VALUES('test1','[1,2,3]'),('test2','[4,5,6]'),('test3','[7,8,9]')"
+        },
+        {
+          "sql": "SELECT name,vec,vec <-> '[3,1,2]' AS distance FROM test ORDER BY id",
+          "rows": [
+            [
+              "test1",
+              "[1,2,3]",
+              2.449489742783178
+            ],
+            [
+              "test2",
+              "[4,5,6]",
+              5.744562646538029
+            ],
+            [
+              "test3",
+              "[7,8,9]",
+              10.677078252031311
+            ]
+          ],
+          "tolerance": 1e-12
+        }
+      ]
+    },
+    {
+      "id": "vector/catalog-oid",
+      "source": "packages/pglite-pgvector/tests/pgvector.test.ts",
+      "upstreamTest": "has correct oid",
+      "steps": [
+        {
+          "sql": "SELECT oid >= 16384 FROM pg_extension WHERE extname='vector'",
+          "rows": [
+            [
+              "t"
+            ]
+          ]
+        },
+        {
+          "sql": "SELECT extversion FROM pg_extension WHERE extname='vector'",
+          "rows": [
+            [
+              "0.8.6"
+            ]
+          ]
+        }
+      ],
+      "adaptation": "User OIDs are allocated dynamically; assert a valid extension OID and the pinned version, not PGlite bootstrap numbering."
+    },
+    {
+      "id": "basic/copy-stream",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "copy to/from blob",
+      "kind": "copy"
+    },
+    {
+      "id": "basic/closed-connection",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "close",
+      "kind": "closed"
+    },
+    {
+      "id": "message-context/reset",
+      "source": "packages/pglite/tests/message-context-leak.test.ts",
+      "upstreamTest": "does not accumulate allocations in MessageContext",
+      "kind": "memory"
+    },
+    {
+      "id": "sizes/exec-8kb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 8kb data size",
+      "kind": "size",
+      "mode": "exec",
+      "bytes": 8192
+    },
+    {
+      "id": "sizes/literal-8kb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 8kb data size",
+      "kind": "size",
+      "mode": "literal",
+      "bytes": 8192
+    },
+    {
+      "id": "sizes/parameter-8kb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 8kb data size",
+      "kind": "size",
+      "mode": "parameter",
+      "bytes": 8192
+    },
+    {
+      "id": "sizes/generated-8kb",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 8kb data size",
+      "kind": "size",
+      "mode": "generated",
+      "bytes": 8192
+    },
+    {
+      "id": "sizes/rows-1000-100",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1000 rows with 100 bytes per row",
+      "kind": "rows",
+      "count": 1000,
+      "bytes": 100
+    },
+    {
+      "id": "sizes/rows-1000-1024",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1000 rows with 1024 bytes per row",
+      "kind": "rows",
+      "count": 1000,
+      "bytes": 1024
+    },
+    {
+      "id": "sizes/rows-1000-10240",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1000 rows with 10240 bytes per row",
+      "kind": "rows",
+      "count": 1000,
+      "bytes": 10240
+    },
+    {
+      "id": "sizes/rows-1000-102400",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1000 rows with 102400 bytes per row",
+      "kind": "rows",
+      "count": 1000,
+      "bytes": 102400
+    },
+    {
+      "id": "sizes/rows-10000-100",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 10000 rows with 100 bytes per row",
+      "kind": "rows",
+      "count": 10000,
+      "bytes": 100
+    },
+    {
+      "id": "sizes/rows-10000-1024",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 10000 rows with 1024 bytes per row",
+      "kind": "rows",
+      "count": 10000,
+      "bytes": 1024
+    },
+    {
+      "id": "sizes/rows-10000-10240",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 10000 rows with 10240 bytes per row",
+      "kind": "rows",
+      "count": 10000,
+      "bytes": 10240
+    },
+    {
+      "id": "sizes/rows-10000-102400",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 10000 rows with 102400 bytes per row",
+      "kind": "rows",
+      "count": 10000,
+      "bytes": 102400
+    },
+    {
+      "id": "sizes/rows-100000-100",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 100000 rows with 100 bytes per row",
+      "kind": "rows",
+      "count": 100000,
+      "bytes": 100
+    },
+    {
+      "id": "sizes/rows-100000-1024",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 100000 rows with 1024 bytes per row",
+      "kind": "rows",
+      "count": 100000,
+      "bytes": 1024
+    },
+    {
+      "id": "sizes/rows-100000-10240",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 100000 rows with 10240 bytes per row",
+      "kind": "rows",
+      "count": 100000,
+      "bytes": 10240
+    },
+    {
+      "id": "sizes/value-limit",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "oversized data sizes",
+      "kind": "value-limit"
+    },
+    {
+      "id": "lifecycle/close",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "close",
+      "kind": "database-close"
+    },
+    {
+      "id": "lifecycle/reopen",
+      "source": "packages/pglite/tests/targets/web/base.js",
+      "upstreamTest": "persisted",
+      "kind": "reopen"
+    },
+    {
+      "id": "vector/reopen-oid",
+      "source": "packages/pglite-pgvector/tests/pgvector.test.ts",
+      "upstreamTest": "has correct oid after restart",
+      "kind": "vector-reopen"
+    },
+    {
+      "id": "sizes/default-materialized",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1k rows with 100b per row",
+      "kind": "materialized",
+      "count": 1000,
+      "bytes": 100,
+      "adaptation": "Keep a separate default-query regression; larger matrix cases explicitly select bounded chunks."
+    },
+    {
+      "id": "sizes/stream-after-collection-limit",
+      "source": "packages/pglite/tests/query-sizes.test.ts",
+      "upstreamTest": "handles 1k rows with 10kb per row",
+      "kind": "stream-after-limit",
+      "adaptation": "Additional regression discovered during migration: stream the full 10 MiB after a collection-limit cancellation and small-query reuse."
+    }
+  ]
+}
