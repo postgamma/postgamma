@@ -71,6 +71,13 @@ try {
     const large = 'p'.repeat(5 * 1024 * 1024);
     assert(scalar(await a.query('SELECT $1::text', {parameters: [{typeOid: 25, value: large}]})) === large, 'Installed large-value contract');
     checks.push('script-api', 'notification-api', 'large-value-api');
+    if (manifest.extensions.pg_trgm && manifest.extensions.hstore) {
+      stage('contrib');
+      await a.exec('CREATE EXTENSION pg_trgm; CREATE EXTENSION hstore');
+      assert(scalar(await a.query("SELECT 'test1' % 'test'")) === 't', 'Installed pg_trgm');
+      assert(scalar(await b.query("SELECT 'name=>雪'::hstore->'name'")) === '雪', 'Installed hstore');
+      checks.push('pg-trgm-api', 'hstore-api');
+    }
     if (manifest.extensions.pgvector) {
       stage('vector');
       await a.query('CREATE EXTENSION vector');

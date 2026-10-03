@@ -9,6 +9,7 @@ from threading import Event
 
 from wasm import run_browser, serve
 from wasm_link import Builder
+from wasm_contrib import selection
 from wasm_toolchain import WasmError, configuration, digest, read_json, run, write_json
 
 
@@ -181,11 +182,11 @@ def main() -> None:
     parser.add_argument("--browser-executable", default="")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--scenario", default="all")
-    parser.add_argument("--extensions", choices=("none", "pgvector"), default="none")
+    parser.add_argument("--extensions", default="none")
     args = parser.parse_args()
     try:
         path = startup(configuration(args), args.longjmp, args.action, args.scenario,
-                       () if args.extensions == "none" else (args.extensions,))
+                       selection(args.extensions))
         if args.action == "serve":
             with serve(Path(read_json(path)["site"]), "vector-search.html" if args.scenario == "vector-example" else "sql.html") as url:
                 print(f"SQL API fixture: {url} (Ctrl-C to stop)", flush=True)

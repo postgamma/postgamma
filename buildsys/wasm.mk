@@ -130,10 +130,13 @@ WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
 
-.PHONY: wasm-archive-check
+.PHONY: wasm-archive-check wasm-contrib-check
 WASM_FEATURE_ENGINES ?= chromium,firefox,webkit
 wasm-archive-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario archive --engines "$(WASM_FEATURE_ENGINES)"
+
+wasm-contrib-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario contrib --engines "$(WASM_FEATURE_ENGINES)"
 
 .PHONY: wasm-vector-check
 WASM_VECTOR_SCENARIO ?= vector-all
@@ -145,7 +148,7 @@ wasm-vector-serve:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" serve $(POSTGAMMA_WASM_ARGS) --scenario vector-example
 
 .PHONY: wasm-package wasm-package-check
-WASM_PACKAGE_EXTENSIONS ?= pgvector
+WASM_PACKAGE_EXTENSIONS ?= standard
 wasm-package:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_package.py" build $(POSTGAMMA_WASM_ARGS) --extensions "$(WASM_PACKAGE_EXTENSIONS)"
 

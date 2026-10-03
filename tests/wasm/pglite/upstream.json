@@ -390,9 +390,11 @@
     {
       "path": "packages/pglite/tests/contrib/hstore.test.js",
       "sha256": "fe995b679a9daba55ee773c5fdd0f34370ea39cfc30e755337e340b933b8d260",
-      "status": "not-applicable",
-      "reason": "This contributed extension is not in the current Wasm static-module profile.",
-      "cases": []
+      "status": "adapted",
+      "reason": "Pinned contrib SQL and result expectations run against the statically linked PostGamma module; GUC isolation, index plans and persistence have a dedicated contrib gate.",
+      "cases": [
+        "contrib/hstore"
+      ]
     },
     {
       "path": "packages/pglite/tests/contrib/intarray.test.js",
@@ -467,9 +469,12 @@
     {
       "path": "packages/pglite/tests/contrib/pg_trgm.test.js",
       "sha256": "0843f03a936a3baf5c3664283bf79a96306d35fe46313c3ba37764917b376f80",
-      "status": "not-applicable",
-      "reason": "This contributed extension is not in the current Wasm static-module profile.",
-      "cases": []
+      "status": "adapted",
+      "reason": "Pinned contrib SQL and result expectations run against the statically linked PostGamma module; GUC isolation, index plans and persistence have a dedicated contrib gate.",
+      "cases": [
+        "contrib/pg-trgm-gin",
+        "contrib/pg-trgm-gist"
+      ]
     },
     {
       "path": "packages/pglite/tests/contrib/pg_visibility.test.js",

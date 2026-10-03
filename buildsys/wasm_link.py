@@ -14,6 +14,7 @@ import sys
 
 from wasm_kernel import prepare
 from wasm_source import source_tree
+from wasm_contrib import CONTRIB, selection
 from wasm_toolchain import (WasmError, configuration, digest, fingerprint, read_json,
                             run, run_id, write_json, capture)
 
@@ -46,18 +47,20 @@ def source_snapshot(root: Path, extensions=()):
         for directory in ("wasm/bridge", "tests/wasm")
         for p in sorted((root / directory).rglob("*"))
         if p.is_file() and p.suffix in (".c", ".cpp", ".h")}
-    if extensions:
+    if "pgvector" in extensions:
         for name in ("extensions/pgvector", "third_party/pgvector"):
             result[name] = tree_hashes(root / name)
+    if any(name in CONTRIB for name in extensions):
+        result['extensions/wasm-contrib'] = tree_hashes(root / 'extensions/wasm-contrib')
+        for name in extensions:
+            if name in CONTRIB: result['postgres/contrib/' + name] = tree_hashes(root / 'postgres/contrib' / name)
     return result
 
 
 class Builder:
     def __init__(self, config, longjmp, extensions=()):
         self.config, self.root = config, config.root
-        self.extensions = tuple(extensions)
-        if self.extensions not in ((), ("pgvector",)):
-            raise WasmError("unsupported Wasm extension selection")
+        self.extensions = selection(','.join(extensions) if extensions else 'none')
         self.longjmp = longjmp
         self.directory, self.inputs, self.tools, self.env = prepare(config, longjmp)
         from check_wasm_sdk_contract import check as check_sdk_contract
@@ -71,6 +74,8 @@ class Builder:
         if self.extensions:
             variant = {"extensions": list(self.extensions), "upstream": read_json(
                 self.root / "manifests/extensions/pgvector-upstream.json")}
+            if any(name in CONTRIB for name in self.extensions):
+                variant['contrib'] = self.inputs['postgres_commit']
             self.output = self.directory / "variants" / fingerprint(variant) / "link"
         self.artifacts = self.output / "generated"
         self.current = self.directory / "runs" / ("link-" + run_id())
@@ -365,7 +370,9 @@ class Builder:
 
     def modules(self):
         from bundle_embedded_static_modules import render_facts
-        manifest = target_static_modules(read_json(self.root / "manifests/extensions/embedded-static.json"),
+        document = read_json(self.root / "manifests/extensions/embedded-static.json")
+        document['modules'] += read_json(self.root / 'manifests/extensions/wasm-contrib.json')['modules']
+        manifest = target_static_modules(document,
             ("dict_snowball", "plpgsql", "utf8_and_iso8859_1", *self.extensions), int(self.postgres_major), self.candidate_probe)
         facts = render_facts(manifest)
         for module in manifest["modules"]:
@@ -387,6 +394,10 @@ class Builder:
             name = module["id"]
             if name == "pgvector":
                 from wasm_pgvector import build
+                build(self, module)
+                continue
+            if name in CONTRIB:
+                from wasm_contrib import build
                 build(self, module)
                 continue
             if name == "plpgsql":

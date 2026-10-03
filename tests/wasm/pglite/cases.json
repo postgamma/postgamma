@@ -3041,6 +3041,122 @@
       "kind": "value-limit"
     },
     {
+      "id": "contrib/pg-trgm-gin",
+      "source": "packages/pglite/tests/contrib/pg_trgm.test.js",
+      "upstreamTest": "gin",
+      "adaptation": "Pinned upstream rows and similarity/distance expectations; text results retain PostgreSQL boolean spelling and float tolerance.",
+      "steps": [
+        {
+          "sql": [
+            "CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT)",
+            "CREATE INDEX test_trgm_idx ON test USING gin(name gin_trgm_ops)",
+            "INSERT INTO test(name) VALUES ('test1'),('test2'),('text3')"
+          ]
+        },
+        {
+          "sql": "SELECT name,name % 'test',name <-> 'test' FROM test ORDER BY id",
+          "rows": [
+            [
+              "test1",
+              "t",
+              0.4285714
+            ],
+            [
+              "test2",
+              "t",
+              0.4285714
+            ],
+            [
+              "text3",
+              "f",
+              0.7777778
+            ]
+          ],
+          "tolerance": 1e-06
+        },
+        {
+          "sql": "SELECT name FROM test WHERE name % 'test' ORDER BY id",
+          "rows": [
+            [
+              "test1"
+            ],
+            [
+              "test2"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contrib/pg-trgm-gist",
+      "source": "packages/pglite/tests/contrib/pg_trgm.test.js",
+      "upstreamTest": "gist",
+      "adaptation": "Pinned upstream rows and similarity/distance expectations; text results retain PostgreSQL boolean spelling and float tolerance.",
+      "steps": [
+        {
+          "sql": [
+            "CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT)",
+            "CREATE INDEX test_trgm_idx ON test USING gist(name gist_trgm_ops)",
+            "INSERT INTO test(name) VALUES ('test1'),('test2'),('text3')"
+          ]
+        },
+        {
+          "sql": "SELECT name,name % 'test',name <-> 'test' FROM test ORDER BY id",
+          "rows": [
+            [
+              "test1",
+              "t",
+              0.4285714
+            ],
+            [
+              "test2",
+              "t",
+              0.4285714
+            ],
+            [
+              "text3",
+              "f",
+              0.7777778
+            ]
+          ],
+          "tolerance": 1e-06
+        },
+        {
+          "sql": "SELECT name FROM test WHERE name % 'test' ORDER BY id",
+          "rows": [
+            [
+              "test1"
+            ],
+            [
+              "test2"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contrib/hstore",
+      "source": "packages/pglite/tests/contrib/hstore.test.js",
+      "upstreamTest": "hstore",
+      "adaptation": "Original hstore rows and JSON value; JSON is compared as PostgreSQL text.",
+      "steps": [
+        {
+          "sql": [
+            "CREATE TABLE test(id SERIAL PRIMARY KEY,data hstore)",
+            "INSERT INTO test(data) VALUES ('\"name\"=>\"test1\"'),('\"name\"=>\"test2\"'),('\"name\"=>\"test3\"')"
+          ]
+        },
+        {
+          "sql": "SELECT data::jsonb FROM test WHERE data->'name'='test1'",
+          "rows": [
+            [
+              "{\"name\": \"test1\"}"
+            ]
+          ]
+        }
+      ]
+    },
+    {
       "id": "lifecycle/close",
       "source": "packages/pglite/tests/basic.test.ts",
       "upstreamTest": "close",

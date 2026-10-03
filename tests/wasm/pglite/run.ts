@@ -232,7 +232,8 @@ try {
   const cases = fixture.cases.slice(startIndex);
   assert(fixture.schemaVersion === 1 && cases.length > 0, 'nonempty known fixture version');
   phase = 'open'; await event('phase'); database = await Database.open({storage});
-  const setup = await database.connect(); await setup.query('CREATE EXTENSION vector'); await setup.close();
+  const setup = await database.connect();
+  await setup.exec('CREATE EXTENSION vector; CREATE EXTENSION pg_trgm; CREATE EXTENSION hstore'); await setup.close();
   await event('ready', {ids: cases.map(c => c.id), storage: storageName});
   document.documentElement.dataset.pgliteReady = 'true';
   for (const [index, test] of cases.entries()) {

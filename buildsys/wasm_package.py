@@ -10,6 +10,7 @@ import tempfile
 from wasm import serve
 from wasm_assets import npm_version
 from wasm_sql import startup
+from wasm_contrib import CONTRIB, selection
 from wasm_toolchain import (WasmError, browser_environment, capture, configuration, digest, fingerprint,
                             read_json, run, sdk_tools, write_json)
 
@@ -107,7 +108,7 @@ def package(config, longjmp, extensions, check=True):
             shutil.copy2(config.root / name, stage / name)
         shutil.copy2(config.root / 'wasm/PACKAGE_README.md', stage / 'README.md')
         licenses = stage / 'licenses'; licenses.mkdir()
-        for name in ('postgresql', *extensions):
+        for name in ('postgresql', *(name for name in extensions if name not in CONTRIB)):
             shutil.copy2(config.root / ('licenses/LICENSE.' + name), licenses / ('LICENSE.' + name))
         sdk = config.sdk / 'upstream/emscripten'
         for label, path in {'emscripten': 'LICENSE', 'musl': 'system/lib/libc/musl/COPYRIGHT',
@@ -161,9 +162,9 @@ def main():
     parser.add_argument('--longjmp', default='emscripten')
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--jobs', type=int, default=2)
-    parser.add_argument('--extensions', choices=('none', 'pgvector'), default='pgvector')
+    parser.add_argument('--extensions', default='standard')
     args = parser.parse_args()
-    try: package(configuration(args), args.longjmp, () if args.extensions == 'none' else (args.extensions,), args.action == 'check')
+    try: package(configuration(args), args.longjmp, selection(args.extensions), args.action == 'check')
     except Exception as error: parser.exit(2, 'wasm package: ' + str(error).splitlines()[0] + '\n')
 
 

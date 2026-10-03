@@ -24,7 +24,8 @@ def generate(builder, worker='src/worker/sql.js'):
     manifest = {'schemaVersion': 1, 'version': npm_version(root), 'productVersion': read_version(root).text,
                 'target': builder.config.target, 'mode': builder.config.mode, 'protocolVersion': protocol,
                 'postgresCommit': builder.inputs['postgres_commit'],
-                'extensions': {name: read_json(root / f'manifests/extensions/{name}-upstream.json')['commit'] for name in builder.extensions},
+                'extensions': {name: (read_json(root / 'manifests/extensions/pgvector-upstream.json')['commit']
+                    if name == 'pgvector' else builder.inputs['postgres_commit']) for name in builder.extensions},
                 'bridge': {'sha256': builder.report['bridge']['sha256'], 'testing': bool(builder.report['bridge']['flags'])},
                 'entries': {'worker': worker, 'module': 'postgamma.mjs', 'wasm': 'postgamma.wasm', 'resources': 'postgamma.data'},
                 'capabilities': {'sql': worker.endswith('/sql.js'), 'independentSessions': 4,

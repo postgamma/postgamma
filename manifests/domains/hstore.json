@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgres-source-domain",
+  "id": "hstore",
+  "description": "PostgreSQL hstore Wasm translation units with explicit role state",
+  "translation_unit_prefixes": [],
+  "translation_unit_files": [
+    "hstore_compat.c",
+    "hstore_gin.c",
+    "hstore_gist.c",
+    "hstore_io.c",
+    "hstore_op.c",
+    "hstore_subs.c"
+  ],
+  "required_defines": [],
+  "required_any_defines": [],
+  "excluded_defines": [
+    "FRONTEND"
+  ],
+  "required_output_suffixes": [],
+  "excluded_output_suffixes": [],
+  "binding_anchor_file_suffixes": []
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgres-source-domain",
+  "id": "pg-trgm",
+  "description": "PostgreSQL pg_trgm Wasm translation units with explicit role state",
+  "translation_unit_prefixes": [],
+  "translation_unit_files": [
+    "trgm_gin.c",
+    "trgm_gist.c",
+    "trgm_op.c",
+    "trgm_regexp.c"
+  ],
+  "required_defines": [],
+  "required_any_defines": [],
+  "excluded_defines": [
+    "FRONTEND"
+  ],
+  "required_output_suffixes": [],
+  "excluded_output_suffixes": [],
+  "binding_anchor_file_suffixes": []
+}

@@ -1,7 +1,7 @@
 # postgamma for the browser
 
 PostgreSQL inside your browser application, with independent concurrent SQL
-sessions, OPFS persistence and static pgvector. This is a preview wasm32 pthreads
+sessions, OPFS persistence and static pgvector, pg_trgm and hstore. This is a preview wasm32 pthreads
 package. Node.js and WASI execution are not supported.
 
 ```ts
@@ -98,8 +98,10 @@ For temporary profiling, pass `diagnostics: {sampleIntervalMs: 10}` to
 `Database.open()`; `0` disables periodic samples. Sampling may miss transient
 peaks. Idle command and result waits use notifications.
 
-The default package includes pgvector 0.8.6. Run `CREATE EXTENSION vector` once
-per database to enable it. Arbitrary native extensions and multiple live
+The default package includes pgvector 0.8.6, pg_trgm 1.6 and hstore 1.8. Run
+`CREATE EXTENSION vector`, `CREATE EXTENSION pg_trgm` or `CREATE EXTENSION hstore`
+once per database to enable each module. Trigram GUC settings are isolated by
+logical connection. Arbitrary native extensions and multiple live
 instances are outside the initial supported profile. Memory is bounded by the
 included asset manifest (512 MiB shared linear memory); browser VM/RSS is separate.
 

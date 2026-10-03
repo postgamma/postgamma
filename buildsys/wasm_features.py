@@ -7,6 +7,7 @@ import tempfile
 from wasm import serve
 from wasm_sql import startup
 from wasm_link import source_snapshot
+from wasm_contrib import selection
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
 
@@ -65,8 +66,14 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'archive-ephemeral-to-opfs', 'archive-opfs-to-ephemeral-clone', 'archive-clone-independent-writes',
                             'archive-existing-destination-preserved', 'archive-checksum', 'archive-truncation',
                             'archive-trailing-data', 'archive-build-identity', 'archive-path-traversal',
-                            'archive-cancelled-restore-not-openable', 'archive-cancelled-export-reopen', 'archive-concurrent-close'}
+                            'archive-cancelled-restore-not-openable', 'archive-cancelled-export-reopen', 'archive-concurrent-close',
+                            'archive-invalid-cluster-quarantined'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing archive checks')
+                    if scenario == 'contrib':
+                        required = {'contrib-extension-ddl-rollback', 'contrib-pg-trgm-gin', 'contrib-pg-trgm-gist',
+                            'contrib-hstore-gin', 'contrib-null-unicode', 'contrib-four-session-guc-isolation',
+                            'contrib-local-guc-rollback', 'contrib-session-reuse', 'contrib-opfs-reopen', 'contrib-archive-roundtrip'}
+                        if not required <= set(row['probe']['checks']): raise WasmError('Missing contrib checks')
                     for module in row['probe']['metrics']:
                         if module.get('resources') != dict(locks=0, shmem=0, dsm=0, pipes=0) or module.get('runningWorkers') != 0:
                             raise WasmError('Feature module did not release native resources')
@@ -99,10 +106,10 @@ def main():
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--longjmp', default='emscripten'); parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib'))
-    parser.add_argument('--extensions', default='pgvector')
+    parser.add_argument('--extensions', default='standard')
     parser.add_argument('--engines', default='chromium,firefox,webkit')
     args = parser.parse_args()
-    try: matrix(configuration(args), args.longjmp, args.scenario, tuple(args.extensions.split(',')), args.engines.split(','))
+    try: matrix(configuration(args), args.longjmp, args.scenario, selection(args.extensions), args.engines.split(','))
     except Exception as error: parser.exit(2, 'wasm features: ' + str(error).splitlines()[0] + '\n')
 
 

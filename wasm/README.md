@@ -704,16 +704,29 @@ make wasm-kernel-generate JOBS=2
 make wasm-package-check JOBS=2
 ```
 
+`make wasm-contrib-check JOBS=2` exercises pg_trgm 1.6 and hstore 1.8 in
+Chromium, Firefox and Linux WebKit. Their sources and SQL resources come from
+the pinned PostgreSQL checkout. The target compilation inventory must match
+the reviewed state policy: pg_trgm's three GUC backing variables and lazy
+comparison function pointer belong to each logical backend; hstore currently
+has no mutable static candidates. New state fails the build until reviewed.
+The gate checks extension DDL rollback, real GIN/GiST plans, four concurrent
+connections with independent settings, connection reuse, OPFS reopen and
+archive roundtrips. The pinned PGlite GIN, GiST and hstore cases also run in all
+six PGlite browser/storage profiles.
+
 The package report names the staged directory and npm tarball under the selected
 variant's `package/<build-id>/` and `dist/`. Install that tarball with
 `npm install /path/to/postgamma-wasm-0.1.0-alpha.1.tgz`. The package defaults to
-static pgvector; `WASM_PACKAGE_EXTENSIONS=none` selects the extension-free build.
+`WASM_PACKAGE_EXTENSIONS=standard` (pgvector, pg_trgm and hstore).
+`WASM_PACKAGE_EXTENSIONS=none` selects the extension-free build; `pgvector` or
+a comma-separated subset selects only those modules.
 No command publishes to a registry.
 
 The independent consumer installs with lifecycle scripts disabled, resolves
 the package exports and generated declarations, and serves only its own files.
 It checks parameters, transactions, four actual concurrent sessions, cancellation,
-HNSW/IVFFlat, OPFS reopen and an explicitly relocated asset directory. Negative
+HNSW/IVFFlat, contrib functions, archive/clone, OPFS reopen and an explicitly relocated asset directory. Negative
 cases reject mismatched build/protocol identities, corrupt Wasm/resource bytes,
 a missing Worker and missing cross-origin isolation before reporting success.
 

@@ -19,6 +19,7 @@ def stages(profile, platform_checks=False):
                ('sql', ['wasm-sql-check'])]
     if profile == 'weekly':
         result += [('vector', ['wasm-vector-check'])]
+        result += [('contrib', ['wasm-contrib-check'])]
     result += [('pglite', ['wasm-pglite-check'])]
     if profile == 'weekly':
         result += [('storage', ['wasm-storage-check'])]
@@ -45,7 +46,7 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
         f'WASM_PROFILE={config.profile_path}',
         f'WASM_TARGET={config.target}',f'WASM_MODE={config.mode}',f'JOBS={config.jobs}',
         f'WASM_LONGJMP={longjmp}', 'WASM_SQL_SCENARIO=all', 'WASM_STORAGE_SCENARIO=storage-all',
-        'WASM_VECTOR_SCENARIO=vector-all','WASM_EXTENSIONS=none','WASM_PACKAGE_EXTENSIONS=pgvector']
+        'WASM_VECTOR_SCENARIO=vector-all','WASM_EXTENSIONS=none','WASM_PACKAGE_EXTENSIONS=standard']
     assignments += ['WASM_PGLITE_ENGINES=' + ('chromium,firefox,webkit' if profile == 'weekly' else 'chromium'),
                     'WASM_PGLITE_STORAGE=' + ('ephemeral,opfs' if profile == 'weekly' else 'ephemeral')]
     if candidate: assignments.append('POSTGRES_CANDIDATE_PROBE=1')
@@ -56,7 +57,7 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
     dependencies = {'generation': ('tools',), 'oracle-build': ('tools',),
                     'oracle-install': ('oracle-build',), 'sql': ('generation', 'oracle-install'),
                     'vector': ('generation', 'oracle-install'), 'matrix': ('package',)}
-    for name in ('runtime', 'pglite', 'storage', 'archive', 'lifecycle', 'package'): dependencies[name] = ('generation',)
+    for name in ('runtime', 'pglite', 'storage', 'archive', 'contrib', 'lifecycle', 'package'): dependencies[name] = ('generation',)
     for name in ('platform', 'wait', 'recovery'): dependencies[name] = ('tools',)
     try:
         for name, targets in stages(profile, platform_checks):

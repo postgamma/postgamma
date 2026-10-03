@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.extension-state-ownership",
+  "extension_id": "pg_trgm",
+  "accessor": "postgamma_contrib_role_state_address",
+  "upstream": {
+    "repository": "https://github.com/postgres/postgres",
+    "commit": "86ed13547589d8401b3b1e1ec2873903b287cb80",
+    "version": "1.6"
+  },
+  "decisions": [
+    {
+      "id": "external:similarity_threshold",
+      "owner": "role",
+      "rationale": "GUC backing storage belongs to the logical backend"
+    },
+    {
+      "id": "external:word_similarity_threshold",
+      "owner": "role",
+      "rationale": "GUC backing storage belongs to the logical backend"
+    },
+    {
+      "id": "external:strict_word_similarity_threshold",
+      "owner": "role",
+      "rationale": "GUC backing storage belongs to the logical backend"
+    },
+    {
+      "id": "external:CMPTRGM",
+      "owner": "role",
+      "rationale": "Lazy comparator selection must not race between backend roles"
+    }
+  ]
+}

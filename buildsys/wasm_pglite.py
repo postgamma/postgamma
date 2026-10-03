@@ -9,6 +9,7 @@ import time
 
 from wasm import serve
 from wasm_sql import startup
+from wasm_contrib import STANDARD
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
 
@@ -42,7 +43,7 @@ def verify_inputs(config, receipt):
     link = read_json(Path(sql['link_report']))
     if sql.get('status') != 'passed' or sql.get('scenario') != 'pglite' or link.get('status') != 'passed' or not link.get('kernel_linked'):
         raise WasmError('PGlite tests require a successful matching kernel build')
-    if link.get('extensions') != ['pgvector'] or link.get('source_snapshot') != source_snapshot(config.root, ('pgvector',)):
+    if link.get('extensions') != list(STANDARD) or link.get('source_snapshot') != source_snapshot(config.root, STANDARD):
         raise WasmError('PGlite kernel inputs changed; rebuild before reusing the receipt')
     if link.get('bridge', {}).get('sha256') != digest(config.root / 'wasm/bridge/sql.c'):
         raise WasmError('PGlite SQL bridge changed')
@@ -105,7 +106,7 @@ def matrix(config, longjmp, engines=ENGINES, storage_profiles=STORAGE, receipt=N
     sources['tests/wasm/browser/diagnostics.mjs'] = digest(config.root / 'tests/wasm/browser/diagnostics.mjs')
     report['test_sources'] = sources
     try:
-        receipt = Path(receipt) if receipt else startup(config, longjmp, 'build', 'pglite', ('pgvector',))
+        receipt = Path(receipt) if receipt else startup(config, longjmp, 'build', 'pglite', STANDARD)
         report['build_receipt'], report['build_receipt_sha256'] = str(receipt), digest(receipt)
         site = verify_inputs(config, receipt)
         tools, env = sdk_tools(config)
