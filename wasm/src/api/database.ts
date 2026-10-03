@@ -19,6 +19,18 @@ export interface OpenOptions {
 export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
+export interface ScriptOptions {chunkRows?: number}
+export interface Notification {channel: string; payload: string; pid: number}
+export class NotificationOverflowError extends Error {
+  readonly dropped: bigint;
+  constructor(dropped: bigint) {super(`Native notification queue dropped ${dropped} events`); this.name = 'NotificationOverflowError'; this.dropped = dropped;}
+}
+type NotificationHandler = {notify(value: Notification): void | Promise<void>; error?: (error: unknown) => void};
+const handleKey = (h: Handle) => `${h.id}:${h.generation}`;
+function notificationError(handler: NotificationHandler, error: unknown) {
+  try {if (handler.error) handler.error(error); else console.error(error);}
+  catch (cause) {console.error(cause);}
+}
 class Transport {
   readonly readiness = new Readiness();
   private sequence = 0;
@@ -34,12 +46,20 @@ class Transport {
   peakHostQueuedBytes = 0;
   hostQueuedBytes = 0;
   private worker: Worker;
+  private notificationHandlers = new Map<string, Set<NotificationHandler>>();
+  private eventsPending = false;
+  private eventsRunning = false;
+  private eventsEnabled = true;
   constructor(worker: Worker) {
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
       if (data.fatal) {this.retire(new Error(data.fatal)); return;}
       if (this.failure) return;
+      if (data.notificationsReady) {
+        if (this.eventsEnabled) {this.eventsPending = true; void this.events();}
+        return;
+      }
       if (data.ready) {this.readiness.notify(data.ready); return;}
       const waiter = this.pending.get(data.sequence);
       if (!waiter) return; // Retired sequence: never deliver it to a later request.
@@ -47,9 +67,62 @@ class Transport {
       if (data.sample) this.sample = data.sample;
       if (data.metrics) this.metrics = data.metrics;
       waiter.resolve(data.reply);
+      if (this.eventsPending) void this.events();
     };
     worker.onerror = event => this.fail(new Error(event.message));
     worker.onmessageerror = () => this.fail(new Error('Worker message could not be decoded'));
+  }
+  subscribe(handle: Handle, handler: NotificationHandler): () => void {
+    const key = handleKey(handle);
+    let handlers = this.notificationHandlers.get(key);
+    if (!handlers) this.notificationHandlers.set(key, handlers = new Set());
+    handlers.add(handler);
+    return () => {handlers.delete(handler); if (!handlers.size) this.notificationHandlers.delete(key);};
+  }
+  unsubscribe(handle: Handle) {
+    this.notificationHandlers.get(handleKey(handle))?.clear();
+    this.notificationHandlers.delete(handleKey(handle));
+  }
+  closeEvents() {this.eventsEnabled = false; this.eventsPending = false;}
+  private async events() {
+    if (this.eventsRunning) return;
+    this.eventsRunning = true;
+    try {
+      while (this.eventsEnabled && this.eventsPending && !this.failure) {
+        // A full application queue defers the event drain until a command
+        // reply releases capacity; it is not a fatal protocol error.
+        if (this.pending.size >= limits.maxPendingCommands || this.pendingBytes + 12 > limits.workerQueueBytes) return;
+        this.eventsPending = false;
+        const r = await this.call(Op.events), count = r.u32();
+        if (count > 16) throw new Error('Invalid event batch');
+        const deliveries: {key?: string; value?: Notification; overflow?: NotificationOverflowError}[] = [];
+        for (let i = 0; i < count; i++) {
+          const kind = r.u32();
+          if (kind === 1) {
+            const handle = r.handle(), pid = r.i32(), channel = r.text(), payload = r.text();
+            if (handle.kind !== 2 || channel === null || payload === null) throw new Error('Invalid notification');
+            deliveries.push({key: handleKey(handle), value: {pid, channel, payload}});
+          } else if (kind === 2) deliveries.push({overflow: new NotificationOverflowError(r.u64())});
+          else throw new Error('Unknown notification event');
+        }
+        r.end();
+        for (const delivery of deliveries) {
+          const handlers = delivery.key ? this.notificationHandlers.get(delivery.key) :
+            new Set([...this.notificationHandlers.values()].flatMap(values => [...values]));
+          for (const handler of [...handlers ?? []]) {
+            if (!handlers?.has(handler)) continue;
+            if (delivery.overflow) notificationError(handler, delivery.overflow);
+            else {
+              // Application callbacks run outside reply decoding. A throwing
+              // or rejecting callback must not retire the database transport.
+              try {Promise.resolve(handler.notify(delivery.value!)).catch(error => notificationError(handler, error));}
+              catch (error) {notificationError(handler, error);}
+            }
+          }
+        }
+      }
+    } catch (error) {if (!this.failure) await this.fail(error as Error);}
+    finally {this.eventsRunning = false;}
   }
   private retire(error: Error) {
     if (this.retired) return;
@@ -58,6 +131,7 @@ class Transport {
     if (this.failure && this.failure !== error) this.failure.cause = error;
     this.failure ??= error;
     this.readiness.fail(this.failure);
+    this.notificationHandlers.clear();
     for (const waiter of this.pending.values()) waiter.reject(this.failure);
     this.pending.clear(); this.pendingBytes = 0; this.worker.terminate();
     this.finishRetirement?.();
@@ -159,6 +233,9 @@ export class Database {
     this.closeWork = (async () => {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.connections].map(connection => connection.close()));
+      // An already submitted event drain precedes CLOSE in the Worker queue.
+      // Late readiness edges must not submit work after STOP joins the driver.
+      this.transport.closeEvents();
       const r = await this.transport.call(Op.close, this.handle);
       // A successful native close frees the instance. Its handle cannot be
       // retried, even if resource auditing or Worker teardown subsequently fails.
@@ -205,14 +282,23 @@ export class Connection {
     this.transport.readiness.track(handle);
   }
   async execute(sql: string, options: ExecuteOptions = {}): Promise<Request> {
-    if (this.closing) throw new ClosedError();
-    const work = this.transport.call(Op.execute, this.handle, w => {
+    return this.start(Op.execute, w => {
       w.text(sql).u32(options.binary ? 1 : 0).u32(options.chunkRows ?? 0);
       const parameters = options.parameters ?? []; w.u32(parameters.length);
       for (const p of parameters) w.u32(p.typeOid).u32(p.format ?? (p.value instanceof Uint8Array ? 1 : 0))
         .u32(p.value === null ? 1 : 0).blob(p.value === null ? new Uint8Array() :
           typeof p.value === 'string' ? new TextEncoder().encode(p.value) : p.value);
-    }).then(r => {
+    });
+  }
+  /** PostgreSQL simple-query script; all statement and transaction boundaries
+   * are parsed by the server. Parameters and binary results use execute(). */
+  async executeScript(sql: string, options: ScriptOptions = {}): Promise<Request> {
+    if (Object.keys(options).some(key => key !== 'chunkRows')) throw new TypeError('Scripts accept only chunkRows');
+    return this.start(Op.script, w => w.text(sql).u32(options.chunkRows ?? 0));
+  }
+  private async start(op: number, write: (writer: Writer) => void): Promise<Request> {
+    if (this.closing) throw new ClosedError();
+    const work = this.transport.call(op, this.handle, write).then(r => {
       const h = r.handle(); r.end();
       const request = new Request(this.transport, h, () => this.requests.delete(request));
       this.requests.add(request); return request;
@@ -224,6 +310,21 @@ export class Connection {
   private queuedQueries = 0;
   private queuedBytes = 0;
   query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {
+    return this.collect(sql, options, false);
+  }
+  exec(sql: string, options: ScriptOptions = {}): Promise<Result[]> {
+    if (Object.keys(options).some(key => key !== 'chunkRows')) return Promise.reject(new TypeError('Scripts accept only chunkRows'));
+    return this.collect(sql, options, true);
+  }
+  /** Subscribe to notifications from SQL LISTEN on this connection. Removing
+   * the callback does not execute UNLISTEN or alter transaction state. */
+  onNotification(notify: NotificationHandler['notify'], onError?: NotificationHandler['error']): () => void {
+    if (this.closing) throw new ClosedError();
+    if (typeof notify !== 'function' || (onError !== undefined && typeof onError !== 'function'))
+      throw new TypeError('Notification handlers must be functions');
+    return this.transport.subscribe(this.handle, {notify, error: onError});
+  }
+  private collect(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
     if (this.closing) return Promise.reject(new ClosedError());
     if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
     let bytes = sql.length * 3 + 64;
@@ -235,11 +336,11 @@ export class Connection {
     this.transport.peakHostQueuedBytes = Math.max(this.transport.peakHostQueuedBytes, this.transport.hostQueuedBytes);
     this.queuedQueries++;
     const work = this.queryTail.then(async () => {
-      const request = await this.execute(sql, options), results: Result[] = [];
+      const request = await (script ? this.executeScript(sql, options) : this.execute(sql, options)), results: Result[] = [];
       let bytes = 0;
       try {for (;;) {
         const batch = await request.next(); if (batch === null) return results;
-        if (batch.copy) throw new Error('Use execute() for COPY streams');
+        if (batch.copy) throw new Error('Use execute() or executeScript() for COPY streams');
         bytes += batch.byteLength;
         if (bytes > limits.collectedResultBytes) throw new Error('Collected results exceed 4 MiB; consume an iterator');
         results.push(batch);
@@ -257,6 +358,7 @@ export class Connection {
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
+    this.transport.unsubscribe(this.handle);
     this.closeWork = (async () => {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.requests].map(request => request.close()));

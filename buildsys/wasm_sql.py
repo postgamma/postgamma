@@ -102,6 +102,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][transport_test] = digest(config.root / transport_test)
             run([builder.tools["node"], str(config.root / transport_test), str(site / "src")],
                 builder.current / "transport.log", builder.env, config.root)
+            event_test = "tests/wasm/sql/notification_transport.mjs"
+            report["harness_sources"][event_test] = digest(config.root / event_test)
+            run([builder.tools["node"], str(config.root / event_test), str(site / "src")],
+                builder.current / "notification-transport.log", builder.env, config.root)
             run([builder.tools["node"], str(config.root / "tests/wasm/storage/namespace.mjs"),
                  str(site / "src/storage/namespace.js")], builder.current / "namespace.log", builder.env, config.root)
             journal_test = "tests/wasm/storage/journal.mjs"

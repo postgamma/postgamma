@@ -123,11 +123,12 @@ COPY, pgvector, MessageContext reset, payload sizes and close/reopen behavior.
 They execute the real PostGamma `Database`/`Connection` API. Expected values
 use exact text and OIDs instead of PGlite's JavaScript decoding; transaction
 callbacks become explicit SQL, `/dev/blob` COPY becomes streaming COPY, and
-trigger delivery uses SQL audit rows. These adaptations do not validate
-PGlite-specific JavaScript APIs or LISTEN/NOTIFY callback delivery.
-Multi-statement `exec` fixtures use explicit sequential query calls; a separate
-case checks that a multi-statement query is rejected without poisoning the
-connection. This does not claim multi-statement transaction atomicity.
+trigger delivery uses SQL audit rows. Notification fixtures now use real
+`Connection.onNotification()` callbacks and SQL LISTEN/UNLISTEN. `exec()`
+submits the complete script through PostgreSQL's simple-query protocol;
+regressions cover statement boundaries, implicit rollback, explicit commits,
+COPY continuation and cancellation. Parameterized `query()` remains a single
+statement. These adaptations do not validate PGlite-specific JavaScript APIs.
 
 The upstream large-result fixtures are adapted to the published PostGamma
 limits: collected results above 4 MiB must reject and leave the session usable;
@@ -485,7 +486,7 @@ supervisor acknowledges completion. Release discards at most one result or
 startup uses CONNECT begin/poll with a reserved connection and carrier slot.
 Startup output is staged within 64 KiB and transferred in bounded pieces;
 failure or deadline expiry retires the ticket and backend before releasing
-the reservation. The private byte protocol is version 5.
+the reservation. The private byte protocol is version 6.
 
 The three-engine lifecycle matrix includes `control-progress`,
 `control-timeout` and `connect-progress`: cross-connection SQL/cancel,
@@ -524,6 +525,24 @@ per-connection result/COPY readiness use events. Pending lifecycle steps use
 a 1 ms retry for supervisor/backend states without a public waitable; idle
 operation has no periodic readiness timer. The lifecycle gate records
 idle driver wakeups separately from browser CPU or power consumption.
+
+`connection.exec(sql, {chunkRows})` collects a multi-statement script;
+`executeScript()` returns its streaming request, including COPY streams.
+The server parses SQL and owns transaction boundaries: an error rolls back
+the implicit script transaction and skips subsequent statements, while an
+explicit earlier COMMIT remains committed. Scripts accept text results and
+no parameters; use `query()`/`execute()` for typed parameters or binary rows.
+
+Register `connection.onNotification(({channel, payload, pid}) => { ... },
+onError)` and execute SQL LISTEN on that connection. The returned function
+removes the callback; SQL UNLISTEN changes the server subscription. An idle
+listener releases its carrier and resumes on a notification signal.
+Notifications arrive without SQL polling;
+callbacks follow PostgreSQL commit/rollback and channel-quoting semantics.
+The native 64-event queue and 16-event drain batches bound pending delivery.
+Overflow calls `onError` with `NotificationOverflowError.dropped` (a bigint);
+without an error handler it is reported to the console. Throwing or rejecting
+callbacks are isolated from SQL, and closing a connection retires its callbacks.
 
 A minimal source-API call, from a page serving the generated assets with
 COOP/COEP headers, is:

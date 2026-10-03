@@ -21,6 +21,7 @@
       "reason": "SQL/data fixtures adapted to the PostGamma wire API; see per-case adaptations and wasm/README.md for unsupported API portions.",
       "cases": [
         "basic/exec",
+        "basic/script-transactions",
         "basic/multi-statement-rejected",
         "basic/query",
         "basic/params",
@@ -176,9 +177,15 @@
     {
       "path": "packages/pglite/tests/notify.test.ts",
       "sha256": "4f6916e0f4f74d231d3dd0a1001c836dae60c6817aa905e548ce2b6f16650852",
-      "status": "not-applicable",
-      "reason": "No public listen/unlisten/notification callback API.",
-      "cases": []
+      "status": "adapted",
+      "reason": "SQL LISTEN/UNLISTEN with Connection.onNotification. Includes payload, channel, unsubscribe, transaction and callback-error assertions.",
+      "cases": [
+        "notify/basic",
+        "notify/unlisten",
+        "notify/quoted",
+        "notify/transaction",
+        "notify/callbacks"
+      ]
     },
     {
       "path": "packages/pglite/tests/plpgsql.test.js",

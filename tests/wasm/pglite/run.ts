@@ -5,12 +5,15 @@
 import {Database, DatabaseError, ClosedError} from '../src/api/database.js';
 import type {Connection, Parameter, Result} from '../src/api/database.js';
 import {limits} from '../src/protocol/limits.js';
+import {scriptSemantics} from '../tests/scripts.js';
+import {notificationCase} from '../tests/notifications.js';
 
 type Value = string | number | null;
 interface Step {
   sql: string | string[]; rows?: Value[][]; columns?: string[]; oids?: number[]; commands?: string[];
   parameters?: {typeOid: number; value: string | number[] | null}[];
   sqlstate?: string; tolerance?: number;
+  script?: boolean;
 }
 interface Case {
   id: string; source: string; upstreamTest: string; steps?: Step[]; cleanup?: string[];
@@ -62,7 +65,8 @@ async function step(c: Connection, value: Step, schema: string) {
     return;
   }
   const results: Result[] = [];
-  for (const sql of statements) results.push(...await c.query(sql, {parameters}));
+  if (value.script) results.push(...await c.exec(statements.join(';\n')));
+  else for (const sql of statements) results.push(...await c.query(sql, {parameters}));
   if (value.rows) {
     const actual = rows(results);
     equal(actual.length, value.rows.length, 'row count');
@@ -109,6 +113,8 @@ async function copy(c: Connection) {
 }
 async function special(c: Connection, test: Case) {
   if (test.kind === 'copy') return copy(c);
+  if (test.kind === 'script') return scriptSemantics(c);
+  if (test.kind === 'notification') return notificationCase(database!, c, test.mode!);
   if (test.kind === 'closed') {
     const other = await database!.connect(); await other.close();
     await rejected(() => other.query('SELECT 1'), e => e instanceof ClosedError, 'closed connection rejects query');

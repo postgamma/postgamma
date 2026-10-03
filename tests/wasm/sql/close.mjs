@@ -12,6 +12,7 @@ function fixture({audit = false, malformed = false, stop = false, retry = false}
   let closed = false, terminated = 0;
   const transport = {
     metrics: undefined, peakHostQueuedBytes: 31,
+    closeEvents() {},
     async call(op) {
       calls.push(op);
       if (op === Op.close) {
@@ -66,7 +67,7 @@ const handle = {kind: 2, id: 5, generation: 11};
 for (const timeout of [false, true]) {
   const readiness = new Readiness();
   let attempts = 0, retired = 0;
-  const transport = {readiness, async call(op, h) {
+  const transport = {readiness, unsubscribe() {}, async call(op, h) {
     assert.equal(op, Op.disconnect); assert.deepEqual(h, handle);
     attempts++;
     if (attempts === 1) {
@@ -96,7 +97,7 @@ for (const timeout of [false, true]) {
 const readiness = new Readiness();
 let submitted, retired = 0;
 const submission = new Promise(resolve => {submitted = resolve;});
-const connection = new Connection({readiness, async call() {
+const connection = new Connection({readiness, unsubscribe() {}, async call() {
   submitted(); return new Reader(new Writer().u32(1).finish());
 }}, handle, () => {retired++;});
 const failedClose = assert.rejects(connection.close(), /Instance retired/);

@@ -30,7 +30,8 @@
       "upstreamTest": "exec",
       "steps": [
         {
-          "sql": "CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)"
+          "sql": "CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)",
+          "script": true
         },
         {
           "sql": [
@@ -48,10 +49,58 @@
             "INSERT 0 1",
             "UPDATE 1",
             "SELECT 1"
-          ]
+          ],
+          "script": true
         }
       ],
-      "adaptation": " Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim."
+      "adaptation": "Run the original multi-statement exec through the native simple-query script API."
+    },
+    {
+      "id": "basic/script-transactions",
+      "source": "packages/pglite/tests/basic.test.ts",
+      "upstreamTest": "exec / transaction / transaction error",
+      "kind": "script",
+      "adaptation": "Adds server script transaction, chunk, COPY and error-reuse assertions."
+    },
+    {
+      "id": "notify/basic",
+      "source": "packages/pglite/tests/notify.test.ts",
+      "upstreamTest": "notify",
+      "kind": "notification",
+      "mode": "basic",
+      "adaptation": "Connection.onNotification plus SQL LISTEN/UNLISTEN; real idle-listener delivery. Adds transaction/callback isolation checks where indicated."
+    },
+    {
+      "id": "notify/unlisten",
+      "source": "packages/pglite/tests/notify.test.ts",
+      "upstreamTest": "unlisten",
+      "kind": "notification",
+      "mode": "unlisten",
+      "adaptation": "Connection.onNotification plus SQL LISTEN/UNLISTEN; real idle-listener delivery. Adds transaction/callback isolation checks where indicated."
+    },
+    {
+      "id": "notify/quoted",
+      "source": "packages/pglite/tests/notify.test.ts",
+      "upstreamTest": "check notify case sensitivity + special chars as Postgresql",
+      "kind": "notification",
+      "mode": "quoted",
+      "adaptation": "Connection.onNotification plus SQL LISTEN/UNLISTEN; real idle-listener delivery. Adds transaction/callback isolation checks where indicated."
+    },
+    {
+      "id": "notify/transaction",
+      "source": "packages/pglite/tests/notify.test.ts",
+      "upstreamTest": "onNotification",
+      "kind": "notification",
+      "mode": "transaction",
+      "adaptation": "Connection.onNotification plus SQL LISTEN/UNLISTEN; real idle-listener delivery. Adds transaction/callback isolation checks where indicated."
+    },
+    {
+      "id": "notify/callbacks",
+      "source": "packages/pglite/tests/notify.test.ts",
+      "upstreamTest": "onNotification",
+      "kind": "notification",
+      "mode": "callbacks",
+      "adaptation": "Connection.onNotification plus SQL LISTEN/UNLISTEN; real idle-listener delivery. Adds transaction/callback isolation checks where indicated."
     },
     {
       "id": "basic/multi-statement-rejected",
@@ -71,7 +120,7 @@
           ]
         }
       ],
-      "adaptation": "PostGamma uses extended-query single-statement execution. Explicitly check this boundary; the exec fixture runs its statements sequentially."
+      "adaptation": "Parameterized query remains single-statement. Multi-statement scripts use exec; rejection leaves the connection usable."
     },
     {
       "id": "basic/query",
@@ -2446,7 +2495,7 @@
           ]
         }
       ],
-      "adaptation": "Observe durable audit rows; LISTEN/NOTIFY callback delivery is not supported or claimed. Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim. Multi-statement scripts are explicit sequential query calls; no multi-statement atomicity claim."
+      "adaptation": "This trigger fixture observes durable audit rows; notification callbacks have separate notify fixtures. These SQL steps execute sequentially and do not claim script atomicity."
     },
     {
       "id": "triggers/ddl_command_end",

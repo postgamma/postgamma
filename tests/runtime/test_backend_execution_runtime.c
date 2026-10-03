@@ -205,6 +205,56 @@ record_quantum_cleanup(
 }
 
 
+static PostgammaBackendExitStatus
+run_woken_quantums(
+	const PostgammaBackendStartInfo *start_info,
+	const void *startup_data, size_t startup_data_length,
+	void *main_argument)
+{
+	QuantumState *state = main_argument;
+	PostgammaBackendExitStatus result = {POSTGAMMA_BACKEND_EXIT_YIELD, 0};
+	uint64_t	epoch;
+	uint64_t	pending;
+	uint32_t	call;
+	int			wake_kind;
+
+	assert(startup_data_length == sizeof(wake_kind));
+	memcpy(&wake_kind, startup_data, sizeof(wake_kind));
+	call = atomic_fetch_add_explicit(&state->calls, 1, memory_order_acq_rel);
+	assert(call < 3);
+	if (call == 0)
+		record_stack_validation(state->registry, start_info, true);
+	assert(postgamma_backend_take_pending_signals(
+		state->registry, start_info->handle.id, &pending) == 0);
+	assert(pending == (wake_kind == 0 && call > 0 ? UINT64_C(1) << 9 : 0));
+	if (call == 2)
+	{
+		result.kind = POSTGAMMA_BACKEND_EXIT_NORMAL;
+		return result;
+	}
+	assert(postgamma_backend_schedule_epoch(
+		state->registry, start_info->handle.id, &epoch) == 0);
+	/* The second wake arrives after the idle decision, but before return. */
+	if (call == 1)
+		assert(postgamma_backend_prepare_yield(
+			state->registry, start_info->handle.id, epoch, false) == 0);
+	if (wake_kind == 0)
+		assert(postgamma_backend_signal(
+			state->registry, start_info->handle.compat_pid, 10) == 0);
+	else if (wake_kind == 1)
+		assert(postgamma_backend_wake(
+			state->registry, start_info->handle.compat_pid) == 0);
+	else
+		assert(postgamma_backend_schedule(
+			state->registry, start_info->handle.id) == 0);
+	/* An idle decision must not erase work arriving after its snapshot. */
+	if (call == 0)
+		assert(postgamma_backend_prepare_yield(
+			state->registry, start_info->handle.id, epoch, false) == EAGAIN);
+	return result;
+}
+
+
 static void
 block_completion_notification(void *notification_argument)
 {
@@ -772,6 +822,38 @@ main(void)
 		assert(telemetry.work_steals == 0);
 		assert(telemetry.backend_completions == SESSION_COUNT);
 		assert(postgamma_backend_registry_active_count(registry) == 0);
+		assert(postgamma_backend_registry_destroy(registry) == 0);
+	}
+	for (int wake_kind = 0; wake_kind < 3; wake_kind++)
+	{
+		QuantumState state = {0};
+		PostgammaBackendHandle handle;
+		PostgammaBackendCompletion completion;
+
+		provider_config.kind = POSTGAMMA_BACKEND_PROVIDER_POOLED;
+		provider_config.worker_count = 2;
+		provider_config.queue_capacity = 2;
+		provider_config.execution_token_count = 2;
+		assert(postgamma_backend_registry_create_with_provider(
+			&registry, 2, &provider_config) == 0);
+		state.registry = registry;
+		memset(&request, 0, sizeof(request));
+		request.backend_type = 302;
+		request.execution_class = POSTGAMMA_BACKEND_CLASS_CLIENT;
+		request.thread_name = "wake-race-client";
+		request.startup_data = &wake_kind;
+		request.startup_data_length = sizeof(wake_kind);
+		request.main_function = run_woken_quantums;
+		request.main_argument = &state;
+		request.cleanup_function = record_quantum_cleanup;
+		request.cleanup_argument = &state;
+		assert(postgamma_backend_launch(registry, &request, &handle) == 0);
+		completion = wait_for_completion(registry);
+		assert(completion.handle.id == handle.id);
+		assert(completion.exit_status.kind == POSTGAMMA_BACKEND_EXIT_NORMAL);
+		assert(postgamma_backend_completion_join(registry, &completion) == 0);
+		assert(atomic_load_explicit(&state.calls, memory_order_acquire) == 3);
+		assert(atomic_load_explicit(&state.cleaned, memory_order_acquire) == 1);
 		assert(postgamma_backend_registry_destroy(registry) == 0);
 	}
 	assert(postgamma_backend_registry_create(&registry, 1) == 0);

@@ -289,8 +289,11 @@ static bool postgamma_quantum_is_pooled_client(
 	const PostgammaClientSession *state);
 static bool postgamma_quantum_update_pin_state(
 	PostgammaClientSession *state);
+static uint64_t postgamma_quantum_drain_interrupts(
+	PostgammaClientSession *state);
 static bool postgamma_quantum_prepare_yield(
-	PostgammaClientSession *state, bool yield_when_runnable);
+	PostgammaClientSession *state, uint64_t schedule_epoch,
+	bool yield_when_runnable);
 Datum pg_postgamma_crash_backend(PG_FUNCTION_ARGS);
 Datum pg_postgamma_pause_backend(PG_FUNCTION_ARGS);
 
@@ -1727,39 +1730,56 @@ postgamma_quantum_update_pin_state(PostgammaClientSession *state)
 }
 
 
-static bool
-postgamma_quantum_prepare_yield(
-	PostgammaClientSession *state, bool yield_when_runnable)
+static uint64_t
+postgamma_quantum_drain_interrupts(PostgammaClientSession *state)
 {
-	bool		runnable;
-	uint32_t	transport_events;
 	uint64_t	schedule_epoch;
 	int			status;
 
-	for (;;)
-	{
-		status = postgamma_backend_schedule_epoch(
-			state->registry, state->handle.id, &schedule_epoch);
-		if (status != 0)
-			postgamma_runtime_contract_violation();
-		transport_events = 0;
-		status = state->transport_ops.ready(
-			state->transport, state->transport_generation, &transport_events);
-		if (status != 0)
-			postgamma_runtime_contract_violation();
-		/* A prior read can leave the next protocol message in PostgreSQL. */
-		runnable = pq_buffer_remaining_data() > 0 || (transport_events &
-			(POSTGAMMA_KERNEL_TRANSPORT_READABLE |
-			 POSTGAMMA_KERNEL_TRANSPORT_PEER_CLOSED)) != 0;
-		if (runnable && !yield_when_runnable)
-			return false;
-		status = postgamma_backend_prepare_yield(
-			state->registry, state->handle.id, schedule_epoch, runnable);
-		if (status == 0)
-			break;
-		if (status != EAGAIN)
-			postgamma_runtime_contract_violation();
-	}
+	/*
+	 * Both yield seams precede ReadCommand at a clean message boundary.
+	 * The source seams enable DoingCommandRead before entering this helper.
+	 * Snapshot BEFORE draining: a later snapshot could
+	 * acknowledge a signal whose role-local work has not been processed yet.
+	 */
+	status = postgamma_backend_schedule_epoch(
+		state->registry, state->handle.id, &schedule_epoch);
+	if (status != 0)
+		postgamma_runtime_contract_violation();
+	ProcessClientReadInterrupt(false);
+	if (PG_STATE(error_context_stack) != NULL || pq_is_reading_msg())
+		postgamma_runtime_contract_violation();
+	return schedule_epoch;
+}
+
+
+static bool
+postgamma_quantum_prepare_yield(
+	PostgammaClientSession *state, uint64_t schedule_epoch,
+	bool yield_when_runnable)
+{
+	bool		runnable;
+	uint32_t	transport_events = 0;
+	int			status;
+
+	status = state->transport_ops.ready(
+		state->transport, state->transport_generation, &transport_events);
+	if (status != 0)
+		postgamma_runtime_contract_violation();
+	/* A prior read can leave the next protocol message in PostgreSQL. */
+	runnable = pq_buffer_remaining_data() > 0 || (transport_events &
+		(POSTGAMMA_KERNEL_TRANSPORT_READABLE |
+		 POSTGAMMA_KERNEL_TRANSPORT_PEER_CLOSED)) != 0;
+	if (runnable && !yield_when_runnable)
+		return false;
+	status = postgamma_backend_prepare_yield(
+		state->registry, state->handle.id, schedule_epoch, runnable);
+	/*
+	 * EAGAIN leaves the newer reschedule request intact.  Return to the pool
+	 * and drain it on resume; refreshing the epoch here would erase the wake.
+	 */
+	if (status != 0 && status != EAGAIN)
+		postgamma_runtime_contract_violation();
 	PG_STATE(PG_exception_stack) = NULL;
 	state->quantum_yielded = true;
 	return true;
@@ -1774,6 +1794,7 @@ postgamma_postgres_quantum_yield_ready(
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	uint64_t	deadline_ns = 0;
+	uint64_t	schedule_epoch;
 	int			status;
 
 	if (!postgamma_quantum_is_pooled_client(state))
@@ -1825,7 +1846,8 @@ postgamma_postgres_quantum_yield_ready(
 		state->registry, state->handle.id, deadline_ns);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	return postgamma_quantum_prepare_yield(state, true);
+	schedule_epoch = postgamma_quantum_drain_interrupts(state);
+	return postgamma_quantum_prepare_yield(state, schedule_epoch, true);
 }
 
 
@@ -1837,6 +1859,7 @@ postgamma_postgres_quantum_yield_command_read(
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	uint64_t	deadline_ns;
+	uint64_t	schedule_epoch;
 	int			status;
 
 	if (!postgamma_quantum_is_pooled_client(state))
@@ -1860,9 +1883,7 @@ postgamma_postgres_quantum_yield_command_read(
 	 * message has started, so returning from PostgresMain cannot discard
 	 * partially consumed protocol state.
 	 */
-	ProcessClientReadInterrupt(false);
-	if (PG_STATE(error_context_stack) != NULL || pq_is_reading_msg())
-		postgamma_runtime_contract_violation();
+	schedule_epoch = postgamma_quantum_drain_interrupts(state);
 	/*
 	 * secure_read() may have filled PostgreSQL's receive buffer with more than
 	 * one complete frontend message.  Those bytes are runnable work even when
@@ -1892,7 +1913,7 @@ postgamma_postgres_quantum_yield_command_read(
 		state->registry, state->handle.id, deadline_ns);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	return postgamma_quantum_prepare_yield(state, false);
+	return postgamma_quantum_prepare_yield(state, schedule_epoch, false);
 }
 
 

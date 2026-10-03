@@ -76,7 +76,7 @@
       "anchor": "\t\t\tReadyForQuery(whereToSendOutput);\n\t\t\tsend_ready_for_query = false;",
       "expected_matches": 1,
       "kind": "insert_after",
-      "replacement": "\n\t\t\tif (postgamma_postgres_quantum_yield_ready(\n\t\t\t\t\tsend_ready_for_query,\n\t\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\t\tidle_session_timeout_enabled))\n\t\t\t\treturn;"
+      "replacement": "\n\t\t\t/* This clean boundary is also the beginning of command read. */\n\t\t\tPOSTGAMMA_BACKEND_STATE_NAMED_VALUE(\n\t\t\t\t\"internal:src/backend/tcop/postgres.c:\"\n\t\t\t\t\"src/backend/tcop/postgres.c::DoingCommandRead\",\n\t\t\t\tDoingCommandRead) = true;\n\t\t\tif (postgamma_postgres_quantum_yield_ready(\n\t\t\t\t\tsend_ready_for_query,\n\t\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\t\tidle_session_timeout_enabled))\n\t\t\t\treturn;"
     },
     {
       "id": "quantum-command-read-yield",

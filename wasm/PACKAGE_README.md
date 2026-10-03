@@ -48,10 +48,19 @@ the migration needs room for one additional snapshot of at most 5 MiB.
 Older builds cannot open the upgraded storage format.
 
 Four independent connections share the instance. A connection serializes
-`query()` calls; different connections run concurrently. Use `execute()` and the
+`query()` and `exec()` calls; different connections run concurrently. `exec()`
+uses PostgreSQL script transaction semantics and accepts multiple statements;
+`query()` accepts one statement with typed parameters. Use `execute()` and the
 request's async iterator for bounded result batches, `cancel()` for cancellation,
-and the COPY stream for bulk data. Values preserve exact int64/numeric strings,
+`executeScript()` for streaming scripts, and the COPY stream for bulk data.
+Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
+
+Use `connection.onNotification(({channel, payload, pid}) => { ... }, onError)`
+and SQL LISTEN/UNLISTEN for asynchronous notifications. The returned function
+removes the callback. Idle listeners release their carriers, and delivery
+follows transaction commit/rollback. The bounded native queue reports drops through
+`NotificationOverflowError.dropped`; callback failures do not invalidate SQL.
 
 Diagnostics sample on commands and lifecycle transitions by default.
 For temporary profiling, pass `diagnostics: {sampleIntervalMs: 10}` to

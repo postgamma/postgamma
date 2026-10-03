@@ -146,6 +146,7 @@ function startKernel() {return loadKernel({print: record, printErr: text => {
   };
   module.postgammaBridgeEvent = (kind, id, generation) => {
     if (kind === 0) module.postgammaBridgeReply?.();
+    else if (kind === 6) postMessage({notificationsReady: true});
     else postMessage({ready: {kind, id, generation}});
   };
   sample();

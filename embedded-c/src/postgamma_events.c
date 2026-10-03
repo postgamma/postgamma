@@ -428,6 +428,51 @@ postgamma_public_request_progress_ready(pgm_request *request)
 {
 	return request_progress_ready(request);
 }
+
+void
+postgamma_public_wasm_consume_idle(pgm_connection *connection)
+{
+	bool idle = false;
+
+	if (!connection_is_valid(connection))
+		return;
+	if (postgamma_mutex_try_lock(connection->mutex) == 0)
+	{
+		idle = !connection->closing && connection->active_request == NULL &&
+			connection->private_connection != NULL;
+		(void) postgamma_mutex_unlock(connection->mutex);
+	}
+	if (idle)
+		(void) postgamma_private_libpq_consume_idle(connection->private_connection);
+}
+
+pgm_status
+postgamma_public_wasm_next_event(
+	pgm_instance *instance, pgm_event **event, pgm_error **error)
+{
+	PostgammaPublicEventRouter *router;
+	bool out_of_memory = false;
+
+	if (error != NULL)
+		*error = NULL;
+	if (event != NULL)
+		*event = NULL;
+	if (!instance_is_valid(instance) || event == NULL)
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"invalid Wasm event arguments");
+	router = instance->event_router;
+	if (router == NULL || postgamma_mutex_lock(router->mutex) != 0)
+		return return_simple_error(error, PGM_STATUS_INTERNAL_ERROR,
+			"could not lock the instance event queue");
+	*event = take_event_locked(router, false, 0, 0, &out_of_memory);
+	if (*event == NULL)
+		*event = take_overflow_locked(router, &out_of_memory);
+	(void) postgamma_mutex_unlock(router->mutex);
+	if (out_of_memory)
+		return return_simple_error(error, PGM_STATUS_OUT_OF_MEMORY,
+			"could not allocate an owned instance event");
+	return PGM_STATUS_OK;
+}
 #endif
 
 

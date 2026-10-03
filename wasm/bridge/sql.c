@@ -27,9 +27,9 @@
  * steps and yield the driver while tickets, transport or backends are pending. */
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
-       COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL };
+       COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING };
-#define WIRE_VERSION 5
+#define WIRE_VERSION 6
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -53,6 +53,10 @@ static size_t input_size;
 static Writer reply;
 static em_proxying_queue *notifications;
 static _Atomic uint32_t wake_count;
+/* One owned event and one outstanding edge. The native queue remains bounded
+ * while JS is occupied; its overflow record is delivered instead of hidden. */
+static pgm_event *pending_event;
+static bool event_notified;
 /* Lock-free failure snapshots must not call back into the waiting driver. */
 static _Atomic unsigned driver_phase, active_sequence, active_operation, command_started;
 extern uintptr_t postgamma_platform_notification_address(void);
@@ -218,6 +222,72 @@ static void log_record(void *unused, const pgm_log_record *record)
     (void)unused;
     fprintf(stderr, "kernel: %s: %s\n", record->severity, record->message);
 }
+static pgm_status take_event(pgm_event **event, pgm_error **error)
+{
+    *event = NULL;
+    for (unsigned i = 0; i < SLOT_COUNT; i++)
+        if (handles[i].kind == INSTANCE)
+            return postgamma_public_wasm_next_event(handles[i].pointer, event, error);
+    return PGM_STATUS_OK;
+}
+static void notify_events(void)
+{
+    for (unsigned i = 0; i < SLOT_COUNT; i++)
+        if (handles[i].kind == CONNECTION && !handles[i].closing)
+            postgamma_public_wasm_consume_idle(handles[i].pointer);
+    if (event_notified) return;
+    if (!pending_event && take_event(&pending_event, NULL)) abort();
+    if (pending_event) {
+        ReadyEvent *event = malloc(sizeof(*event));
+        if (!event) abort();
+        *event = (ReadyEvent){6, 0, 0};
+        event_notified = true;
+        notify_control(deliver_event, event);
+    }
+}
+static pgm_status marshal_events(Writer *w, pgm_error **error)
+{
+    Writer records = {0};
+    unsigned count = 0;
+    pgm_status status = PGM_STATUS_OK;
+    for (unsigned batch = 0; batch < 16; batch++) {
+        pgm_event *event = pending_event;
+        pending_event = NULL;
+        if (!event) status = take_event(&event, error);
+        if (status || !event) break;
+        pgm_event_kind kind = pgm_event_type(event);
+        if (kind == PGM_EVENT_NOTIFICATION) {
+            pgm_notification n = PGM_NOTIFICATION_INIT;
+            status = pgm_event_notification(event, &n, error);
+            for (unsigned i = 0; !status && i < SLOT_COUNT; i++) {
+                Handle *h = &handles[i];
+                if (h->kind != CONNECTION || h->closing ||
+                    ((pgm_connection *)h->pointer)->identity != n.connection_id) continue;
+                put(&records, 1); put(&records, CONNECTION);
+                put(&records, i + 1); put(&records, h->generation);
+                put(&records, n.virtual_backend_pid); text(&records, n.channel); text(&records, n.payload);
+                count++; break;
+            }
+        } else if (kind == PGM_EVENT_OVERFLOW) {
+            pgm_event_overflow_record overflow = PGM_EVENT_OVERFLOW_RECORD_INIT;
+            status = pgm_event_overflow(event, &overflow, error);
+            if (!status && overflow.dropped_kind == PGM_EVENT_NOTIFICATION) {
+                put(&records, 2); number64(&records, overflow.dropped_count); count++;
+            }
+        } else if (kind == PGM_EVENT_LOG) {
+            pgm_log_record record = PGM_LOG_RECORD_INIT;
+            status = pgm_event_log(event, &record, error);
+            if (!status) log_record(NULL, &record);
+        }
+        pgm_event_free(event);
+        if (status || records.failed) break;
+    }
+    put(w, count); bytes(w, records.data, records.size);
+    w->failed |= records.failed;
+    free(records.data);
+    event_notified = false;
+    return status;
+}
 static pgm_status marshal_result(Writer *w, pgm_result *result, pgm_error **error)
 {
     put(w, pgm_result_kind(result)); text(w, pgm_result_command_status(result));
@@ -320,12 +390,12 @@ static bool command(void)
         else if (fault == 2) abort();
     }
 #endif
-    if (op != OPEN && op != STOP)
+    if (op != OPEN && op != STOP && op != EVENTS)
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
                    op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
                    op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
-    if (op == OPEN || op == CONNECT || op == EXECUTE) {
+    if (op == OPEN || op == CONNECT || op == EXECUTE || op == SCRIPT) {
         slot = reserve();
         if (!slot) status = PGM_STATUS_BUSY;
     }
@@ -425,7 +495,8 @@ static bool command(void)
         } else if (!status) progress_again(h, &payload);
         break;
     }
-    case EXECUTE: {
+    case EXECUTE:
+    case SCRIPT: {
         unsigned opening = 0;
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTING) opening++;
         if (opening) {
@@ -441,7 +512,8 @@ static bool command(void)
         }
         char *sql = string(&r);
         pgm_execute_options o = PGM_EXECUTE_OPTIONS_INIT;
-        uint32_t format = get(&r), chunk_rows = get(&r), count = get(&r);
+        uint32_t format = op == SCRIPT ? 0 : get(&r), chunk_rows = get(&r);
+        uint32_t count = op == SCRIPT ? 0 : get(&r);
         pgm_parameter parameters[64];
         if (count > 64 || format > 1 || chunk_rows > PGW_MAXIMUM_CHUNK_ROWS) r.failed = true;
         for (uint32_t i = 0; i < count && !r.failed; i++) {
@@ -462,7 +534,13 @@ static bool command(void)
             o.delivery_mode = chunk_rows ? PGM_DELIVERY_CHUNKED : PGM_DELIVERY_MATERIALIZED;
             o.target_chunk_rows = chunk_rows;
             o.result_buffer_limit = PGW_RESULT_BUFFER_BYTES;
-            status = pgm_execute_async_ex(h->pointer, sql, strlen(sql), &o, &request, &error);
+            if (op == SCRIPT) {
+                pgm_script_options script = PGM_SCRIPT_OPTIONS_INIT;
+                script.delivery_mode = o.delivery_mode;
+                script.target_chunk_rows = chunk_rows;
+                script.result_buffer_limit = o.result_buffer_limit;
+                status = pgm_execute_script_async(h->pointer, sql, strlen(sql), &script, &request, &error);
+            } else status = pgm_execute_async_ex(h->pointer, sql, strlen(sql), &o, &request, &error);
             if (!status) publish(&payload, slot, REQUEST, h, request);
         } else r.failed = true;
         free(sql); break;
@@ -508,6 +586,8 @@ static bool command(void)
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
         status = pgm_instance_close(h->pointer, PGM_SHUTDOWN_FAST, 10000, &error);
         if (!status) {
+            pgm_event_free(pending_event); pending_event = NULL;
+            event_notified = false;
             retire(h);
             if (op == CLOSE) {
                 put(&payload, postgamma_data_directory_lock_active_count());
@@ -589,6 +669,10 @@ static bool command(void)
         number64(&payload, t.runnable_session_count); number64(&payload, t.queued_request_count);
         number64(&payload, t.execution_token_rejections); break;
     }
+    case EVENTS:
+        if (r.offset != r.size) {r.failed = true; break;}
+        status = marshal_events(&payload, &error);
+        break;
     case STOP:
         if (r.offset != r.size) { r.failed = true; break; }
         for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind) status = PGM_STATUS_BUSY;
@@ -624,6 +708,7 @@ static void *run(void *unused)
         uint32_t expected = postgamma_platform_notification_sequence();
         atomic_fetch_add_explicit(&wake_count, 1, memory_order_relaxed);
         double wait_ms = notify_ready();
+        notify_events();
         if (atomic_load_explicit(&state, memory_order_acquire) != 1) {
             atomic_store(&driver_phase, 2); /* notification wait */
             if (postgamma_platform_notification_wait(expected, wait_ms) < 0) abort();

@@ -8,6 +8,8 @@ import {errors} from './errors.js';
 import {results} from './results.js';
 import {lifecycle, disconnectTimeout, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
 import {budget} from './budget.js';
+import {scripts} from './scripts.js';
+import {notifications} from './notifications.js';
 import {bindings} from './bindings.js';
 import {controlProgress, controlTimeout, connectProgress, connectReservation} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
@@ -85,6 +87,8 @@ try {
   else if (scenario === 'errors') await errors(db, checks);
   else if (scenario === 'results') await results(db, checks);
   else if (scenario === 'budget') await budget(db, checks);
+  else if (scenario === 'scripts') await scripts(db, checks);
+  else if (scenario === 'notifications') await notifications(db, checks);
   else if (scenario === 'diagnostics') {
     const transport = (db as unknown as {transport: {call(op: number): Promise<Reader>}}).transport;
     const held = transport.call(65530);
