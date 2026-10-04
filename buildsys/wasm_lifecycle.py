@@ -51,7 +51,8 @@ def validate_case(row, scenario, repetitions):
         'control-timeout': {'control-bounded-deadline', 'control-timeout-retry', 'control-stale-generation'},
         'connect-progress': {'connect-yields-to-sql', 'connect-yields-to-cancel', 'connect-startup-backpressure', 'connect-failure-retirement',
                              'connect-deadline-retirement', 'connect-stale-generation',
-                             'connect-carrier-reservation', 'connect-pinned-commit'},
+                             'connect-carrier-reservation', 'connect-pinned-commit',
+                             'connect-bounded-startup-discard', 'connect-discard-opfs-release', 'connect-discard-recovery'},
     }
     if scenario in progress_checks:
         probe = row['probe']
@@ -65,6 +66,10 @@ def validate_case(row, scenario, repetitions):
             timings = [event for event in events if event.get('kind') == 'control-timeout']
             if len(timings) != 1 or not 9900 <= timings[0].get('elapsedMs', 0) < 15000:
                 raise WasmError('missing or out-of-budget control deadline evidence')
+        if scenario == 'connect-progress':
+            timings = [event for event in events if event.get('kind') == 'connect-startup-discard']
+            if len(timings) != 1 or not 89000 <= timings[0].get('elapsedMs', 0) < 105000:
+                raise WasmError('missing or out-of-budget startup discard evidence')
         if scenario == 'diagnostics':
             held = []
             for phase in ('before', 'after'):
@@ -124,7 +129,7 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
                     case = current / (engine + '-' + scenario)
                     case.mkdir()
                     query = '?scenario=' + scenario
-                    timeout = 90000
+                    timeout = 180000 if scenario == 'connect-progress' else 90000
                     initial_timeout = 180000 if scenario in ('close-audit', 'open-failed', 'diagnostics') or scenario.startswith('fatal-opfs-') else timeout
                     if scenario.startswith('fatal-'):
                         query += '&repetitions=' + str(repetitions)

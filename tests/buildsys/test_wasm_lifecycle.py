@@ -39,11 +39,13 @@ class LifecycleEvidenceTests(unittest.TestCase):
                 'copy-abort-yields-to-sql', 'copy-abort-yields-to-cancel', 'unclaimed-copy-in-yields-to-sql', 'unclaimed-copy-in-yields-to-cancel', 'copy-in-close', 'unclaimed-copy-release'],
             'control-timeout': ['control-bounded-deadline', 'control-timeout-retry', 'control-stale-generation'],
             'connect-progress': ['connect-yields-to-sql', 'connect-yields-to-cancel', 'connect-startup-backpressure', 'connect-failure-retirement',
-                'connect-deadline-retirement', 'connect-stale-generation', 'connect-carrier-reservation', 'connect-pinned-commit'],
+                'connect-deadline-retirement', 'connect-stale-generation', 'connect-carrier-reservation', 'connect-pinned-commit',
+                'connect-bounded-startup-discard', 'connect-discard-opfs-release', 'connect-discard-recovery'],
         }
         for scenario, checks in required.items():
             row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': scenario, 'checks': checks},
-                   'events': [{'kind': 'control-timeout', 'elapsedMs': 10001}]}
+                   'events': [{'kind': 'control-timeout', 'elapsedMs': 10001},
+                              {'kind': 'connect-startup-discard', 'elapsedMs': 90010}]}
             validate_case(row, scenario, 20)
             for check in checks:
                 broken = copy.deepcopy(row)
@@ -54,6 +56,12 @@ class LifecycleEvidenceTests(unittest.TestCase):
                 for elapsed in (0, 9899, 15000):
                     broken = copy.deepcopy(row)
                     broken['events'][0]['elapsedMs'] = elapsed
+                    with self.assertRaises(WasmError):
+                        validate_case(broken, scenario, 20)
+            if scenario == 'connect-progress':
+                for elapsed in (0, 88999, 105000):
+                    broken = copy.deepcopy(row)
+                    broken['events'][1]['elapsedMs'] = elapsed
                     with self.assertRaises(WasmError):
                         validate_case(broken, scenario, 20)
 

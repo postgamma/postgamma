@@ -14,7 +14,7 @@ import {notifications} from './notifications.js';
 import {contrib} from './contrib.js';
 import {soak} from './soak.js';
 import {bindings} from './bindings.js';
-import {controlProgress, controlTimeout, connectProgress, connectReservation} from './control_progress.js';
+import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
 import {storageErrors} from '../storage-tests/errors.js';
@@ -123,6 +123,7 @@ try {
   if (scenario === 'connect-progress') {
     const small = await Database.open({workers: 2});
     await connectReservation(small, checks); metrics.push(await small.close());
+    await connectWatchdog(checks, metrics);
   }
   }
   const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) :

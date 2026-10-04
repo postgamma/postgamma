@@ -41,6 +41,10 @@ export class NotificationOverflowError extends Error {
 }
 type NotificationHandler = {notify(value: Notification): void | Promise<void>; error?: (error: unknown) => void};
 const handleKey = (h: Handle) => `${h.id}:${h.generation}`;
+// Native startup has a 60s control deadline and a 30s handshake deadline.
+// If its ticket or aborted backend cannot retire, discard the whole instance:
+// returning a connection error alone would leave native payload owners alive.
+const connectionStartupTimeoutMs = 90000;
 function notificationError(handler: NotificationHandler, error: unknown) {
   try {if (handler.error) handler.error(error); else console.error(error);}
   catch (cause) {console.error(cause);}
@@ -189,6 +193,7 @@ class Transport {
     }
   }
   terminate() {this.retire(new ClosedError());}
+  discard(error: Error) {return this.fail(error);}
 }
 export class Database {
   private transport: Transport;
@@ -325,6 +330,9 @@ export class Database {
   }
   async connect(name = 'postgamma-wasm'): Promise<Connection> {
     if (this.closing) throw new ClosedError();
+    const timer = setTimeout(() => {
+      void this.transport.discard(new Error('Connection startup exceeded its 90s deadline; instance discarded'));
+    }, connectionStartupTimeoutMs);
     const work = this.transport.call(Op.connect, this.handle, w => w.text(name)).then(async r => {
       const pending = r.handle(); r.end();
       this.transport.readiness.track(pending);
@@ -345,7 +353,8 @@ export class Database {
       } finally {this.transport.readiness.retire(pending);}
     });
     this.starting.add(work);
-    try {return await work;} finally {this.starting.delete(work);}
+    try {return await work;}
+    finally {clearTimeout(timer); this.starting.delete(work);}
   }
   diagnostics() {return this.transport.metrics;}
   sample() {return this.transport.sample;}

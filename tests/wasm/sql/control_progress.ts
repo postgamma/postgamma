@@ -5,6 +5,37 @@ import type {Handle} from '../src/protocol/wire.js';
 import {Op, Reader, Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 
+export async function connectWatchdog(checks: string[], metrics: unknown[]) {
+  const storage = {type: 'opfs' as const, name: 'connect-deadline-' + crypto.randomUUID()};
+  const db = await Database.open({storage});
+  const seed = await db.connect();
+  await seed.exec('CREATE TABLE startup_committed(value int); INSERT INTO startup_committed VALUES(73)');
+  await seed.close();
+  const transport = (db as unknown as {transport: {call(op: number, h: undefined, write: (w: Writer) => void): Promise<Reader>}}).transport;
+  (await transport.call(65532, undefined, w => w.u32(1))).end();
+  // Keep a real ticket owned by startup even after its native deadline. The
+  // API must discard the instance, not free a still-owned native payload.
+  const started = performance.now();
+  const failure = await db.connect('unretired').then(() => null, error => error);
+  const elapsedMs = performance.now() - started;
+  assert(failure instanceof Error && failure.message.includes('90s deadline'),
+    'Unretired startups reject through the bounded instance discard');
+  assert(elapsedMs >= 89000 && elapsedMs < 105000, 'Startup discard and cleanup have a bounded deadline');
+  const discarded = db.diagnostics() as {storageReleased?: boolean; runningWorkers?: number};
+  assert(discarded.storageReleased === true && discarded.runningWorkers === 0,
+    'Startup rejection waits for OPFS release and native caller termination');
+  checks.push('connect-bounded-startup-discard', 'connect-discard-opfs-release');
+  const recovered = await Database.open({storage, create: false});
+  try {
+    const connection = await recovered.connect();
+    assert(scalar(await connection.query('SELECT value FROM startup_committed')) === '73',
+      'Discarded startup preserves prior committed data and permits immediate reopen');
+    await connection.close();
+    checks.push('connect-discard-recovery');
+  } finally {metrics.push(await recovered.close());}
+  (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'connect-startup-discard', elapsedMs});
+}
+
 async function controlHarness(db: Database, checks: string[]) {
   const transport = (db as unknown as {transport: {
     call(op: number, handle?: Handle, write?: (w: Writer) => void): Promise<Reader>;

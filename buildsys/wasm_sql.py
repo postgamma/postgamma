@@ -116,6 +116,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][transport_test] = digest(config.root / transport_test)
             run([builder.tools["node"], str(config.root / transport_test), str(site / "src")],
                 builder.current / "transport.log", builder.env, config.root)
+            connect_test = "tests/wasm/sql/connection_startup.mjs"
+            report["harness_sources"][connect_test] = digest(config.root / connect_test)
+            run([builder.tools["node"], str(config.root / connect_test), str(site / "src")],
+                builder.current / "connection-startup.log", builder.env, config.root)
             event_test = "tests/wasm/sql/notification_transport.mjs"
             report["harness_sources"][event_test] = digest(config.root / event_test)
             run([builder.tools["node"], str(config.root / event_test), str(site / "src")],
@@ -143,7 +147,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                         continue
                     # OPFS initialization uses the storage fixture envelope.
                     # Failure scenarios separately bound recovery to 30 seconds.
-                    timeout = 300000 if name == "archive" else 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
+                    timeout = 300000 if name == "archive" else 180000 if name == "connect-progress" else 120000 if name in ("vector-query", "vector-storage", "vector-example") else 90000 if name in (
                         "storage", "durability", "storage-errors", "close-audit", "open-failed", "fatal-opfs-trap", "fatal-opfs-abort", "diagnostics", "capacity") else 30000
                     browser = run_browser(config, builder.tools, builder.env, builder.current / "cases" / name,
                                           url + "?scenario=" + name + ("&extension=pgvector" if builder.extensions else ""), timeout_ms=timeout)
