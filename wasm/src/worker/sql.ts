@@ -41,6 +41,7 @@ async function diagnostic() {
     recentCommands: [...recentCommands], driver: {state: native?._postgamma_wasm_poll(), phase: read(0),
       sequence: read(1), op: read(2), epoch: read(3), thread: read(5), elapsedMs: read(6),
       testHold: read(7), wakes: native?._postgamma_wasm_wake_count()},
+    connectionStartup: {slot: read(8), phase: read(9), error: read(10), backendPid: read(11)},
     memoryBytes: native?.wasmMemory.buffer.byteLength, threads, output: [...output], storage: null as unknown};
   const port = storagePort;
   if (port) {

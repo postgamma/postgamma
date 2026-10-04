@@ -60,6 +60,7 @@ static pgm_event *pending_event;
 static bool event_notified;
 /* Lock-free failure snapshots must not call back into the waiting driver. */
 static _Atomic unsigned driver_phase, active_sequence, active_operation, command_started;
+static _Atomic unsigned startup_slot, startup_phase, startup_error, startup_backend;
 extern uintptr_t postgamma_platform_notification_address(void);
 extern unsigned postgamma_thread_diagnostic(unsigned thread, unsigned field);
 #ifdef POSTGAMMA_WASM_TESTING
@@ -537,6 +538,15 @@ static bool command(void)
         h->progress_watching = false;
         status = postgamma_public_connection_step(&connection, &complete, &error);
         h->pointer = connection;
+        /* Sample on the owning driver; the observer reads only atomic copies,
+         * even if startup retirement later frees the connection or stalls. */
+        atomic_store(&startup_slot, h - handles + 1);
+        atomic_store(&startup_phase, connection == NULL ? 6 :
+            complete ? 5 : connection->connect_error ?
+            (connection->private_connection != NULL ? 3 : 4) :
+            connection->connect_ticket != NULL ? 1 : 2);
+        atomic_store(&startup_error, connection != NULL ? connection->connect_error : 0);
+        atomic_store(&startup_backend, connection != NULL ? connection->backend_pid : 0);
         if (complete && status) retire(h);
         else if (!status && complete) {
             h->kind = CONNECTION;
@@ -819,6 +829,10 @@ EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_diagnostic(unsigned field)
     case 4: return postgamma_platform_notification_address();
     case 5: return (uintptr_t) driver;
     case 6: return (unsigned) emscripten_get_now() - atomic_load(&command_started);
+    case 8: return atomic_load(&startup_slot);
+    case 9: return atomic_load(&startup_phase);
+    case 10: return atomic_load(&startup_error);
+    case 11: return atomic_load(&startup_backend);
 #ifdef POSTGAMMA_WASM_TESTING
     case 7: return atomic_load(&diagnostic_hold);
 #endif
