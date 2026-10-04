@@ -1,8 +1,8 @@
 # Browser preview
 
 The browser package runs the PostgreSQL kernel in Workers, with four independent
-SQL sessions and static pgvector. Debug and optimized release wasm32 packages
-with pthreads have passed in Chromium, Firefox and Linux WebKit. This package is
+SQL sessions and static pgvector, pg_trgm and hstore. Debug and optimized release
+wasm32 packages with pthreads have passed in Chromium, Firefox and Linux WebKit. This package is
 a source-built preview; an npm registry release has not been published.
 See the [browser preview release notes](../releases/wasm-0.1.0-alpha.1.md)
 for the accepted scope, data compatibility and release gates.
@@ -103,12 +103,24 @@ metadata files within 16 MiB in normal operation. Existing preview databases
 upgrade automatically when opened; that migration needs up to 5 MiB of extra
 space for a snapshot. Older builds cannot open the upgraded storage format.
 
+For a complete same-build copy, use `dumpDataDir()` with `Database.loadDataDir()`,
+or `clone()`. Export closes an idle source database; close its connections and
+requests first. Restore requires a new target and the exact matching asset
+build. Failed OPFS restores retain an incomplete marker and cannot be opened;
+use a new name for another attempt.
+
 Each connection serializes `query()` calls; different connections can execute
 concurrently. Use `execute()` and its request iterator for large results,
 `cancel()` for cancellation, and COPY streams for bulk data. Values preserve
 exact int64/numeric strings, NULL and binary bytes. Errors retain SQLSTATE.
 
-Run `CREATE EXTENSION vector` once per database for pgvector. The
+Connection startup starts instance discard at its 90-second deadline if it
+cannot complete or retire. Callers are rejected after the cleanup attempt, and
+all connections on that instance become unusable. Open a replacement before
+issuing further work. Cleanup failures remain visible in errors and diagnostics.
+
+Run `CREATE EXTENSION vector`, `CREATE EXTENSION pg_trgm` or
+`CREATE EXTENSION hstore` once per database to enable the included modules. The
 `examples/wasm/vector-search.html` is available from the
 source checkout with `make wasm-vector-serve`.
 
@@ -128,6 +140,11 @@ measured by that ceiling. The timings below are local release observations, not
 performance guarantees. Safari on macOS/iOS, mobile browsers, Node.js and WASI
 execution have not been accepted. Multiple live instances and
 arbitrary native extension loading are outside the initial profile.
+
+Long mixed-load runs currently exceed the 128 MiB browser memory-growth budget.
+Functional regression passes do not complete this resource acceptance. Use
+`make wasm-soak-test` for the two-hour gate in each of the three engines; release
+remains blocked until that gate passes with the original limits.
 
 To validate an optimized archive, run `make wasm-release JOBS=2` after toolchain
 setup. This runs the same complete SQL, vector, recovery and browser gates with

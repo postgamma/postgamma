@@ -81,6 +81,11 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+If connection startup exceeds 90 seconds, the API discards the entire instance
+and rejects callers after its cleanup attempt. Its existing connections become
+unusable. Open a replacement instance before issuing further work; cleanup
+failures remain visible in the error and diagnostics.
+
 Values are bounded to 16 MiB, native materialized results to 24 MiB, and collected
 results to 32 MiB including metadata. Set `chunkRows` to stream larger results.
 Commands and each connection's query queue are bounded to 32 MiB of encoded
