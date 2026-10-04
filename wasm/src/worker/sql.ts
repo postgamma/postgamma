@@ -170,12 +170,14 @@ async function fail(error: unknown, faultingWorker?: Worker) {
 self.addEventListener('error', event => {event.preventDefault(); fail(event.message);});
 self.addEventListener('unhandledrejection', event => {event.preventDefault(); fail(event.reason);});
 let kernel: Promise<SqlModule> | undefined;
+let compiledModule: WebAssembly.Module | undefined;
+let kernelMemory: WebAssembly.Memory | undefined;
 // A pthread's onAbort proxy reaches us before the SDK registers its crash.
 // Its error event arrives after that bookkeeping; retire from that event.
 // Main-thread/initialization failures reject the loader or command promise.
 function startKernel() {return loadKernel({print: record, printErr: text => {
   record(text); console.error(text.slice(0, limits.logLineCharacters));
-}}).then(value => {
+}}, compiledModule, kernelMemory).then(value => {
   const module = value as SqlModule;
   loaded = module;
   // The strict SDK pool is fully created before loadKernel resolves. Own its
@@ -236,6 +238,15 @@ self.onmessage = ({data, ports}) => {
   if (failed) return;
   if (data?.postgammaPthreadBroker === true) {
     if (brokerInstalled || kernel || ports.length !== 1) {void fail(new Error('Invalid pthread Worker owner')); return;}
+    if (data.compiled !== undefined && !(data.compiled instanceof WebAssembly.Module)) {
+      void fail(new Error('Invalid compiled kernel module')); return;
+    }
+    if (data.memory !== undefined && (!(data.memory instanceof WebAssembly.Memory)
+        || !(data.memory.buffer instanceof SharedArrayBuffer))) {
+      void fail(new Error('Invalid shared kernel memory')); return;
+    }
+    compiledModule = data.compiled;
+    kernelMemory = data.memory;
     installPthreadBroker(ports[0]); brokerInstalled = true; return;
   }
   if (data && typeof data.discard === 'string') {void fail(new Error(data.discard)); return;}

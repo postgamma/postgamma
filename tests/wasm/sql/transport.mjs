@@ -10,7 +10,9 @@ try {
   await cp(resolve(process.argv[2]), directory, {recursive: true});
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
   await writeFile(join(directory, 'loader/assets.js'),
-    'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
+    'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, capabilities: {initialMemoryBytes: 65536, maximumMemoryBytes: 131072}, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
+  await writeFile(join(directory, 'loader/compiled.js'),
+    'export const compiledKernel = async () => new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));');
   const {Database} = await import(pathToFileURL(join(directory, 'api/database.js')));
   const {Op, VERSION, Writer} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   globalThis.location = {href: 'https://example.invalid/'};
@@ -19,7 +21,7 @@ try {
     terminated = 0; commands = []; discards = [];
     constructor() {worker = this;}
     postMessage(data) {
-      if (data.postgammaPthreadBroker) return;
+      if (data.postgammaPthreadBroker) {assert(data.compiled instanceof WebAssembly.Module); return;}
       if (data.discard) {this.discards.push(data.discard); return;}
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
       this.commands.push(op);

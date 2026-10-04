@@ -30,6 +30,7 @@ def generate(builder, worker='src/worker/sql.js'):
                 'entries': {'worker': worker, 'module': 'postgamma.mjs', 'wasm': 'postgamma.wasm', 'resources': 'postgamma.data'},
                 'capabilities': {'sql': worker.endswith('/sql.js'), 'independentSessions': 4,
                                  'storage': ['ephemeral-wasmfs', 'owned-opfs'], 'arrowRuntime': False,
+                                 'initialMemoryBytes': policy['initial_memory_bytes'],
                                  'maximumMemoryBytes': policy['maximum_memory_bytes'],
                                  'requirements': ['crossOriginIsolated', 'SharedArrayBuffer', 'WebAssembly', 'moduleWorker', 'WebCrypto'],
                                  'opfsRequirements': ['WebLocks', 'FileSystemSyncAccessHandle', 'BroadcastChannel']},

@@ -3,6 +3,7 @@ import {buildId} from './identity.js';
 export interface AssetManifest {
   schemaVersion: number; buildId: string; protocolVersion: number;
   entries: {worker: string; module: string; wasm: string; resources: string};
+  capabilities: {initialMemoryBytes: number; maximumMemoryBytes: number};
   files: Record<string, {sha256: string; bytes: number}>;
 }
 export async function assets(base: URL): Promise<AssetManifest> {

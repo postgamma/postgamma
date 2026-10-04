@@ -8,7 +8,9 @@ const directory = await mkdtemp(join(tmpdir(), 'pgm-notifications-'));
 try {
   await cp(resolve(process.argv[2]), directory, {recursive: true});
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
-  await writeFile(join(directory, 'loader/assets.js'), 'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
+  await writeFile(join(directory, 'loader/assets.js'), 'import {VERSION} from "../protocol/wire.js"; export const assets = async () => ({protocolVersion: VERSION, capabilities: {initialMemoryBytes: 65536, maximumMemoryBytes: 131072}, entries: {worker: "worker.js", module: "postgamma.mjs"}}); export const verifiedAsset = async () => {};');
+  await writeFile(join(directory, 'loader/compiled.js'),
+    'export const compiledKernel = async () => new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));');
   const {Database, Connection} = await import(pathToFileURL(join(directory, 'api/database.js')));
   const {Op, VERSION, Writer} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   const {limits} = await import(pathToFileURL(join(directory, 'protocol/limits.js')));

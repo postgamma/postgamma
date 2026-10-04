@@ -530,7 +530,7 @@ class Builder:
                    *self.inputs["profile"]["modes"][self.config.mode],
                    *(["-Wl,--wrap=postgamma_supervisor_ticket_wait"] if "-DPOSTGAMMA_WASM_TESTING" in bridge_flags else []),
                    "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
-                   '-sINCOMING_MODULE_JS_API=["print","printErr","onAbort","locateFile","getPreloadedPackage","wasmBinary","noExitRuntime"]',
+                   '-sINCOMING_MODULE_JS_API=["print","printErr","onAbort","locateFile","getPreloadedPackage","wasmBinary","noExitRuntime","instantiateWasm","wasmMemory"]',
                    '-sEXPORTED_RUNTIME_METHODS=["HEAPU8","PThread","wasmMemory"]', f"-sPTHREAD_POOL_SIZE={pool}",
                    "-sPTHREAD_POOL_SIZE_STRICT=2", "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",
                    f"-sINITIAL_MEMORY={policy['initial_memory_bytes']}", f"-sMAXIMUM_MEMORY={policy['maximum_memory_bytes']}",

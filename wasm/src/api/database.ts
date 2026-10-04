@@ -7,6 +7,8 @@ export {DatabaseError} from '../protocol/wire.js';
 export type {Result, Column} from '../codecs/results.js';
 import {limits} from '../protocol/limits.js';
 import {assets, verifiedAsset} from '../loader/assets.js';
+import {compiledKernel} from '../loader/compiled.js';
+import {ownedMemory} from '../loader/memory.js';
 import {Readiness} from '../protocol/readiness.js';
 import {buildId} from '../loader/identity.js';
 import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
@@ -63,7 +65,7 @@ class Transport {
   private eventsPending = false;
   private eventsRunning = false;
   private eventsEnabled = true;
-  constructor(worker: Worker, moduleURL: URL) {
+  constructor(worker: Worker, moduleURL: URL, compiled: WebAssembly.Module, memory: WebAssembly.Memory) {
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
@@ -84,7 +86,7 @@ class Transport {
     };
     worker.onerror = event => this.fail(new Error(event.message));
     worker.onmessageerror = () => this.fail(new Error('Worker message could not be decoded'));
-    try {this.stopPthreads = ownPthreads(worker, moduleURL, error => {void this.fail(error);});}
+    try {this.stopPthreads = ownPthreads(worker, moduleURL, error => {void this.fail(error);}, compiled, memory);}
     catch (error) {worker.terminate(); throw error;}
   }
   subscribe(handle: Handle, handler: NotificationHandler): () => void {
@@ -207,9 +209,12 @@ export class Database {
     if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
     const manifest = await assets(base);
     if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
-    await verifiedAsset(base, manifest, manifest.entries.worker);
+    const [, compiled] = await Promise.all([
+      verifiedAsset(base, manifest, manifest.entries.worker), compiledKernel(base, manifest),
+    ]);
+    const memory = ownedMemory(manifest);
     return new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}),
-      new URL(manifest.entries.module, base));
+      new URL(manifest.entries.module, base), compiled, memory);
   }
   static async open(options: OpenOptions = {}): Promise<Database> {
     const transport = await Database.createTransport(options);

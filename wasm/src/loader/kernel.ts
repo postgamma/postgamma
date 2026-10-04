@@ -4,7 +4,7 @@ import {assets, verifiedAsset} from './assets.js';
 
 export async function loadKernel(output: {
   print(text: string): void; printErr(text: string): void; onAbort?(reason: unknown): void;
-}): Promise<KernelModule> {
+}, compiled?: WebAssembly.Module, memory?: WebAssembly.Memory): Promise<KernelModule> {
   const assetRoot = new URL('../../', import.meta.url);
   const manifest = await assets(assetRoot);
   const [resources, wasmBinary] = await Promise.all([
@@ -15,6 +15,12 @@ export async function loadKernel(output: {
   const {default: createKernel} = await import(new URL(manifest.entries.module, assetRoot).href);
   const module: KernelModule = await createKernel({
     ...output, wasmBinary, noExitRuntime: true,
+    ...(memory ? {wasmMemory: memory} : {}),
+    ...(compiled ? {instantiateWasm: (imports: WebAssembly.Imports,
+      receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void) => {
+      const instance = new WebAssembly.Instance(compiled, imports);
+      receive(instance, compiled); return instance.exports;
+    }} : {}),
     locateFile: (path: string) => new URL(path, assetRoot).href,
     getPreloadedPackage: (_name: string, size: number) => {
       if (resources.byteLength !== size) throw new Error('Kernel resource package size mismatch');

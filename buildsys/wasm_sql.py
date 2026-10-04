@@ -64,6 +64,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                 report["harness_sources"][str(origin.relative_to(config.root))] = digest(origin)
                 report["harness"][target] = digest(site / target)
         if action == "check":
+            compiled_test = "tests/wasm/sql/compiled.mjs"
+            report["harness_sources"][compiled_test] = digest(config.root / compiled_test)
+            run([builder.tools["node"], str(config.root / compiled_test), str(site / "src")],
+                builder.current / "compiled.log", builder.env, config.root)
             pthread_test = "tests/wasm/sql/pthreads.mjs"
             report["harness_sources"][pthread_test] = digest(config.root / pthread_test)
             run([builder.tools["node"], str(config.root / pthread_test), str(site / "src")],

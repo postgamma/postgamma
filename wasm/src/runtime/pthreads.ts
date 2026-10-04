@@ -5,7 +5,8 @@ import {pthreadPoolSize} from '../protocol/limits.js';
 // Retiring a control Worker must not wait for nested browser Worker shutdown.
 // Private ports preserve the SDK's Worker interface and transferable messages;
 // native code, shared memory and OPFS handles remain in the original threads.
-export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Error) => void): () => void {
+export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Error) => void,
+  compiled?: WebAssembly.Module, memory?: WebAssembly.Memory): () => void {
   const channel = new MessageChannel(), group = crypto.randomUUID();
   const WorkerConstructor = Worker;
   const workers = new Map<number, {worker: Worker; port: MessagePort}>();
@@ -80,7 +81,7 @@ export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Err
     }
   };
   channel.port1.onmessageerror = () => failed(new Error('Pthread Worker allocation could not be decoded'));
-  try {control.postMessage({postgammaPthreadBroker: true}, [channel.port2]);}
+  try {control.postMessage({postgammaPthreadBroker: true, compiled, memory}, [channel.port2]);}
   catch (cause) {channel.port2.close(); stop(); throw cause;}
   return stop;
 }
