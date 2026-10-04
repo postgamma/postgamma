@@ -5,7 +5,7 @@ import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'buildsys'))
-from wasm_source import adaptations, apply_adaptations, MARKER, RULES, HEADER, GUC_SOURCE, SHMEM_HEADER
+from wasm_source import adaptations, apply_adaptations, MARKER, RULES, HEADER, GUC_SOURCE, SHMEM_HEADER, FD_SOURCE
 from wasm_toolchain import WasmError
 
 class WasmSourceTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class WasmSourceTests(unittest.TestCase):
             self.fixture(root)
             header = root/'src/include/c.h'
             header.write_text('/* No architecture normalization in this revision. */\n')
-            self.assertEqual({c['path'] for c in adaptations(root)}, {GUC_SOURCE, SHMEM_HEADER})
+            self.assertEqual({c['path'] for c in adaptations(root)}, {GUC_SOURCE, SHMEM_HEADER, FD_SOURCE})
             header.write_text('#error "cannot identify target architecture"\n')
             with self.assertRaisesRegex(WasmError, 'unreviewed'):
                 adaptations(root)
@@ -59,5 +59,22 @@ class WasmSourceTests(unittest.TestCase):
         original['expected_matches'] = 0
         with self.assertRaisesRegex(WasmError, 'unreviewed'):
             project_adapter(adapter, [{'path': SHMEM_HEADER}])
+
+    def test_all_presync_fallbacks_are_disabled_only_on_emscripten(self):
+        import os
+        import shlex
+        import subprocess
+        from wasm_source import FLUSH_REPLACEMENT
+        # Preprocess the actual source adaptation with every flush provider
+        # advertised. In particular, MS_ASYNC must not restore the presync pass
+        # after configure disables POSIX_FADVISE.
+        compiler = shlex.split(os.environ.get('CC', 'cc'))
+        providers = '#define HAVE_SYNC_FILE_RANGE 1\n#define MS_ASYNC 1\n#define USE_POSIX_FADVISE 1\n#define POSIX_FADV_DONTNEED 1\n'
+        for target, expected in [('', True), ('#define __EMSCRIPTEN__ 1\n', False)]:
+            command = [*compiler, '-E', '-dM', '-x', 'c', '-']
+            result = subprocess.run(command, input=providers + target + FLUSH_REPLACEMENT,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, (command, result.stdout, result.stderr))
+            self.assertEqual('#define PG_FLUSH_DATA_WORKS 1' in result.stdout, expected)
 
 if __name__ == '__main__': unittest.main()

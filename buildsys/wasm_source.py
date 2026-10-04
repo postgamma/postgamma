@@ -16,10 +16,25 @@ GUC_REPLACEMENT = '#if !defined(EXEC_BACKEND) || defined(__wasm__)\n\t{"mmap", S
 SHMEM_HEADER = 'src/include/storage/pg_shmem.h'
 SHMEM_MARKER = '#if !defined(WIN32) && !defined(EXEC_BACKEND)\n#define DEFAULT_SHARED_MEMORY_TYPE SHMEM_TYPE_MMAP'
 SHMEM_REPLACEMENT = '#if !defined(WIN32) && (!defined(EXEC_BACKEND) || defined(__wasm__))\n#define DEFAULT_SHARED_MEMORY_TYPE SHMEM_TYPE_MMAP'
+FD_SOURCE = 'src/backend/storage/file/fd.c'
+FLUSH_MARKER = '''/* Define PG_FLUSH_DATA_WORKS if we have an implementation for pg_flush_data */
+#if defined(HAVE_SYNC_FILE_RANGE)
+#define PG_FLUSH_DATA_WORKS 1
+#elif !defined(WIN32) && defined(MS_ASYNC)
+#define PG_FLUSH_DATA_WORKS 1
+#elif defined(USE_POSIX_FADVISE) && defined(POSIX_FADV_DONTNEED)
+#define PG_FLUSH_DATA_WORKS 1
+#endif'''
+FLUSH_REPLACEMENT = '''/* WasmFS has no OS page cache to preflush. Its mmap/msync fallback copies
+ * file data through linear memory, so recovery must use the real fsync pass
+ * without first traversing and mapping every file for an advisory hint. */
+#if !defined(__EMSCRIPTEN__)
+''' + FLUSH_MARKER + '\n#endif'
 RULES = {
     HEADER: (MARKER, REPLACEMENT, 'accept the compiler WebAssembly architecture without impersonating a host'),
     GUC_SOURCE: (GUC_MARKER, GUC_REPLACEMENT, 'expose the threaded Wasm shared-memory provider in the GUC enum'),
     SHMEM_HEADER: (SHMEM_MARKER, SHMEM_REPLACEMENT, 'select the Wasm shared-memory provider as its configuration default'),
+    FD_SOURCE: (FLUSH_MARKER, FLUSH_REPLACEMENT, 'skip recovery preflush on WasmFS while preserving the durable fsync traversal'),
 }
 
 
