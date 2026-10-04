@@ -75,4 +75,8 @@ def configured_abi(header: Path) -> dict:
         if not match or int(match[1]) != value:
             raise WasmError(f"target configure ABI differs from W03: {name}")
         actual[name] = int(match[1])
+    # Emscripten's advisory syscall is a no-op. Advertising it makes startup
+    # scan every database file before the real fsync pass without any writeback.
+    if re.search(r"^#define HAVE_POSIX_FADVISE\b", text, re.M):
+        raise WasmError("target advertises an ineffective pre-sync hint: HAVE_POSIX_FADVISE")
     return actual

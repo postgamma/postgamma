@@ -67,6 +67,20 @@ class KernelCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(WasmError, "SIZEOF_VOID_P"):
                 configured_abi(header)
 
+    def test_ineffective_presync_capability_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            header = Path(temporary) / "pg_config.h"
+            layout = "\n".join(f"#define {name} {size}" for name, size in {
+                "SIZEOF_VOID_P": 4, "SIZEOF_SIZE_T": 4, "SIZEOF_LONG": 4,
+                "SIZEOF_LONG_LONG": 8, "SIZEOF_OFF_T": 8, "ALIGNOF_INT": 4,
+                "ALIGNOF_DOUBLE": 8, "ALIGNOF_INT64_T": 8, "MAXIMUM_ALIGNOF": 8,
+            }.items()) + "\n"
+            header.write_text(layout)
+            configured_abi(header)
+            header.write_text(layout + "#define HAVE_POSIX_FADVISE 1\n")
+            with self.assertRaisesRegex(WasmError, "ineffective pre-sync"):
+                configured_abi(header)
+
 
 if __name__ == "__main__":
     unittest.main()
