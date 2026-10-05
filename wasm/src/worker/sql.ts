@@ -57,6 +57,14 @@ async function diagnostic() {
   return snapshot;
 }
 Object.assign(globalThis, {postgammaDiagnostic: diagnostic,
+  postgammaMemoryDiagnostic: () => {
+    if (failed || (globalThis as {postgammaNativeRetired?: boolean}).postgammaNativeRetired ||
+        !loaded || pending || loaded._postgamma_wasm_poll() !== 0)
+      throw new Error('Memory inspection requires a healthy quiescent instance');
+    return {linearMemoryBytes: loaded.wasmMemory.buffer.byteLength,
+      allocatorLiveBytes: loaded._postgamma_wasm_allocator_live_bytes(),
+      storageBrokerId: (storageWorker as unknown as {postgammaBrokerId?: number})?.postgammaBrokerId};
+  },
   postgammaResumeDiagnostic: () => {
     if (!loaded?._postgamma_wasm_resume_test) throw new Error('Diagnostic test gate is unavailable');
     loaded._postgamma_wasm_resume_test();

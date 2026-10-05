@@ -22,6 +22,8 @@ CHECKS = {'soak-four-connections', 'soak-commit-model', 'soak-ddl-savepoint-roll
 
 
 def validate(row, parameters):
+    if row.get('kind') == 'postgamma.wasm-memory-diagnostic':
+        raise WasmError('Memory profiling cannot qualify a production resource gate')
     if row.get('status') != 'passed' or not CHECKS <= set(row.get('probe', {}).get('checks', [])):
         raise WasmError('Mixed workload did not complete all checks')
     actual, complete = row.get('parameters', {}), row.get('complete', {})
@@ -50,7 +52,7 @@ def check(config, longjmp, engines, parameters, growth_mib):
     report = {'kind': 'postgamma.wasm-soak', 'status': 'failed', 'mode': config.mode,
               'parameters': parameters, 'requested_engines': engines, 'engines': {}, 'growthMiB': growth_mib}
     runner_sources = {name: digest(config.root / name) for name in
-        ('buildsys/wasm_soak.py', 'tests/wasm/soak/browser.mjs', 'tests/wasm/soak/resources.mjs',
+        ('buildsys/wasm_soak.py', 'tests/wasm/soak/browser.mjs', 'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
          'tests/wasm/soak/resources.test.mjs', 'tests/wasm/browser/diagnostics.mjs')}
     report['runner_sources'] = runner_sources
     started = time.monotonic()

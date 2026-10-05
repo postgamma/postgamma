@@ -160,6 +160,14 @@ wasm-soak-check:
 wasm-soak-smoke:
 	@$(MAKE) wasm-soak-check WASM_SOAK_SECONDS=120 WASM_SOAK_ROUNDS=0 WASM_SOAK_ENGINES=chromium,firefox,webkit
 
+.PHONY: wasm-memory-diagnose
+WASM_MEMORY_WORKLOAD ?= soak
+WASM_MEMORY_ITERATIONS ?= 2000
+wasm-memory-diagnose:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_memory.py" $(POSTGAMMA_WASM_ARGS) \
+		--workload "$(WASM_MEMORY_WORKLOAD)" --iterations "$(WASM_MEMORY_ITERATIONS)" \
+		--seconds "$(WASM_SOAK_SECONDS)" --seed "$(WASM_SOAK_SEED)" --reopen-every "$(WASM_SOAK_REOPEN_EVERY)"
+
 .PHONY: wasm-vector-check
 WASM_VECTOR_SCENARIO ?= vector-all
 wasm-vector-check:

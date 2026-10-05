@@ -1,65 +1,30 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {createRequire} from 'node:module';
-import {appendFileSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
+import {appendFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {parseArgs} from 'node:util';
 import assert from 'node:assert/strict';
 import {bounded, controlSnapshots, failureSnapshot} from '../browser/diagnostics.mjs';
 import {resourceGate} from './resources.mjs';
+import {MemoryDiagnostics} from './memory.mjs';
+import {processes} from './processes.mjs';
 const {values} = parseArgs({options: {root: {type: 'string'}, url: {type: 'string'}, output: {type: 'string'},
   profile: {type: 'string'}, engine: {type: 'string', default: 'chromium'}, executable: {type: 'string'},
-  seconds: {type: 'string', default: '120'}, 'growth-mib': {type: 'string', default: '128'}}});
+  seconds: {type: 'string', default: '120'}, 'growth-mib': {type: 'string', default: '128'},
+  'memory-diagnostics': {type: 'boolean', default: false}}});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
 const engine = require('playwright')[values.engine];
 const seconds = Number(values.seconds), growthBytes = Number(values['growth-mib']) * 1024 * 1024;
 assert(Number.isInteger(seconds) && seconds >= 1 && seconds <= 28800);
 assert(Number.isFinite(growthBytes) && growthBytes >= 0);
-const report = {kind: 'postgamma.wasm-soak-browser', status: 'failed', engine: values.engine,
+const report = {kind: 'postgamma.wasm-soak-browser', status: 'in_progress', engine: values.engine,
   seconds, growthBytes, rounds: 0, reopens: 0, samples: [], pageErrors: [], failedRequests: [], recentConsole: []};
+if (values['memory-diagnostics']) report.kind = 'postgamma.wasm-memory-diagnostic';
 const eventsFile = values.output.replace(/\.json$/, '.events.jsonl');
 const resourcesFile = values.output.replace(/\.json$/, '.resources.jsonl');
 writeFileSync(eventsFile, ''); writeFileSync(resourcesFile, '');
-function processes() {
-  const rows = new Map();
-  for (const id of readdirSync('/proc').filter(name => /^\d+$/.test(name))) {
-    try {
-      const status = readFileSync(`/proc/${id}/status`, 'utf8');
-      const field = name => Number(status.match(new RegExp('^' + name + ':\\s+(\\d+)', 'm'))?.[1] || 0);
-      rows.set(Number(id), {pid: Number(id), parent: field('PPid'), rssBytes: field('VmRSS') * 1024, threads: field('Threads')});
-    } catch { /* A process can exit between the directory and status reads. */ }
-  }
-  const selected = new Set([process.pid]);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const row of rows.values()) if (selected.has(row.parent) && !selected.has(row.pid)) {selected.add(row.pid); changed = true;}
-  }
-  const result = {processes: 0, rssBytes: 0, pssBytes: 0, anonymousPssBytes: 0,
-    sharedMemoryPssBytes: 0, filePssBytes: 0, swapPssBytes: 0, threads: 0, fileDescriptors: 0};
-  for (const id of selected) {
-    if (id === process.pid) continue; // The Node test driver is recorded separately.
-    const row = rows.get(id); if (!row) continue;
-    try {
-      const rollup = readFileSync(`/proc/${id}/smaps_rollup`, 'utf8');
-      const bytes = name => {
-        const value = rollup.match(new RegExp('^' + name + ':\\s+(\\d+)', 'm'))?.[1];
-        assert(value !== undefined, 'Missing browser process ' + name);
-        return Number(value) * 1024;
-      };
-      const descriptors = readdirSync(`/proc/${id}/fd`).length;
-      result.pssBytes += bytes('Pss'); result.swapPssBytes += bytes('SwapPss');
-      result.anonymousPssBytes += bytes('Pss_Anon');
-      result.sharedMemoryPssBytes += bytes('Pss_Shmem'); result.filePssBytes += bytes('Pss_File');
-      result.processes++; result.rssBytes += row.rssBytes; result.threads += row.threads;
-      result.fileDescriptors += descriptors;
-    } catch (error) {
-      if (['ENOENT', 'ESRCH'].includes(error.code)) continue; // Exited during sampling.
-      throw error;
-    }
-  }
-  assert(result.processes >= 1 && result.rssBytes > 0, 'Browser process accounting is available');
-  return result;
-}
-let context, page, readyAt = 0, lastProgress = performance.now(), lastSample = 0, lastLog = 0;
+
+let context, page, memory, readyAt = 0, lastProgress = performance.now(), lastSample = 0, lastLog = 0;
 const retiredTargets = new Map();
 const metadata = url => new URLSearchParams(new URL(url).hash.slice(1));
 let eventTail = Promise.resolve();
@@ -93,12 +58,15 @@ async function sample(event) {
     runnerMemory: process.memoryUsage(),
     ...processes(), linearMemoryBytes: value.memoryBytes, nativeThreads: value.threads.length,
     storageHandles: value.storage.store.handles, virtualOpens: value.storage.store.virtualOpens};
+  if (memory && (event.kind === 'ready' || row.cycleEnd || event.kind === 'round' && event.iteration % 500 === 0))
+    row.memoryDiagnostic = await memory.sample(event.iteration ?? 0);
   appendFileSync(resourcesFile, JSON.stringify(row) + '\n');
   report.samples.push(row); lastSample = performance.now();
   const trend = resourceGate(report.samples, growthBytes);
   if (trend.status === 'failed') {
     report.resourceGate = trend;
-    throw new Error('Live resource gate failed: ' + JSON.stringify(trend));
+    if (!memory) throw new Error('Live resource gate failed: ' + JSON.stringify(trend));
+    report.firstResourceFailure ??= {iteration: event.iteration, ...trend};
   }
 }
 try {
@@ -106,6 +74,10 @@ try {
     ...(values.executable ? {executablePath: values.executable} : values.engine === 'chromium' ? {channel: 'chromium'} : {})});
   report.browserVersion = context.browser().version();
   page = context.pages()[0] || await context.newPage();
+  if (values['memory-diagnostics']) {
+    assert.equal(values.engine, 'chromium', 'CDP heap diagnostics require Chromium');
+    memory = await MemoryDiagnostics.open(context, page, values.output);
+  }
   await page.addInitScript(() => {
     const NativeWorker = window.Worker, active = new Set(), activePthreads = new Set();
     let created = 0, terminated = 0, pthreadCreated = 0, pthreadTerminated = 0;
@@ -147,7 +119,8 @@ try {
         }
       }
       if (['ready', 'round', 'reopen'].includes(event.kind) &&
-          (performance.now() - lastSample > 10000 || event.kind === 'round' && event.iteration % report.parameters.reopenEvery === 0)) await sample(event);
+          (performance.now() - lastSample > 10000 || event.kind === 'round' &&
+            (event.iteration % report.parameters.reopenEvery === 0 || memory && event.iteration % 500 === 0))) await sample(event);
       if (event.kind === 'complete') report.complete = event;
       if (performance.now() - lastLog > 60000) {
         console.log(JSON.stringify({engine: values.engine, rounds: report.rounds, reopens: report.reopens,
@@ -188,11 +161,16 @@ try {
   }, 10000);
   assert.equal(physicallyClosed, true, 'Final control and pthread Workers disappear within ten seconds');
   report.resourceGate = resourceGate(report.samples, growthBytes);
-  assert.notEqual(report.resourceGate.status, 'failed', JSON.stringify(report.resourceGate));
-  report.status = 'passed';
+  if (memory) {
+    report.memoryFinal = await memory.finish();
+    report.status = 'diagnostic-completed';
+  } else {
+    assert.notEqual(report.resourceGate.status, 'failed', JSON.stringify(report.resourceGate));
+    report.status = 'passed';
+  }
 } catch (error) {
+  report.status = 'failed';
   report.error = String(error.stack || error);
-  if (report.resourceGate?.status === 'passed') report.resourceGate.status = 'failed';
   if (page && !page.isClosed()) {
     report.failureSnapshot = await failureSnapshot(page);
     report.active = await bounded(() => page.evaluate(() => window.soakState));

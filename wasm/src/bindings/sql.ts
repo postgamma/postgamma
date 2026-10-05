@@ -14,6 +14,7 @@ export interface SqlModule extends KernelModule {
   _postgamma_wasm_ack(): void;
   _postgamma_wasm_join(): number;
   _postgamma_wasm_wake_count(): number;
+  _postgamma_wasm_allocator_live_bytes(): number;
   _postgamma_wasm_storage_stack_bytes(): number;
   _postgamma_wasm_diagnostic(field: number): number;
   _postgamma_wasm_thread_diagnostic(thread: number, field: number): number;

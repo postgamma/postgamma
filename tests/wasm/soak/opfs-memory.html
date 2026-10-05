@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>OPFS memory diagnostic</title>
+<script type="module">
+window.runMemoryWorkload = async parameters => {
+  const worker = new Worker(new URL('./opfs-memory.js', location.href), {type: 'module'});
+  const result = await new Promise((resolve, reject) => {
+    worker.onerror = event => reject(new Error(event.message));
+    worker.onmessage = async ({data}) => {
+      try {
+        if (data.error) throw new Error(data.error);
+        if (data.sample) {await window.memorySample(data); worker.postMessage({resume: true});}
+        if (data.done) resolve(data.snapshot);
+      } catch (error) {reject(error);}
+    };
+    worker.postMessage(parameters);
+  }).finally(() => {worker.onmessage = null; worker.onerror = null; worker.terminate();});
+  return result;
+};
+</script>

@@ -81,6 +81,8 @@ try {
       },
       _postgamma_wasm_wake_count: () => 0,
       _postgamma_wasm_storage_stack_bytes: () => 2097152,
+      _postgamma_wasm_poll() {throw new Error('A failed instance must not enter native code for memory inspection');},
+      _postgamma_wasm_allocator_live_bytes() {throw new Error('A failed instance must not take the allocator lock');},
     };
     globalThis.fixture = {module, tick: actualTick,
       async release() {released = true;},
@@ -105,6 +107,7 @@ try {
     broker.port1.close(); broker.port2.close();
     self.onmessage({data: request});
     await Promise.race([cleaning, deadline]);
+    assert.throws(() => globalThis.postgammaMemoryDiagnostic(), /healthy quiescent/);
     assert(!released && physicalHandle && messages.length === 0,
       'Ownership and fatal replies wait for in-flight I/O and physical close');
     assert(!nativeStoppedEarly, 'Native callers must remain live until the I/O owner stops entering native completion locks');
@@ -113,6 +116,7 @@ try {
     port.postMessage({quiesced: true});
     unblock();
     const result = await Promise.race([completed, deadline]);
+    assert.throws(() => globalThis.postgammaMemoryDiagnostic(), /healthy quiescent/);
     assert(released && !physicalHandle);
     assert(!terminatedEarly && terminated === 0 && ownerStopped,
       'Released I/O owner closes itself without racing parent termination');

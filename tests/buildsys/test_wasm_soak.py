@@ -37,5 +37,9 @@ class SoakReceiptTests(unittest.TestCase):
         self.row['complete']['iteration'] -= 1
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
 
+    def test_profiling_receipt_cannot_qualify_even_with_passed_fields(self):
+        self.row['kind'] = 'postgamma.wasm-memory-diagnostic'
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+
 
 if __name__ == '__main__': unittest.main()

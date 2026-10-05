@@ -199,6 +199,27 @@ Failure snapshots include the active round and Worker wait state. Missing
 progress, incomplete duration, SQL/model mismatches and resource-budget failures
 fail the command; failed rounds are not silently retried.
 
+For attribution on an already prepared build, run Chromium diagnostics separately:
+
+```sh
+make wasm-memory-diagnose WASM_MODE=release
+make wasm-memory-diagnose WASM_MODE=release WASM_MEMORY_WORKLOAD=opfs-churn WASM_MEMORY_ITERATIONS=10000
+make wasm-memory-diagnose WASM_MODE=release WASM_MEMORY_WORKLOAD=opfs-reuse WASM_MEMORY_ITERATIONS=10000
+```
+
+Reports under `build/wasm/memory/<run>/` record each browser process, Window,
+control/storage heaps, healthy quiescent allocator usage, and each
+backend's memory contexts. OPFS-only workloads compare file creation/deletion
+with repeated writes to one existing file, without loading Wasm or PostgreSQL.
+Allocation profiles and storage heap snapshots are retained beside the report.
+Attaching profilers and taking snapshots can change GC and memory use; the
+receipt is always diagnostic and cannot qualify the release resource gate.
+The original growth gate remains recorded even when a diagnostic continues
+beyond its first resource failure.
+Parked native pthreads are never entered for JavaScript evaluation. Global
+browser memory dumps can be incomplete when those threads cannot service a
+dump request; their success flags and the partial trace remain observable.
+
 On this Linux runner, quiescent samples track browser process-tree RSS/PSS/SwapPss,
 threads, file descriptors, Wasm linear memory and OPFS handles. After a
 60-second warmup, medians of five samples at the beginning and end are compared against

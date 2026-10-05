@@ -92,6 +92,7 @@ export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Err
 export function installPthreadBroker(broker: MessagePort): void {
   let sequence = 0;
   class PthreadWorker extends EventTarget {
+    readonly postgammaBrokerId: number;
     onmessage: Worker['onmessage'] = null;
     onmessageerror: Worker['onmessageerror'] = null;
     onerror: Worker['onerror'] = null;
@@ -99,6 +100,7 @@ export function installPthreadBroker(broker: MessagePort): void {
     private closed = false;
     constructor(url: string | URL, options?: WorkerOptions) {
       super();
+      this.postgammaBrokerId = ++sequence;
       const channel = new MessageChannel(); this.port = channel.port1;
       this.port.onmessage = ({data}) => {
         if (this.closed) return;
@@ -116,7 +118,7 @@ export function installPthreadBroker(broker: MessagePort): void {
         }
       };
       this.port.onmessageerror = () => {throw new Error('Pthread Worker event could not be decoded');};
-      try {broker.postMessage({id: ++sequence, url: String(url), options}, [channel.port2]);}
+      try {broker.postMessage({id: this.postgammaBrokerId, url: String(url), options}, [channel.port2]);}
       catch (cause) {this.port.close(); channel.port2.close(); throw cause;}
     }
     postMessage(data: unknown, transferOrOptions: Transferable[] | StructuredSerializeOptions = []): void {

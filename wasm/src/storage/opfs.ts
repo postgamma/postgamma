@@ -48,6 +48,8 @@ export class Store {
   diagnostics() {
     return {retired: this.retired, poisoned: this.poisoned, handles: this.handles.size,
       virtualOpens: this.opens.size, dirty: this.dirty.size, removed: this.removed.size,
+      files: this.files.size, sizes: this.sizes.size, synced: this.synced.size,
+      namespaceNodes: this.namespace.nodes.size,
       metrics: {...this.metrics}};
   }
   async mount(name: string, testChannel: string) {

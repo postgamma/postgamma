@@ -12,6 +12,7 @@
 #include <emscripten/proxying.h>
 #include <emscripten/threading.h>
 #include <errno.h>
+#include <malloc.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -819,6 +820,12 @@ EMSCRIPTEN_KEEPALIVE int postgamma_wasm_poll(void) {
     return atomic_load_explicit(&state, memory_order_acquire);
 }
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_wake_count(void) { return atomic_load(&wake_count); }
+/* Healthy, quiescent inspection only: mallinfo takes the allocator lock.
+ * Failure snapshots deliberately use the separate atomic diagnostics below. */
+EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_allocator_live_bytes(void)
+{
+    return (unsigned) mallinfo().uordblks;
+}
 EMSCRIPTEN_KEEPALIVE unsigned postgamma_wasm_diagnostic(unsigned field)
 {
     switch (field) {

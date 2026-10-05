@@ -27,6 +27,15 @@ export async function soak(checks: string[], metrics: unknown[]) {
   let iteration = 0, cycles = 0, cancellations = 0, crashes = 0, orderly = 0;
   let totalCommands = 0, totalCopyBytes = 0;
   let started = performance.now();
+  // Diagnostic runs invoke this only while soakEvent holds the workload at a
+  // verified boundary. Collect every backend: one session cannot inspect
+  // another session's pg_backend_memory_contexts.
+  Object.assign(window, {soakMemoryContexts: async () => Promise.all(connections.map(async connection => {
+    const results = await connection.exec(`SELECT name, sum(total_bytes)::text AS total_bytes,
+      sum(used_bytes)::text AS used_bytes FROM pg_backend_memory_contexts
+      GROUP BY name ORDER BY name`);
+    return results[0].rows;
+  }))});
   async function sql(lane: number, text: string) {
     const row: Command = {lane, sql: text, started: performance.now()}; commands.push(row); totalCommands++;
     try {return await connections[lane].exec(text);}
