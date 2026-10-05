@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 const source = name => pathToFileURL(resolve(process.argv[2], name + '.js'));
-const {Journal, journalNames} = await import(source('journal'));
+const {Journal, journalNames, replayRecordLimit} = await import(source('journal'));
 const {Namespace, encode, journalLimit} = await import(source('namespace'));
 const {snapshot, restore, slotLimit} = await import(source('checkpoint'));
 const {Store} = await import(source('opfs'));
@@ -209,6 +209,43 @@ await create(journal, 'next');
 assert.equal(journal.namespace.lookup(1, 'next').id, before.nextId);
 journal.close();
 
+// Reopening a stable live namespace must not replay an ever-growing churn
+// history. Preserve every acknowledged identity across repeated crashes.
+root = new Directory(); journal = await Journal.open(root);
+for (let i = 0; i < 1000; i++) await create(journal, 'kept-' + i);
+for (let mount = 0; mount < 20; mount++) {
+  for (let i = 0; i < 50; i++) {await create(journal, 'temporary'); await remove(journal, 'temporary');}
+  assert(journal.namespace.sequence <= replayRecordLimit, 'Recovery tail is bounded before the slot fills');
+  const expected = state(journal);
+  journal.close(); root.crash(); journal = await Journal.open(root);
+  assert.deepEqual(state(journal), expected, 'Acknowledged state after churn reopen ' + mount);
+}
+assert(journal.metrics.journalGeneration > 1, 'Short records trigger durable compaction');
+journal.close();
+
+// Existing clients may leave a longer valid tail. Mount accepts that format,
+// then the first mutation checkpoints all old acknowledgements before append.
+root = new Directory(); journal = await Journal.open(root);
+await create(journal, 'kept'); journal.close();
+const oldActive = [...root.files.values()].find(file => {try {restore(file.bytes.subarray(0, file.size)); return true;} catch {return false;}});
+const oldSnapshot = restore(oldActive.bytes.subarray(0, oldActive.size));
+const oldNamespace = Namespace.replay(oldActive.bytes.subarray(oldSnapshot.size, oldActive.size), oldSnapshot.namespace).namespace;
+const oldHandle = await oldActive.createSyncAccessHandle();
+for (let i = 0; i < replayRecordLimit + 17; i++) {
+  const change = {op: 'move', id: 2, parent: 1, name: 'old-' + i};
+  const record = encode(change, oldNamespace.sequence + 1);
+  oldHandle.write(record, {at: oldHandle.getSize()});
+  oldNamespace.apply(change); oldNamespace.sequence++;
+}
+oldHandle.flush(); oldHandle.close(); root.crash();
+journal = await Journal.open(root);
+assert.deepEqual(state(journal), state({namespace: oldNamespace}), 'Long existing tail remains authoritative');
+await create(journal, 'continued');
+assert.equal(journal.namespace.lookup(1, 'continued').id, oldNamespace.nextId);
+assert(journal.namespace.sequence <= replayRecordLimit);
+assert(journal.metrics.journalGeneration > oldSnapshot.generation);
+journal.close();
+
 // Lifetime churn exceeded the old 16 MiB limit with only one live node.
 root = new Directory(); journal = await Journal.open(root);
 for (let i = 0; i < 120000; i++) {await create(journal, 'tmp'); await remove(journal, 'tmp');}
@@ -241,6 +278,28 @@ for (const point of points) {
   assert.deepEqual(state(journal), expected, point);
   await create(journal, 'continued');
   assert.equal(journal.namespace.lookup(1, 'continued').id, expected.nextId);
+  journal.close();
+}
+
+// Automatic compaction happens before the next mutation is appended. A crash
+// at any publication point retains prior acknowledgements and the ID watermark.
+for (const point of points) {
+  root = new Directory(); let armed = false;
+  const injection = hooks(operation => {
+    if (armed && operation === point) throw new Error('interrupted automatic ' + point);
+    return '';
+  });
+  if (point === 'checkpoint-partial') injection.partialCheckpoint = () => armed;
+  journal = await Journal.open(root, injection);
+  await create(journal, 'kept');
+  for (let i = 1; i < replayRecordLimit; i++)
+    await journal.append({op: 'move', id: 2, parent: 1, name: 'kept-' + i});
+  const expected = state(journal); armed = true;
+  await assert.rejects(create(journal, 'unacknowledged'), /interrupted automatic/);
+  root.crash(); journal = await Journal.open(root);
+  assert.deepEqual(state(journal), expected, 'Automatic ' + point);
+  await create(journal, 'retried');
+  assert.equal(journal.namespace.lookup(1, 'retried').id, expected.nextId);
   journal.close();
 }
 
@@ -312,4 +371,5 @@ journal = await Journal.open(root); assert(journal.namespace.lookup(1, 'short'))
 root.writeSize = 0;
 await assert.rejects(create(journal, 'zero'), /invalid progress/); journal.close();
 console.log(JSON.stringify({status: 'passed', churnCycles: 120000, snapshotCrashBoundaries: points.length,
+  automaticSnapshotCrashBoundaries: points.length, churnReopens: 20, replayRecordLimit,
   physicalFailureBoundaries: faultChecks, lifetimeBoundBytes: journalLimit, legacyMigration: true}));

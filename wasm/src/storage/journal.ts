@@ -5,6 +5,9 @@ import {headerBytes, retiredMagic, restore, slotLimit, snapshot} from './checkpo
 import type {AccessHandle, StorageDirectory} from './files.js';
 
 export const journalNames = ['namespace-v1', 'namespace-v2'] as const;
+// Bound recovery allocation independently of snapshot size. A slot-size
+// limit alone replays an increasing mutation history on every reopen.
+export const replayRecordLimit = 1024;
 export interface JournalHooks {
   point(operation: string, path: string): string | Promise<string>;
   partial(bytes: number): Promise<never>;
@@ -178,7 +181,7 @@ export class Journal {
 
   async append(change: Change): Promise<void> {
     let record = encode(change, this.namespace.sequence + 1);
-    if (this.sizes[this.active] + record.length > slotLimit) {
+    if (this.namespace.sequence >= replayRecordLimit || this.sizes[this.active] + record.length > slotLimit) {
       await this.checkpoint();
       record = encode(change, this.namespace.sequence + 1);
     }
