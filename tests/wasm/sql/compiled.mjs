@@ -1,6 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import assert from 'node:assert/strict';
-import {copyFile, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -58,5 +58,57 @@ try {
   await assert.rejects(obsolete, /Obsolete/);
   assert.equal(compiledKernel(base, manifest('current')), current, 'Old failures cannot evict a newer module');
   assert.notEqual(await current, replacement);
+  // Run the actual loader: a verified compiled module must not fetch another
+  // raw binary, while direct loads retain asset integrity and fresh memory.
+  const loader = join(directory, 'src/loader');
+  await mkdir(loader, {recursive: true});
+  await copyFile(resolve(process.argv[2], 'loader/kernel.js'), join(loader, 'kernel.js'));
+  await writeFile(join(loader, 'assets.js'), `
+    export const assets = (...args) => globalThis.fixture.manifest(...args);
+    export const verifiedAsset = (...args) => globalThis.fixture.asset(...args);`);
+  await writeFile(join(directory, 'kernel.mjs'),
+    'export default async options => globalThis.fixture.create(options);');
+  const {loadKernel} = await import(pathToFileURL(join(loader, 'kernel.js')));
+  const resources = new Uint8Array([42, 43]).buffer;
+  const shared = new WebAssembly.Memory({initial: 1, maximum: 2, shared: true});
+  let binaryCalls = 0, supplied, binaryFails = false, failedAsset;
+  const verified = [];
+  globalThis.fixture = {
+    manifest: async () => ({entries: {resources: 'kernel.data', wasm: 'kernel.wasm', module: 'kernel.mjs'}}),
+    asset: async (_base, _manifest, name) => {
+      verified.push(name);
+      if (name === failedAsset) throw new Error('Asset integrity mismatch: ' + name);
+      if (name === 'kernel.wasm') {
+        binaryCalls++; if (binaryFails) throw new Error('Raw binary was fetched'); return bytes.buffer;
+      }
+      return name === 'kernel.data' ? resources : new ArrayBuffer(0);
+    },
+    create: async options => {supplied = options; return {wasmMemory: options.wasmMemory ?? shared};},
+  };
+  binaryFails = true;
+  await loadKernel({print() {}, printErr() {}}, module, shared);
+  assert.equal(binaryCalls, 0, 'Compiled opens do not allocate or verify another raw Wasm binary');
+  assert.deepEqual(verified, ['kernel.data', 'kernel.mjs'], 'Compiled opens still verify resources and SDK code');
+  assert.equal(supplied.wasmBinary, undefined);
+  assert.equal(supplied.wasmMemory, shared);
+  assert.equal(supplied.getPreloadedPackage('kernel.data', 2), resources);
+  assert.throws(() => supplied.getPreloadedPackage('kernel.data', 3), /package size mismatch/);
+  let received;
+  const exports = supplied.instantiateWasm({}, (instance, receivedModule) => {received = {instance, receivedModule};});
+  assert(received.instance instanceof WebAssembly.Instance && received.receivedModule === module);
+  assert.equal(exports, received.instance.exports, 'The provided immutable module is instantiated normally');
+  for (failedAsset of ['kernel.data', 'kernel.mjs'])
+    await assert.rejects(loadKernel({print() {}, printErr() {}}, module, shared), /Asset integrity mismatch/);
+  failedAsset = undefined;
+  binaryFails = false;
+  await loadKernel({print() {}, printErr() {}});
+  assert.equal(binaryCalls, 1, 'A direct load verifies its raw binary');
+  assert.equal(supplied.wasmBinary, bytes.buffer);
+  assert.equal(supplied.instantiateWasm, undefined);
+  binaryFails = true;
+  await assert.rejects(loadKernel({print() {}, printErr() {}}), /Raw binary was fetched/);
+  assert.equal(binaryCalls, 2, 'Direct load integrity failures remain fatal');
+  console.log('Kernel loader: compiled opens skip duplicate binary; direct verification, instantiation and resources passed');
+
   console.log('Compiled kernel: bounded cache, concurrent opens, private memory and failure recovery passed');
 } finally {delete globalThis.fixture; await rm(directory, {recursive: true, force: true});}

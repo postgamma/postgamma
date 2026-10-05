@@ -9,7 +9,8 @@ export async function loadKernel(output: {
   const manifest = await assets(assetRoot);
   const [resources, wasmBinary] = await Promise.all([
     verifiedAsset(assetRoot, manifest, manifest.entries.resources),
-    verifiedAsset(assetRoot, manifest, manifest.entries.wasm),
+    // The owner verified the compiled module; instantiateWasm never uses raw bytes.
+    compiled ? undefined : verifiedAsset(assetRoot, manifest, manifest.entries.wasm),
     verifiedAsset(assetRoot, manifest, manifest.entries.module),
   ]);
   const {default: createKernel} = await import(new URL(manifest.entries.module, assetRoot).href);
