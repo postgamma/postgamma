@@ -1024,7 +1024,15 @@ enqueue_event(PostgammaPublicEventRouter *router, const pgm_event *event)
 	size_t		tail;
 	int			status;
 
-	status = postgamma_mutex_try_lock(router->mutex);
+	/*
+	 * Frontend notices and notifications are parsed outside the router lock.
+	 * Wait for the short queue critical section: contention is not overflow.
+	 * Kernel logging must remain nonblocking, including during error handling.
+	 * The router never calls libpq or user callbacks while holding this mutex.
+	 */
+	status = event->kind == PGM_EVENT_LOG ?
+		postgamma_mutex_try_lock(router->mutex) :
+		postgamma_mutex_lock(router->mutex);
 	if (status != 0)
 	{
 		record_drop(router, event->kind);
