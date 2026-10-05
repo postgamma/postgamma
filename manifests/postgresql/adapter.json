@@ -930,6 +930,15 @@
         "reject_if_present": "!postgamma_locale_environment_is_private() &&\n\t\tsetenv(envvar, result, 1)"
       },
       {
+        "id": "wait.make-wasm-latch-flags-atomic",
+        "path": "src/include/storage/latch.h",
+        "mode": "replace",
+        "match": "\tsig_atomic_t is_set;\n\tsig_atomic_t maybe_sleeping;",
+        "content": "#ifdef __EMSCRIPTEN__\n\t/* Shared flags synchronize Wasm threads before choosing to sleep or wake. */\n\t_Atomic(sig_atomic_t) is_set;\n\t_Atomic(sig_atomic_t) maybe_sleeping;\n#else\n\tsig_atomic_t is_set;\n\tsig_atomic_t maybe_sleeping;\n#endif",
+        "expected_matches": 1,
+        "reject_if_present": "_Atomic(sig_atomic_t) is_set"
+      },
+      {
         "id": "wait.install-latch-cleanup-bridge",
         "path": "src/backend/storage/ipc/latch.c",
         "mode": "insert_after",

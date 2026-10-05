@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 
 from wasm import run_browser, serve
+from postgresql_adapter import apply_non_overlapping_edits, load_adapter
 from wasm_toolchain import (WasmError, configuration, digest, fingerprint, run,
                             run_id, sdk_tools, write_json, read_json)
 
@@ -42,11 +43,13 @@ def check(config, longjmp: str) -> Path:
                "runtime/src/path_runtime.c", "runtime/src/execution_context.c", "runtime/src/backend_state_runtime.c", "runtime/src/virtual_signal.c",
                "tests/wasm/runtime/filesystem.c", "runtime/src/thread_runtime.c", "runtime/src/backend_execution_runtime.c", "runtime/platform/emscripten/thread.c", "runtime/platform/emscripten/io.c", "runtime/platform/emscripten/shmem.c",
                "runtime/platform/emscripten/dsm.c", "runtime/platform/emscripten/semaphore.c",
-               "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c", "tests/wasm/runtime/dsm.c"]
+               "tests/wasm/runtime/threads.c", "tests/wasm/runtime/wait.c", "tests/wasm/runtime/latch.c", "tests/wasm/runtime/execution.c", "tests/wasm/runtime/clock.c", "tests/wasm/runtime/shmem.c", "tests/wasm/runtime/dsm.c"]
     inputs = {"tools": tools, "mode": config.mode, "longjmp": longjmp,
               "layouts": layout_files,
               "sdk_headers": {str(p.relative_to(sdk_headers)): digest(p) for p in sorted(sdk_headers.rglob("*.h"))},
               "files": {name: digest(config.root / name) for name in [*sources,
+                  "manifests/postgresql/adapter.json", "postgres/src/include/storage/latch.h",
+                  "postgres/src/backend/storage/ipc/latch.c", "postgres/src/backend/storage/ipc/waiteventset.c",
                   "tests/runtime/test_path_runtime.c", "runtime/include/postgamma/file_platform.h",
                   "embedded-c/include/postgamma/private/data_directory_lock.h",
                   *(str(p.relative_to(config.root)) for p in sorted((config.root / "runtime/include").rglob("*.h"))),
@@ -70,6 +73,24 @@ def check(config, longjmp: str) -> Path:
         begin = backend.index("long\npostgamma_backend_adjust_wait_timeout")
         end = backend.index("\n\nbool\npostgamma_postgres_quantum_begin", begin)
         (site / "timer-wait.inc").write_text(backend[begin:end] + "\n")
+        # Execute the same upstream latch declarations and adapted functions;
+        # the fixture supplies only the clock and durable readiness primitive.
+        adapter = load_adapter(config.root / "manifests/postgresql/adapter.json")
+        def adapted(path):
+            edits = [edit for edit in adapter["generated_support"]["edits"] if edit["path"] == path]
+            return apply_non_overlapping_edits(edits, (config.root / "postgres" / path).read_text())
+        latch = adapted("src/include/storage/latch.h")
+        begin, end = latch.index("typedef struct Latch"), latch.index("} Latch;")
+        (site / "pg-latch.inc").write_text(latch[begin:end + len("} Latch;")] + "\n")
+        for path, function, output in (
+            ("latch.c", "void\nSetLatch(", "pg-latch-set.inc"),
+            ("latch.c", "void\nResetLatch(", "pg-latch-reset.inc"),
+            ("waiteventset.c", "int\nWaitEventSetWait(", "pg-latch-wait.inc"),
+        ):
+            content = adapted("src/backend/storage/ipc/" + path)
+            begin = content.index(function)
+            end = content.index("\n}", begin) + 2
+            (site / output).write_text(content[begin:end] + "\n")
         flags = ["-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror", "-Wno-error=pthreads-mem-growth", "-pthread",
                  *config.profile["modes"][config.mode]["compile_flags"],
                  "-I" + str(config.root / "runtime/include"), "-I" + str(site),

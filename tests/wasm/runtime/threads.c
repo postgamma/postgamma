@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 void postgamma_runtime_wait_test(void);
+void postgamma_runtime_latch_test(void);
 void postgamma_runtime_libc_test(void);
 void postgamma_runtime_filesystem_test(void);
 void postgamma_runtime_clock_test(void);
@@ -92,6 +93,7 @@ run(void *unused)
     postgamma_runtime_shmem_test();
     postgamma_runtime_clock_test();
     postgamma_runtime_wait_test();
+    postgamma_runtime_latch_test();
     assert(postgamma_runtime_execution_test() == 0);
     assert(postgamma_platform_pipe_count() == 0);
     atomic_store_explicit(&finished, 1, memory_order_release);

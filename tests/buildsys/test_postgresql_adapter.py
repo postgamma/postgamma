@@ -138,6 +138,45 @@ class PostgreSQLAdapterTests(unittest.TestCase):
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_project_adapter_preserves_atomic_latch_layout_on_wasm(self) -> None:
+        compiler = shutil.which("cc")
+        if compiler is None:
+            self.skipTest("A C compiler is required for the latch layout contract")
+        document = postgresql_adapter.load_adapter(PROJECT_ROOT / "manifests/postgresql/adapter.json")
+        path = "src/include/storage/latch.h"
+        upstream = (PROJECT_ROOT / "postgres" / path).read_text()
+        edits = [edit for edit in document["generated_support"]["edits"] if edit["path"] == path]
+        generated = postgresql_adapter.apply_non_overlapping_edits(edits, upstream)
+        begin, end = generated.index("typedef struct Latch"), generated.index("} Latch;")
+        declaration = generated[begin:end + len("} Latch;")]
+        source = """#include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+""" + declaration + """
+typedef struct {sig_atomic_t is_set, maybe_sleeping; bool is_shared; int owner_pid;} NativeLatch;
+_Static_assert(sizeof(Latch) == sizeof(NativeLatch), "Latch size");
+_Static_assert(_Alignof(Latch) == _Alignof(NativeLatch), "Latch alignment");
+_Static_assert(offsetof(Latch, maybe_sleeping) == offsetof(NativeLatch, maybe_sleeping), "sleeping offset");
+_Static_assert(offsetof(Latch, owner_pid) == offsetof(NativeLatch, owner_pid), "owner offset");
+#ifdef __EMSCRIPTEN__
+_Static_assert(_Generic(&((Latch *)0)->is_set, _Atomic(sig_atomic_t) *: 1, default: 0), "atomic is_set");
+_Static_assert(_Generic(&((Latch *)0)->maybe_sleeping, _Atomic(sig_atomic_t) *: 1, default: 0), "atomic sleeping");
+_Static_assert(__atomic_always_lock_free(sizeof(sig_atomic_t), 0), "lock-free signal flags");
+#else
+_Static_assert(_Generic(&((Latch *)0)->is_set, sig_atomic_t *: 1, default: 0), "native flag type");
+#endif
+"""
+        with tempfile.TemporaryDirectory(prefix="postgamma-latch-layout-") as temporary:
+            directory = Path(temporary)
+            fixture = directory / "layout.c"
+            fixture.write_text(source)
+            for wasm in (False, True):
+                command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                           *(["-D__EMSCRIPTEN__"] if wasm else []), "-c", str(fixture),
+                           "-o", str(directory / ("wasm.o" if wasm else "native.o"))]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_project_adapter_exercises_semaphore_wait_during_crash(self) -> None:
         document = postgresql_adapter.load_adapter(
             PROJECT_ROOT / "manifests/postgresql/adapter.json"
