@@ -64,8 +64,11 @@ def consumer(config, tools, env, archive: Path, current: Path, engine='chromium'
         if engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
         elif engine == 'chromium' and config.browser_override: command += ['--executable', config.browser_override]
         with tempfile.TemporaryDirectory(prefix='pgm-consumer-', dir='/tmp') as temporary:
+            # Each successful profile has a five-minute total cap in run.mjs;
+            # fault cases retain their independent fifteen-second deadline.
+            timeout = 300 * (2 if storage == 'all' else 1) + (90 if faults else 0) + 60
             run(command, current / ('browser-' + engine + '.log'),
-                dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=360 if storage == 'all' else 240)
+                dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=timeout)
     browser = read_json(current / ('browser-' + engine + '.json'))
     if verify_tree(package, str(config.root)) != evidence:
         raise WasmError('installed consumer assets changed during validation')

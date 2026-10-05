@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {parseArgs} from 'node:util';
 import assert from 'node:assert/strict';
+import {bounded, failureSnapshot} from '../browser/diagnostics.mjs';
 const {values} = parseArgs({options: {root: {type:'string'},url: {type:'string'},output: {type:'string'},
   engine: {type:'string', default:'chromium'}, storage: {type:'string',default:'opfs'}, executable: {type:'string'}, 'no-faults': {type:'boolean'}}});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
@@ -13,6 +14,24 @@ const report = {status:'failed',engine:values.engine,playwright:require('playwri
 let browser;
 const launchOptions = {headless:true,timeout:15000,
   ...(values.executable ? {executablePath:values.executable} : values.engine==='chromium' ? {channel:'chromium'} : {})};
+async function waitForConsumer(page) {
+  const started = performance.now();
+  let stage, changed = started;
+  for (;;) {
+    const view = await bounded(() => page.evaluate(() => ({
+      result: window.probeResult, stage: window.probeProgress?.stage,
+    })), 5000);
+    assert(!view.error, view.error);
+    if (view.result != null) return;
+    const now = performance.now();
+    if (view.stage !== stage) {stage = view.stage; changed = now;}
+    // Fresh OPFS initialization and archive restore each have their own work.
+    // Retain the original stall deadline, with a separate bounded total run.
+    assert(now - changed < 120000, `Package stage ${stage} made no progress for 120 seconds`);
+    assert(now - started < 300000, 'Package consumer exceeded five minutes');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
 try {
   assert(['all','opfs','ephemeral'].includes(values.storage));
   const profiles = values.storage === 'all' ? ['ephemeral','opfs'] : [values.storage];
@@ -56,8 +75,15 @@ try {
         await route.fulfill({response,headers});
       });
       await page.goto(values.url + (scenario.expected ? '?fault=' + scenario.name : '?storage=' + scenario.storage), {timeout:15000});
-      try {await page.waitForFunction(() => window.probeResult != null, undefined, {timeout:scenario.expected ? 15000 : 120000});}
-      catch (error) {row.progress = await page.evaluate(() => window.probeProgress); throw error;}
+      const started = performance.now();
+      try {
+        if (scenario.expected) await page.waitForFunction(() => window.probeResult != null, undefined, {timeout:15000});
+        else await waitForConsumer(page);
+      } catch (error) {
+        row.progress = await bounded(() => page.evaluate(() => window.probeProgress));
+        row.failureSnapshot = await failureSnapshot(page);
+        throw error;
+      } finally {row.elapsedMs = performance.now() - started;}
       row.probe = await page.evaluate(() => window.probeResult);
       if (scenario.expected) {
         assert.equal(row.probe.status,'rejected'); assert.match(row.probe.error,scenario.expected);
