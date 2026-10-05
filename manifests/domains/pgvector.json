@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgres-source-domain",
+  "id": "pgvector",
+  "description": "Pinned pgvector server translation units transformed for the embedded runtime",
+  "translation_unit_prefixes": [
+    "src/"
+  ],
+  "translation_unit_files": [],
+  "required_defines": [],
+  "required_any_defines": [],
+  "excluded_defines": ["FRONTEND"],
+  "required_output_suffixes": [],
+  "excluded_output_suffixes": [],
+  "binding_anchor_file_suffixes": []
+}

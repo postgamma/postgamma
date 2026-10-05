@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.postgres-source-domain",
+  "id": "postgres-frontend-tool",
+  "description": "Frontend and tool translation units selected from their real PostgreSQL static-link compile profiles",
+  "translation_unit_prefixes": [
+    "src/bin/initdb/",
+    "src/bin/pg_dump/",
+    "src/common/",
+    "src/interfaces/libpq/",
+    "src/port/",
+    "src/timezone/"
+  ],
+  "translation_unit_files": [],
+  "required_defines": [],
+  "required_any_defines": ["FRONTEND", "USE_PRIVATE_ENCODING_FUNCS"],
+  "excluded_defines": [],
+  "required_output_suffixes": [],
+  "excluded_output_suffixes": ["_shlib.o", "_srv.o"],
+  "binding_anchor_file_suffixes": []
+}

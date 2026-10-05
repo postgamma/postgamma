@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.c-abi-release-baseline",
+  "postgresql_major": 19,
+  "abi": {
+    "major": 1,
+    "minor": 3,
+    "encoded_version": 65539,
+    "state": "frozen",
+    "release_milestone": "embedded-release",
+    "delivered_through": "embedded-release",
+    "symbol_version_node": "POSTGAMMA_1.0",
+    "evolution": "additive-within-major"
+  },
+  "prior_baseline": {
+    "path": "manifests/api/c-abi-v1-2.json",
+    "encoded_version": 65538,
+    "function_count": 73,
+    "complete_record_count": 21,
+    "opaque_record_count": 9,
+    "numeric_count": 117
+  },
+  "additive_functions": [
+    {
+      "name": "pgm_bundled_extension_count",
+      "function_type": "unsigned long (void)"
+    },
+    {
+      "name": "pgm_bundled_extension_get",
+      "function_type": "int (unsigned long, struct pgm_bundled_extension_info *)"
+    }
+  ],
+  "additive_complete_records": [
+    {
+      "name": "pgm_bundled_extension_info",
+      "size": 48,
+      "alignment": 8,
+      "fields": [
+        {"name": "struct_size", "canonical_type": "unsigned int", "offset": 0},
+        {"name": "postgresql_major", "canonical_type": "unsigned int", "offset": 4},
+        {"name": "sdk_abi_version", "canonical_type": "unsigned int", "offset": 8},
+        {"name": "reserved", "canonical_type": "unsigned int", "offset": 12},
+        {"name": "capabilities", "canonical_type": "unsigned long", "offset": 16},
+        {"name": "id", "canonical_type": "const char *", "offset": 24},
+        {"name": "sql_name", "canonical_type": "const char *", "offset": 32},
+        {"name": "version", "canonical_type": "const char *", "offset": 40}
+      ]
+    }
+  ],
+  "additive_opaque_records": [],
+  "numeric_overrides": {
+    "PGM_ABI_VERSION": 65539,
+    "PGM_ABI_VERSION_MINOR": 3
+  },
+  "numeric_additions": {
+    "PGM_CAP_BUNDLED_EXTENSIONS": 65536,
+    "PGM_EXTENSION_CAP_THREAD_SAFE": 1,
+    "PGM_EXTENSION_CAP_MULTI_INSTANCE_SAFE": 2,
+    "PGM_EXTENSION_CAP_SESSION_MOBILITY_SAFE": 4,
+    "PGM_EXTENSION_CAP_PARALLEL_WORKER_SAFE": 8,
+    "PGM_EXTENSION_CAP_INSTANCE_SHMEM": 16,
+    "PGM_EXTENSION_CAP_BACKGROUND_WORKER": 32,
+    "PGM_EXTENSION_CAP_FILESYSTEM_READ": 64,
+    "PGM_EXTENSION_CAP_FILESYSTEM_WRITE": 128,
+    "PGM_EXTENSION_CAP_HOST_LIBRARY_DEPENDENCY": 256,
+    "PGM_EXTENSION_CAP_PROCESS_GLOBAL_STATE": 512
+  },
+  "exported_symbol_count": 75,
+  "complete_record_count": 22,
+  "opaque_record_count": 9,
+  "numeric_count": 128,
+  "capabilities": {
+    "advertised_value": 112639,
+    "advertised": [
+      "PGM_CAP_PREPARED_STATEMENTS",
+      "PGM_CAP_CHUNKED_RESULTS",
+      "PGM_CAP_COPY_IN",
+      "PGM_CAP_COPY_OUT",
+      "PGM_CAP_ARROW_C_DATA",
+      "PGM_CAP_NOTIFICATIONS",
+      "PGM_CAP_REQUEST_NOTICES",
+      "PGM_CAP_STATUS_TELEMETRY",
+      "PGM_CAP_INSTANCE_EVENTS",
+      "PGM_CAP_MANAGEMENT_OPERATIONS",
+      "PGM_CAP_MULTIPLE_INSTANCES",
+      "PGM_CAP_LOGICAL_BACKUP",
+      "PGM_CAP_LOGICAL_RESTORE",
+      "PGM_CAP_MAINTENANCE",
+      "PGM_CAP_BUNDLED_EXTENSIONS"
+    ],
+    "reserved_unadvertised": [
+      "PGM_CAP_NATIVE_EXTENSION_LOADING",
+      "PGM_CAP_PHYSICAL_BACKUP"
+    ]
+  },
+  "extension_sdk": {
+    "abi_version": 1,
+    "postgresql_major": 19,
+    "dynamic_loading": false,
+    "unbundled_policy": "fail-closed",
+    "lifecycle_phases": [
+      "library-initialize",
+      "instance-request",
+      "instance-startup",
+      "instance-shutdown",
+      "session-initialize",
+      "session-reset",
+      "session-destroy"
+    ]
+  },
+  "documented_unsupported": [
+    "physical backup API",
+    "arbitrary dynamically loaded native extensions",
+    "parallel pg_dump and pg_restore workers",
+    "Python binding"
+  ]
+}

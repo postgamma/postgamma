@@ -1,0 +1,6 @@
+POSTGAMMA_1.0 {
+	global:
+		pgm_*;
+	local:
+		*;
+};

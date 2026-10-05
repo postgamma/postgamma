@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "repository": "https://git.postgresql.org/git/postgresql.git",
+  "path": "postgres",
+  "ref_name": "REL_19_STABLE",
+  "commit": "86ed13547589d8401b3b1e1ec2873903b287cb80"
+}

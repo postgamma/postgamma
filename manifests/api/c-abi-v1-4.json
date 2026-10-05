@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.c-abi-release-baseline",
+  "postgresql_major": 19,
+  "abi": {
+    "major": 1,
+    "minor": 4,
+    "encoded_version": 65540,
+    "state": "frozen",
+    "release_milestone": "embedded-release",
+    "delivered_through": "embedded-release",
+    "symbol_version_node": "POSTGAMMA_1.0",
+    "evolution": "additive-within-major"
+  },
+  "prior_baseline": {
+    "path": "manifests/api/c-abi-v1-3.json",
+    "encoded_version": 65539,
+    "function_count": 75,
+    "complete_record_count": 22,
+    "opaque_record_count": 9,
+    "numeric_count": 128
+  },
+  "additive_functions": [
+    {
+      "name": "pgm_instance_open_with_mode",
+      "function_type": "int (const struct pgm_instance_options *, int, struct pgm_instance **, struct pgm_error **)"
+    }
+  ],
+  "additive_complete_records": [],
+  "additive_opaque_records": [],
+  "numeric_overrides": {
+    "PGM_ABI_VERSION": 65540,
+    "PGM_ABI_VERSION_MINOR": 4
+  },
+  "numeric_additions": {
+    "PGM_OPEN_EXISTING": 0,
+    "PGM_OPEN_OR_CREATE": 1,
+    "PGM_CREATE_NEW": 2
+  },
+  "exported_symbol_count": 76,
+  "complete_record_count": 22,
+  "opaque_record_count": 9,
+  "numeric_count": 131,
+  "capabilities": {
+    "advertised_value": 112639,
+    "advertised": [
+      "PGM_CAP_PREPARED_STATEMENTS",
+      "PGM_CAP_CHUNKED_RESULTS",
+      "PGM_CAP_COPY_IN",
+      "PGM_CAP_COPY_OUT",
+      "PGM_CAP_ARROW_C_DATA",
+      "PGM_CAP_NOTIFICATIONS",
+      "PGM_CAP_REQUEST_NOTICES",
+      "PGM_CAP_STATUS_TELEMETRY",
+      "PGM_CAP_INSTANCE_EVENTS",
+      "PGM_CAP_MANAGEMENT_OPERATIONS",
+      "PGM_CAP_MULTIPLE_INSTANCES",
+      "PGM_CAP_LOGICAL_BACKUP",
+      "PGM_CAP_LOGICAL_RESTORE",
+      "PGM_CAP_MAINTENANCE",
+      "PGM_CAP_BUNDLED_EXTENSIONS"
+    ],
+    "reserved_unadvertised": [
+      "PGM_CAP_NATIVE_EXTENSION_LOADING",
+      "PGM_CAP_PHYSICAL_BACKUP"
+    ]
+  },
+  "extension_sdk": {
+    "abi_version": 1,
+    "postgresql_major": 19,
+    "dynamic_loading": false,
+    "unbundled_policy": "fail-closed",
+    "lifecycle_phases": [
+      "library-initialize",
+      "instance-request",
+      "instance-startup",
+      "instance-shutdown",
+      "session-initialize",
+      "session-reset",
+      "session-destroy"
+    ]
+  },
+  "documented_unsupported": [
+    "physical backup API",
+    "arbitrary dynamically loaded native extensions",
+    "parallel pg_dump and pg_restore workers",
+    "Python binding"
+  ]
+}
