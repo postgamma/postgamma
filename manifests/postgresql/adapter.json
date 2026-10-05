@@ -916,7 +916,7 @@
         "path": "src/backend/storage/ipc/waiteventset.c",
         "mode": "replace",
         "match": "\t\trc = WaitEventSetWaitBlock(set, cur_timeout,\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);",
-        "content": "\t\t{\n\t\t\tbool\t\ttimer_wait_expired;\n\n\t\t\trc = WaitEventSetWaitBlock(set,\n\t\t\t\t\t\t\t\t   postgamma_backend_adjust_wait_timeout(cur_timeout),\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);\n\t\t\t/* Signal handlers may disarm, rearm, or wait on the timer. */\n\t\t\ttimer_wait_expired = postgamma_backend_timeout_wait_expired(rc);\n\t\t\trc = postgamma_backend_filter_wake_events(occurred_events, rc);\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\t/* Retry through the original loop to preserve the caller deadline. */\n\t\t\tif (timer_wait_expired && set->latch != NULL)\n\t\t\t\trc = 0;\n\t\t}",
+        "content": "\t\t{\n\t\t\tbool\t\ttimer_wait_expired;\n\n\t\t\trc = WaitEventSetWaitBlock(set,\n\t\t\t\t\t\t\t\t   postgamma_backend_adjust_wait_timeout(cur_timeout),\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);\n\t\t\t/* Signal handlers may disarm, rearm, or wait on the timer. */\n\t\t\ttimer_wait_expired = postgamma_backend_timeout_wait_expired(rc);\n\t\t\trc = postgamma_backend_filter_wake_events(occurred_events, rc);\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\t/* Retry through the original loop to preserve the caller deadline. */\n\t\t\tif (timer_wait_expired)\n\t\t\t\trc = 0;\n\t\t}",
         "expected_matches": 1,
         "reject_if_present": "postgamma_backend_adjust_wait_timeout(cur_timeout)"
       },
