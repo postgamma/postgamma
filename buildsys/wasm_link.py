@@ -421,6 +421,7 @@ class Builder:
     def product(self):
         policy = read_json(self.root / "manifests/profiles/wasm-resource-budget.json")
         io_stack = next(role["stack_bytes"] for role in policy["thread_roles"] if role["role"] == "io_owner")
+        pool = sum(role["count"] for role in policy["thread_roles"])
         excluded = {"bootstrap_probe.c", "libpq_memory_adapter.c", "postgres_initdb_host.c",
                     "postgres_logical_tool_host.c", "postgamma_logical_management.c"}
         jobs = []
@@ -437,7 +438,8 @@ class Builder:
             if source.suffix not in (".c", ".cpp"): continue
             extra = ["-isystem", str(self.config.sdk / "upstream/emscripten/system/lib/wasmfs")] if source.suffix == ".cpp" else []
             if source.name == "storage.cpp":
-                extra += [f"-DPOSTGAMMA_WASM_IO_STACK_BYTES={io_stack}"]
+                extra += [f"-DPOSTGAMMA_WASM_IO_STACK_BYTES={io_stack}",
+                          f"-DPOSTGAMMA_WASM_IO_CHANNEL_COUNT={pool}"]
             jobs.append((source, "platform/" + source.stem, extra))
         self.compile_group(jobs)
 

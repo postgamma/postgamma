@@ -42,8 +42,8 @@ for (const fails of [false, true]) {
     constructor() {channel = this;}
     close() {events.push('channel-close');}
   };
-  new Function('globalThis', 'UTF8ToString', 'BroadcastChannel', '_emscripten_proxy_execute_queue', 'name', 'queue', body)
-    (realm, () => 'fixture', Channel, () => {nativeCalls++;}, 1, 2);
+  new Function('globalThis', 'UTF8ToString', 'BroadcastChannel', '_emscripten_proxy_execute_queue', 'name', 'queue', 'workers', body)
+    (realm, () => 'fixture', Channel, () => {nativeCalls++;}, 1, 2, 13);
   const queued = channel.onmessage;
   queued(); assert.equal(nativeCalls, 1, 'Live owner receives native proxy work');
   realm.postgammaStoragePending.set(pending, {operation: 1});
@@ -72,4 +72,42 @@ for (const fails of [false, true]) {
   queued(); assert.equal(nativeCalls, 1, 'Queued proxy work cannot re-enter the retired native module');
   finish(); await closing;
   assert.deepEqual(events.slice(-3), ['release-reply', 'port-close', 'scope-close']);
+}
+
+// BroadcastChannel also targets channels without message listeners. A native
+// caller blocked in Atomics.wait cannot dispatch those browser tasks, so ensure
+// notification fanout never adds a message to any other caller's queue.
+{
+  const channels = new Set(); let nativeCalls = 0;
+  class Channel {
+    pending = [];
+    constructor(name) {this.name = name; channels.add(this);}
+    postMessage(data) {
+      for (const channel of channels)
+        if (channel !== this && channel.name === this.name) channel.pending.push(data);
+    }
+    close() {channels.delete(this);}
+  }
+  const owner = {addEventListener() {}};
+  new Function('globalThis', 'UTF8ToString', 'BroadcastChannel', '_emscripten_proxy_execute_queue', 'name', 'queue', 'workers', body)
+    (owner, () => 'fixture', Channel, () => {nativeCalls++;}, 1, 2, 13);
+  const receivers = [...channels];
+  const begin = storage.indexOf('EM_JS(void, postgamma_storage_notify,');
+  const notify = new Function('globalThis', 'UTF8ToString', 'BroadcastChannel', 'ENVIRONMENT_IS_PTHREAD', 'name',
+    storage.slice(storage.indexOf('{', begin) + 1, storage.indexOf('\n});', begin)));
+  const callers = [{}, ...Array.from({length: 13}, (_, index) => ({name: 'em-pthread-' + (index + 1)}))];
+  for (let round = 0; round < 1000; round++)
+    for (const caller of callers) notify(caller, () => 'fixture', Channel, !!caller.name, 1);
+  for (const caller of callers)
+    assert.equal(caller.postgammaIOSender.pending.length, 0, 'Blocked caller receives no I/O wakeups');
+  for (const channel of receivers) {
+    assert.equal(channel.pending.length, 1000, 'Every queued notification reaches its I/O receiver');
+    for (const message of channel.pending) channel.onmessage({data: message});
+  }
+  assert.equal(nativeCalls, 14000);
+  // Pool reuse retains the same Worker identity and receiver, while changing
+  // database instances closes and replaces that Worker's old sender.
+  const caller = callers[1], old = caller.postgammaIOSender;
+  notify(caller, () => 'next-instance', Channel, true, 1);
+  assert(!channels.has(old)); assert.notEqual(caller.postgammaIOSender, old);
 }

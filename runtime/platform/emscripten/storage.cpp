@@ -58,7 +58,9 @@ EM_JS(void, postgamma_storage_dispatch,
     work.finally(() => globalThis.postgammaStoragePending.delete(work));
 });
 
-// A direct channel keeps I/O independent of synchronous control-Worker calls.
+// Direct channels keep I/O independent of synchronous control-Worker calls.
+// Each caller has a separate channel: a shared broadcast name also delivers to
+// other callers, whose blocking native entry points cannot drain browser tasks.
 // Only a queued request sends a notification; idle owners have no polling timer.
 EM_JS(void, postgamma_storage_channel_name, (char *name), {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -66,12 +68,17 @@ EM_JS(void, postgamma_storage_channel_name, (char *name), {
     for (let i = 0; i < text.length; i++) HEAPU8[name + i] = text.charCodeAt(i);
     HEAPU8[name + text.length] = 0;
 });
-EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
-    const channel = new BroadcastChannel('postgamma-io-' + UTF8ToString(name));
-    channel.onmessage = () => {
+EM_JS(void, postgamma_storage_listen, (const char *name, void *queue, int workers), {
+    // The pinned SDK names the fixed pool em-pthread-1 through em-pthread-N.
+    // Register every receiver before publishing readiness, including control.
+    const channels = Array.from({length: workers + 1}, (_, index) =>
+      new BroadcastChannel('postgamma-io-' + UTF8ToString(name) + '-' +
+        (index ? 'em-pthread-' + index : 'control')));
+    const receive = () => {
       if (!globalThis.postgammaStorageRetired) _emscripten_proxy_execute_queue(queue);
     };
-    globalThis.postgammaIOListener = channel;
+    for (const channel of channels) channel.onmessage = receive;
+    globalThis.postgammaIOListener = channels;
     globalThis.postgammaStoragePending = new Map();
     globalThis.postgammaStorageRetired = false;
     const listen = event => {
@@ -89,8 +96,10 @@ EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
         }
         if (data?.discard !== true) return;
         globalThis.postgammaStorageRetired = true;
-        channel.onmessage = null;
-        channel.close();
+        for (const channel of channels) {
+          channel.onmessage = null;
+          channel.close();
+        }
         // Disable SDK mailbox delivery before draining browser I/O. No more
         // native proxy work may run in this discarded module.
         globalThis.onmessage = () => {};
@@ -117,7 +126,8 @@ EM_JS(void, postgamma_storage_listen, (const char *name, void *queue), {
     globalThis.addEventListener('message', listen);
 });
 EM_JS(void, postgamma_storage_notify, (const char *name), {
-    const key = 'postgamma-io-' + UTF8ToString(name);
+    const key = 'postgamma-io-' + UTF8ToString(name) + '-' +
+      (ENVIRONMENT_IS_PTHREAD ? globalThis.name : 'control');
     if (globalThis.postgammaIOSender?.name !== key) {
       globalThis.postgammaIOSender?.close();
       globalThis.postgammaIOSender = new BroadcastChannel(key);
@@ -125,7 +135,7 @@ EM_JS(void, postgamma_storage_notify, (const char *name), {
     globalThis.postgammaIOSender.postMessage(0);
 });
 EM_JS(void, postgamma_storage_unlisten, (), {
-    globalThis.postgammaIOListener.close();
+    for (const channel of globalThis.postgammaIOListener) channel.close();
     delete globalThis.postgammaIOListener;
     globalThis.removeEventListener('message', globalThis.postgammaStorageControlListener);
     globalThis.postgammaStorageControl?.close();
@@ -189,7 +199,7 @@ public:
                     observed_io_stack_bytes.store(bytes, std::memory_order_release);
                 pthread_attr_destroy(&observed);
             }
-            postgamma_storage_listen(self->channel, self->queue.queue);
+            postgamma_storage_listen(self->channel, self->queue.queue, POSTGAMMA_WASM_IO_CHANNEL_COUNT);
             // Register while the host waits for readiness, before any mount
             // can acquire a physical OPFS handle. Cleanup uses a JS-only port.
             MAIN_THREAD_EM_ASM({

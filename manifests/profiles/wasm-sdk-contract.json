@@ -22,6 +22,7 @@
     "ProxyingQueue.queue identifies the public C queue executed by emscripten_proxy_execute_queue on its target thread.",
     "Async proxy submission publishes work before notifying; duplicate notifications can observe an empty queue.",
     "The SQL control Worker stays live until replies are delivered; the I/O owner drains independently through its direct channel.",
+    "With ASSERTIONS=2 the fixed SDK pool names Workers em-pthread-1 through em-pthread-N. The I/O owner registers a separate BroadcastChannel for each name and for control before publishing readiness; a sender has no other blocked caller sharing its channel.",
     "PThread.pthreads maps pthread identities to Worker objects; terminateAllThreads skips an explicitly removed I/O owner and does not free terminated thread data.",
     "The pthread message handler ignores messages without a cmd field, allowing a private MessagePort to close OPFS handles without entering a failed Wasm module.",
     "MAIN_THREAD_EM_ASM synchronously dispatches to the SQL control Worker; owner registration completes before the I/O thread publishes readiness.",
