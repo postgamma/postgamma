@@ -163,9 +163,13 @@ wasm-soak-smoke:
 .PHONY: wasm-memory-diagnose
 WASM_MEMORY_WORKLOAD ?= soak
 WASM_MEMORY_ITERATIONS ?= 2000
+WASM_MEMORY_ENGINE ?= chromium
+WASM_MEMORY_WAVES ?= 3
+WASM_MEMORY_IDLE_SECONDS ?= 60
 wasm-memory-diagnose:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_memory.py" $(POSTGAMMA_WASM_ARGS) \
 		--workload "$(WASM_MEMORY_WORKLOAD)" --iterations "$(WASM_MEMORY_ITERATIONS)" \
+		--engine "$(WASM_MEMORY_ENGINE)" --waves "$(WASM_MEMORY_WAVES)" --idle-seconds "$(WASM_MEMORY_IDLE_SECONDS)" \
 		--seconds "$(WASM_SOAK_SECONDS)" --seed "$(WASM_SOAK_SEED)" --reopen-every "$(WASM_SOAK_REOPEN_EVERY)"
 
 .PHONY: wasm-vector-check

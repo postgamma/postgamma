@@ -205,6 +205,8 @@ For attribution on an already prepared build, run Chromium diagnostics separatel
 make wasm-memory-diagnose WASM_MODE=release
 make wasm-memory-diagnose WASM_MODE=release WASM_MEMORY_WORKLOAD=opfs-churn WASM_MEMORY_ITERATIONS=10000
 make wasm-memory-diagnose WASM_MODE=release WASM_MEMORY_WORKLOAD=opfs-reuse WASM_MEMORY_ITERATIONS=10000
+# Ordinary Worker lifecycle only; no kernel build, inspector or forced GC.
+make wasm-memory-diagnose WASM_MEMORY_WORKLOAD=workers WASM_MEMORY_ENGINE=webkit WASM_MEMORY_ITERATIONS=1000
 ```
 
 Reports under `build/wasm/memory/<run>/` record each browser process, Window,
@@ -219,6 +221,41 @@ beyond its first resource failure.
 Parked native pthreads are never entered for JavaScript evaluation. Global
 browser memory dumps can be incomplete when those threads cannot service a
 dump request; their success flags and the partial trace remain observable.
+
+The `workers` diagnostic launches the native browser directly and creates and
+terminates groups of fourteen ordinary module Workers, matching the application
+pool size without loading the SDK, Wasm, PostgreSQL or OPFS. It runs three waves
+by default (`WASM_MEMORY_WAVES`), waits sixty seconds between waves
+(`WASM_MEMORY_IDLE_SECONDS`) and at least 120 seconds after the last wave.
+Reports compare the last three natural-idle samples in each wave and retain
+process memory, thread counts and JS wrapper finalization counts. Finalization
+counts do not measure native VM destruction. Chromium, Firefox and WebKit are
+selected with `WASM_MEMORY_ENGINE`; `WASM_BROWSER_EXECUTABLE` can select a prepared
+browser build. WebKit's native allocator status is saved in `browser.native.log`.
+The command returns diagnostic completion; it does not substitute for mixed-load
+acceptance or automatically declare observed growth acceptable.
+
+The bundled Playwright 1.63.0 WebKit 2359 has a confirmed native Worker leak:
+`JSVMClientData` stores an unowned `JSHeapData` pointer, so the heap data and
+server IsoSubspaces survive VM destruction. WebKit fixed the ownership and
+destruction order in
+[6cf979a / 322643@main](https://github.com/WebKit/WebKit/commit/6cf979a79f7bb78c0635ff43f02282d78137583e)
+on October 4, 2026. A native-allocation reproduction with 4,200 retired ordinary
+Workers retained exactly 4,200 allocations of 7,560 bytes for the generated
+subspace array and 4,200 allocations of 2,984 bytes for the heap data.
+An isolated ownership backport reduced the second 14,000-Worker wave's natural
+idle memory growth from 173.59 MiB to 1.11 MiB with the original native allocator.
+That backport is a diagnostic experiment, not a supported SDK/browser repair.
+The unmodified official
+[WPE nightly 322662@main](https://wpewebkit.org/built-products/x86_64/release/nightly/MiniBrowser/)
+contains that source fix and completed the same two 14,000-Worker waves with
+1.70 MiB growth and all 28,000 JS wrappers naturally finalized. The pinned
+Playwright bundle is unchanged and still affected; a prepared official WPE
+`MiniBrowser` wrapper can be selected with `WASM_BROWSER_EXECUTABLE` for this
+diagnostic. Official WPE and Playwright MiniBrowser profile options are detected
+without attaching an inspector. This evidence does not establish the cause of
+all original mixed-load growth or a matching cause in Chromium; the 128 MiB
+gates remain.
 
 On this Linux runner, quiescent samples track browser process-tree RSS/PSS/SwapPss,
 threads, file descriptors, Wasm linear memory and OPFS handles. After a

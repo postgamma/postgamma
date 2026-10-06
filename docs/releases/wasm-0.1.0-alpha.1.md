@@ -71,7 +71,13 @@ After a fatal instance failure, discard that instance and reopen the database.
 ## Release acceptance
 
 Long mixed-load runs currently exceed the 128 MiB browser memory-growth budget.
-The cause is still under investigation. Run `make wasm-soak-test` to validate two
+One contributor is a confirmed WebKit native Worker leak: the bundled WebKit
+2359 does not own or destroy each VM's `JSHeapData`. WebKit corrected this in
+[322643@main](https://github.com/WebKit/WebKit/commit/6cf979a79f7bb78c0635ff43f02282d78137583e).
+An isolated browser ownership backport validates that cause; it is not a shipping
+SDK repair and does not explain every mixed-load memory component. The remaining
+growth and integration of a supported fixed browser still require validation.
+Run `make wasm-soak-test` to validate two
 hours in each engine, including clean reopen, trap/abort recovery, cancellation
 and unchanged resource limits. Short regressions and forced-GC diagnostics do
 not complete this acceptance.
