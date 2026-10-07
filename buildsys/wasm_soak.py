@@ -2,6 +2,7 @@
 """Seeded mixed-load browser endurance gate with replay and resource receipts."""
 import argparse
 from pathlib import Path
+import platform
 import shutil
 import tempfile
 import time
@@ -14,6 +15,7 @@ from wasm_link import source_snapshot
 from wasm_sql import startup
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
                             read_json, run, run_id, sdk_tools, write_json)
+from wasm_webkit import install as install_webkit
 
 ENGINES = ('chromium', 'firefox', 'webkit')
 CHECKS = {'soak-four-connections', 'soak-commit-model', 'soak-ddl-savepoint-rollback',
@@ -39,6 +41,13 @@ def validate(row, parameters):
         raise WasmError('Missing mixed workload or recovery evidence')
     if not parameters['rounds'] and parameters['seconds'] >= 300 and row.get('resourceGate', {}).get('status') != 'passed':
         raise WasmError('Long-run resource growth gate did not pass')
+    if row.get('driver') == 'native-wpe':
+        owner = row.get('workerOwnership', {})
+        if (row.get('engine') != 'webkit' or row.get('finalPhysicalWorkerThreads') != 0 or
+                owner.get('active') != [] or owner.get('activePthreads') != [] or
+                not owner.get('created') or owner.get('created') != owner.get('terminated') or
+                not owner.get('pthreadCreated') or owner.get('pthreadCreated') != owner.get('pthreadTerminated')):
+            raise WasmError('Native WebKit Worker ownership or physical retirement evidence is incomplete')
 
 
 def check(config, longjmp, engines, parameters, growth_mib):
@@ -52,11 +61,17 @@ def check(config, longjmp, engines, parameters, growth_mib):
     report = {'kind': 'postgamma.wasm-soak', 'status': 'failed', 'mode': config.mode,
               'parameters': parameters, 'requested_engines': engines, 'engines': {}, 'growthMiB': growth_mib}
     runner_sources = {name: digest(config.root / name) for name in
-        ('buildsys/wasm_soak.py', 'tests/wasm/soak/browser.mjs', 'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
+        ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/browser.mjs',
+         'tests/wasm/soak/native-webkit.mjs', 'tests/wasm/soak/native-webkit-relay.js',
+         'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
          'tests/wasm/soak/resources.test.mjs', 'tests/wasm/browser/diagnostics.mjs')}
     report['runner_sources'] = runner_sources
     started = time.monotonic()
     try:
+        native_webkit = None
+        if 'webkit' in engines and platform.system() == 'Linux':
+            native_webkit, native_receipt = install_webkit(config.deps)
+            report['nativeBrowserReceipt'] = {'path': str(native_receipt), 'sha256': digest(native_receipt)}
         receipt = startup(config, longjmp, 'build', 'soak', STANDARD)
         report['build_receipt'] = str(receipt)
         sql = read_json(receipt); link = read_json(Path(sql['link_report']))
@@ -75,12 +90,15 @@ def check(config, longjmp, engines, parameters, growth_mib):
         with serve(site, 'sql.html') as url:
             for engine in engines:
                 case = current / engine; case.mkdir()
-                command = [tools['node'], str(config.root / 'tests/wasm/soak/browser.mjs'),
+                driver = 'native-webkit.mjs' if engine == 'webkit' and native_webkit else 'browser.mjs'
+                command = [tools['node'], str(config.root / 'tests/wasm/soak' / driver),
                     '--root', str(config.root), '--url', url + '?' + query, '--engine', engine,
                     '--output', str(case / 'browser.json'), '--seconds', str(parameters['seconds']),
                     '--growth-mib', str(growth_mib)]
                 launcher = config.deps / 'browser-libs/launch-webkit.sh'
-                if engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
+                if engine == 'webkit' and native_webkit:
+                    command += ['--site', str(site), '--executable', str(native_webkit)]
+                elif engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
                 elif engine == 'chromium' and config.browser_override: command += ['--executable', config.browser_override]
                 print(f"wasm soak: {engine}, {parameters['seconds']}s, seed {parameters['seed']}", flush=True)
                 begin = time.monotonic()
@@ -101,6 +119,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
             if digest(config.root / name) != expected: raise WasmError('Soak input changed: ' + name)
         if any(digest(site / name) != expected for name, expected in frozen.items()):
             raise WasmError('Frozen soak assets changed')
+        if native_webkit and digest(native_receipt) != report['nativeBrowserReceipt']['sha256']:
+            raise WasmError('Native WebKit receipt changed during the long run')
         if set(report['engines']) != set(engines) or any(row['status'] != 'passed' for row in report['engines'].values()):
             raise WasmError('Mixed workload browser matrix failed')
         report['status'] = 'passed'

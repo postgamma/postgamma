@@ -199,6 +199,18 @@ Failure snapshots include the active round and Worker wait state. Missing
 progress, incomplete duration, SQL/model mismatches and resource-budget failures
 fail the command; failed rounds are not silently retried.
 
+On Linux x86-64, the WebKit soak uses the same pinned, unmodified upstream WPE
+322662@main as the native Worker diagnostic, including the Worker VM ownership
+repair absent from the Playwright bundle. It exchanges bounded, acknowledged
+events over a local WebSocket and invokes the existing read-only control/OPFS
+diagnostic through a test bootstrap that imports the original verified module.
+SDK/kernel assets and manifest hashes remain unchanged. The 128 MiB growth
+budget and SQL/recovery checks are unchanged; native Linux Worker threads must
+retire within ten seconds. The runner checks and records the browser receipt.
+Chromium and Firefox keep their Playwright drivers. Other WebKit functional
+gates still use the separate Playwright bundle; a native soak does not qualify
+Safari/iOS or the full release matrix.
+
 For attribution on an already prepared build, run Chromium diagnostics separately:
 
 ```sh

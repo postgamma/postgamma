@@ -76,11 +76,14 @@ One contributor is a confirmed WebKit native Worker leak: the bundled WebKit
 [322643@main](https://github.com/WebKit/WebKit/commit/6cf979a79f7bb78c0635ff43f02282d78137583e).
 An isolated browser ownership backport validates that cause; it is not a shipping
 SDK repair and does not explain every mixed-load memory component. The remaining
-growth still requires validation. Linux native Worker memory diagnostics use a
+growth still requires validation. Linux native Worker memory diagnostics and
+mixed-load tests use a
 SHA256-pinned unmodified upstream WPE 322662@main build containing the repair;
-`make wasm-webkit-setup` prepares that browser. The Playwright functional and
-mixed-load harness still uses its separate affected bundle and is not requalified
-by the native diagnostic.
+`make wasm-webkit-setup` prepares that browser. Its mixed-load driver preserves
+the workload, OPFS/close checks and resource limits, and measures actual Linux
+Worker threads for the ten-second retirement check. Playwright functional gates
+still use their separate affected bundle. Native diagnostics and short mixed-load
+checks do not complete long-run acceptance.
 Run `make wasm-soak-test` to validate two
 hours in each engine, including clean reopen, trap/abort recovery, cancellation
 and unchanged resource limits. Short regressions and forced-GC diagnostics do

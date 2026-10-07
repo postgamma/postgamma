@@ -41,5 +41,18 @@ class SoakReceiptTests(unittest.TestCase):
         self.row['kind'] = 'postgamma.wasm-memory-diagnostic'
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
 
+    def test_native_webkit_requires_both_owned_and_physical_retirement(self):
+        self.row.update(driver='native-wpe', engine='webkit', finalPhysicalWorkerThreads=0,
+                        workerOwnership=dict(active=[], activePthreads=[], created=3, terminated=3,
+                                             pthreadCreated=39, pthreadTerminated=39))
+        validate(self.row, self.parameters)
+        for field, value in (('active', ['3']), ('activePthreads', ['pthread-1']),
+                             ('terminated', 2), ('pthreadTerminated', 38)):
+            row = copy.deepcopy(self.row); row['workerOwnership'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+        for value in (1, None):
+            row = copy.deepcopy(self.row); row['finalPhysicalWorkerThreads'] = value
+            with self.subTest(physical=value), self.assertRaises(WasmError): validate(row, self.parameters)
+
 
 if __name__ == '__main__': unittest.main()
