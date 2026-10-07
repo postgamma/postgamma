@@ -4,6 +4,7 @@ import {cp, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {WorkerFixture, waitFor} from './worker-fixture.mjs';
 
 const directory = await mkdtemp(join(tmpdir(), 'pgm-connect-deadline-'));
 const setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout;
@@ -27,10 +28,10 @@ try {
       if (timers.has(timer)) timers.delete(timer); else clearTimer(timer);
     };
     let worker, id = 1;
-    globalThis.Worker = class {
-      terminated = 0; commands = []; discards = [];
-      constructor() {worker = this;}
-      postMessage(data) {
+    globalThis.Worker = class extends WorkerFixture {
+      commands = []; discards = [];
+      constructor() {super(); worker = this;}
+      receive(data) {
         if (data.postgammaPthreadBroker) return;
         if (data.discard) {this.discards.push(data.discard); return;}
         const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
@@ -47,15 +48,16 @@ try {
           else w.u32(2).u32(2).u32(view.getUint32(12, true)).u32(1);
         } else assert.fail('Unexpected command: ' + op);
         const reply = w.finish();
-        queueMicrotask(() => this.onmessage?.({data: {sequence, reply}}));
+        this.emit({sequence, reply});
       }
-      terminate() {this.terminated++;}
     };
     const db = await Database.open();
     let settled = 0;
     const connections = [db.connect('one'), db.connect('two')].map(work => work.then(
       connection => {settled++; return connection;}, error => {settled++; return error;}));
-    await new Promise(resolve => setImmediate(resolve));
+    if (phase !== 'complete') await waitFor(() => phase === 'begin' ?
+      worker.commands.filter(op => op === Op.connect).length === 2 :
+      worker.commands.filter(op => op === Op.connectPoll).length === 2);
     if (phase === 'complete') {
       const opened = await Promise.all(connections);
       assert(opened.every(connection => connection.handle?.kind === 2), opened.map(String).join('; '));
@@ -67,7 +69,7 @@ try {
       for (const timer of timers) timer.callback();
       const commandCount = worker.commands.length;
       const later = db.telemetry().catch(error => error);
-      await new Promise(resolve => setImmediate(resolve));
+      await waitFor(() => worker.discards.length === 1);
       assert.equal(worker.discards.length, 1, 'Concurrent expired startups share one discard');
       assert.equal(worker.commands.length, commandCount, 'No native admission after the deadline');
       assert.equal(worker.terminated, 0, 'Storage cleanup owns the live control Worker');

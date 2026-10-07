@@ -45,6 +45,7 @@ def validate(row, parameters):
         owner = row.get('workerOwnership', {})
         if (row.get('engine') != 'webkit' or row.get('finalPhysicalWorkerThreads') != 0 or
                 owner.get('active') != [] or owner.get('activePthreads') != [] or
+                owner.get('nativeOwnerPosts') != 0 or
                 not owner.get('created') or owner.get('created') != owner.get('terminated') or
                 not owner.get('pthreadCreated') or owner.get('pthreadCreated') != owner.get('pthreadTerminated')):
             raise WasmError('Native WebKit Worker ownership or physical retirement evidence is incomplete')

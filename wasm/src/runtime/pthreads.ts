@@ -1,5 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {pthreadPoolSize} from '../protocol/limits.js';
+import {ownWorkerMailbox} from './messages.js';
 
 // The API owner creates both the control Worker and the pthread Workers.
 // Retiring a control Worker must not wait for nested browser Worker shutdown.
@@ -45,6 +46,10 @@ export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Err
       // Identity belongs to the Worker, not to the HTTP/compiled asset cache key.
       url.hash = new URLSearchParams({postgammaPthread: group + ':' + data.id}).toString();
       const worker = new WorkerConstructor(url, data.options);
+      // Register the bootstrap consumer before any forwarding listener. Some
+      // Worker targets invoke listeners in registration order despite capture;
+      // forwarding the bootstrap would transfer its port away from this owner.
+      const ready = ownWorkerMailbox(worker);
       const send = (value: unknown, transfer: Transferable[] = []) => {
         if (closed || !workers.has(data.id)) {
           for (const item of transfer) if (item instanceof MessagePort) item.close();
@@ -60,11 +65,27 @@ export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Err
         send({event: 'error', message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno});
       };
       worker.onmessageerror = () => send({event: 'messageerror'});
-      port.onmessage = ({data: message}) => {
+      void ready.catch(cause => {
         if (closed || !workers.has(data.id)) return;
+        send({event: 'error', message: String(cause)});
+        retire(data.id); failed(new Error('Pthread Worker mailbox failed: ' + String(cause)));
+      });
+      port.onmessage = ({data: message}) => {
+        if (closed || !workers.has(data.id)) {
+          if (Array.isArray(message?.transfer)) for (const item of message.transfer) if (item instanceof MessagePort) item.close();
+          return;
+        }
         try {
-          if (message?.cmd === 'post' && Array.isArray(message.transfer))
-            worker.postMessage(message.data, message.transfer);
+          if (message?.cmd === 'post' && Array.isArray(message.transfer)) {
+            void ready.then(() => {
+              if (closed || !workers.has(data.id)) {
+                for (const item of message.transfer) if (item instanceof MessagePort) item.close();
+                return;
+              }
+              try {worker.postMessage(message.data, message.transfer);}
+              catch (cause) {retire(data.id); failed(new Error('Pthread Worker command failed: ' + String(cause)));}
+            }, () => {for (const item of message.transfer) if (item instanceof MessagePort) item.close();});
+          }
           else if (message?.cmd === 'terminate') retire(data.id);
           else throw new Error('Invalid pthread Worker command');
         } catch (cause) {retire(data.id); failed(new Error('Pthread Worker command failed: ' + String(cause)));}

@@ -4,6 +4,7 @@ import {cp, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {WorkerFixture, waitFor} from './worker-fixture.mjs';
 
 const directory = await mkdtemp(join(tmpdir(), 'pgm-transport-'));
 try {
@@ -17,10 +18,10 @@ try {
   const {Op, VERSION, Writer} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   globalThis.location = {href: 'https://example.invalid/'};
   let worker;
-  globalThis.Worker = class {
-    terminated = 0; commands = []; discards = [];
-    constructor() {worker = this;}
-    postMessage(data) {
+  globalThis.Worker = class extends WorkerFixture {
+    commands = []; discards = [];
+    constructor() {super(); worker = this;}
+    receive(data) {
       if (data.postgammaPthreadBroker) {assert(data.compiled instanceof WebAssembly.Module); return;}
       if (data.discard) {this.discards.push(data.discard); return;}
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
@@ -29,17 +30,16 @@ try {
         const w = new Writer().u32(VERSION).u32(sequence).u32(op).u32(0);
         for (let i = 0; i < 17; i++) w.u32(0xffffffff);
         const reply = w.u32(1).u32(1).u32(1).finish();
-        queueMicrotask(() => this.onmessage({data: {sequence, reply}}));
+        this.emit({sequence, reply});
       }
     }
-    terminate() {this.terminated++;}
   };
   const db = await Database.open();
   let settled = 0;
   const original = db.telemetry().catch(error => {settled++; return error;});
   worker.onmessageerror();
   const later = db.telemetry().catch(error => {settled++; return error;});
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await waitFor(() => worker.discards.length === 1);
   assert.equal(worker.discards.length, 1, 'Transport asks the control Worker to release storage');
   assert.equal(worker.terminated, 0, 'Keep the control Worker alive until cleanup is acknowledged');
   assert.equal(settled, 0, 'Pending and new operations do not expose failure before cleanup');

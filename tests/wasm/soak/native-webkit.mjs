@@ -65,6 +65,7 @@ async function eventReceived(event) {
     else {assert.deepEqual(event.metrics.resources, {locks: 0, shmem: 0, dsm: 0, pipes: 0});assert.equal(event.metrics.runningWorkers, 0);}
   }
   if (event.controlSnapshot) {
+    assert.equal(event.ownership.nativeOwnerPosts, 0, 'SDK messages use child-owned ports rather than leaking native owner posts');
     assert.equal(event.ownership.active.length, 1);assert.equal(event.ownership.activePthreads.length, 13);
     const value = event.controlSnapshot;
     assert(!value.error && value.pending <= 1, 'Healthy quiescent control snapshot');
@@ -99,6 +100,7 @@ async function eventReceived(event) {
     const metrics = event.result.metrics.at(-1);
     assert.deepEqual(metrics.resources, {locks: 0, shmem: 0, dsm: 0, pipes: 0});assert.equal(metrics.runningWorkers, 0);
     const owner = event.ownership;assert.deepEqual(owner.active, []);assert.deepEqual(owner.activePthreads, []);
+    assert.equal(owner.nativeOwnerPosts, 0);
     assert.equal(owner.created, owner.terminated);assert.equal(owner.pthreadCreated, owner.pthreadTerminated);
     report.workerOwnership = owner;
     const deadline = performance.now() + 10000;

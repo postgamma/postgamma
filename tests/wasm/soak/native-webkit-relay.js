@@ -1,8 +1,9 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 const nativeWorker = Worker, controls = new Map(), pthreads = new Set();
 let created = 0, terminated = 0, pthreadCreated = 0, pthreadTerminated = 0;
+let nativeOwnerPosts = 0;
 const ownership = () => ({active: [...controls.keys()], activePthreads: [...pthreads],
-  created, terminated, pthreadCreated, pthreadTerminated});
+  created, terminated, pthreadCreated, pthreadTerminated, nativeOwnerPosts});
 window.Worker = class extends nativeWorker {
   constructor(source, options) {
     const url = new URL(source, location.href);
@@ -19,6 +20,7 @@ window.Worker = class extends nativeWorker {
     if (this.controlId && controls.delete(this.controlId)) terminated++;
     if (this.pthreadId && pthreads.delete(this.pthreadId)) pthreadTerminated++;
   }
+  postMessage(...args) {nativeOwnerPosts++; return super.postMessage(...args);}
 };
 const socket = new WebSocket(new URL('/__soak', location.href).href.replace(/^http/, 'ws'));
 let sequence = 0, lastSample = 0;

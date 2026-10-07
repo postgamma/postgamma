@@ -6,6 +6,8 @@ import {DatabaseError, LIMIT, Op, Reader, VERSION, Writer, response} from '../pr
 import {limits} from '../protocol/limits.js';
 import {acquire} from '../storage/ownership.js';
 import {installPthreadBroker} from '../runtime/pthreads.js';
+import {installWorkerMailbox} from '../runtime/messages.js';
+installWorkerMailbox();
 const output: string[] = [];
 let droppedLogs = 0;
 function record(text: string) {

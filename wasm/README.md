@@ -271,9 +271,23 @@ Playwright bundle is unchanged and still affected; the native diagnostic now use
 the pinned official WPE build by default on Linux x86-64. It does not replace the
 Playwright executable: the two builds have different automation protocols.
 Official WPE and Playwright MiniBrowser profile options are detected
-without attaching an inspector. This evidence does not establish the cause of
-all original mixed-load growth or a matching cause in Chromium; the 128 MiB
-gates remain.
+without attaching an inspector.
+
+A second confirmed native leak remains in both that WPE build and current
+[WebKit WorkerMessagingProxy.cpp](https://github.com/WebKit/WebKit/blob/9eb4e2ad5983af0d494b62b38e55ff9010fb5993/Source/WebCore/workers/WorkerMessagingProxy.cpp):
+`WorkerUserGestureForwarder::create` returns a newly allocated object through
+`Ref` without `adoptRef`, leaving its initial reference alive after every
+main-thread `Worker.postMessage`, including messages without a user gesture.
+The original 1,000-round mixed-load allocation trace retained all 157,588
+16-byte allocations at that call site after close and idle. Those tiny objects
+also pin native allocator pages. With only the first browser fix, an unchanged
+mixed-load run still failed at round 6,650 with 129.61 MiB accounted growth.
+The SDK now lets every control and pthread Worker transfer its mailbox to the
+API owner before commands start; all subsequent commands and replies use
+`MessagePort`. Worker event handlers, transfer lists, direct OPFS ports and
+native termination remain intact. The native soak records and requires zero
+main-thread native `Worker.postMessage` calls. The original 128 MiB growth and
+ten-second thread retirement gates remain; long-run results qualify separately.
 
 On this Linux runner, quiescent samples track browser process-tree RSS/PSS/SwapPss,
 threads, file descriptors, Wasm linear memory and OPFS handles. After a

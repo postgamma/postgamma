@@ -4,6 +4,7 @@ import {cp, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {WorkerFixture, waitFor} from './worker-fixture.mjs';
 const directory = await mkdtemp(join(tmpdir(), 'pgm-notifications-'));
 try {
   await cp(resolve(process.argv[2]), directory, {recursive: true});
@@ -16,10 +17,10 @@ try {
   const {limits} = await import(pathToFileURL(join(directory, 'protocol/limits.js')));
   globalThis.location = {href: 'https://example.invalid/'};
   let worker;
-  globalThis.Worker = class {
-    commands = []; terminated = false;
-    constructor() {worker = this;}
-    postMessage(data) {
+  globalThis.Worker = class extends WorkerFixture {
+    commands = [];
+    constructor() {super(); worker = this;}
+    receive(data) {
       if (data.postgammaPthreadBroker) return;
       assert(data instanceof ArrayBuffer);
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);
@@ -29,22 +30,23 @@ try {
     reply(command, payload = () => {}) {
       const w = new Writer().u32(VERSION).u32(command.sequence).u32(command.op).u32(0);
       for (let i = 0; i < 17; i++) w.u32(0xffffffff);
-      payload(w); this.onmessage({data: {sequence: command.sequence, reply: w.finish()}});
+      payload(w); this.emit({sequence: command.sequence, reply: w.finish()});
     }
-    terminate() {this.terminated = true;}
   };
   const db = await Database.open(), transport = db.transport;
   const connection = new Connection(transport, {kind: 2, id: 2, generation: 1}, () => {});
   const received = []; const unsubscribe = connection.onNotification(n => received.push(n));
   const requests = Array.from({length: limits.maxPendingCommands}, () => transport.call(Op.telemetry));
   const completions = Promise.allSettled(requests);
+  await waitFor(() => worker.commands.filter(c => c.op === Op.telemetry).length === limits.maxPendingCommands);
   worker.onmessage({data: {notificationsReady: true}});
   assert(!worker.commands.some(c => c.op === Op.events), 'Full command queue defers notification drain');
   worker.reply(worker.commands.find(c => c.op === Op.telemetry));
+  await waitFor(() => worker.commands.some(c => c.op === Op.events));
   const drain = worker.commands.find(c => c.op === Op.events);
   assert(drain, 'A command reply resumes notification drain without a polling timer');
   worker.reply(drain, w => w.u32(1).u32(1).u32(2).u32(2).u32(1).u32(101).text('test').text('value'));
-  await new Promise(resolve => setTimeout(resolve, 0));
+  await waitFor(() => received.length === 1);
   assert.deepEqual(received, [{pid: 101, channel: 'test', payload: 'value'}]);
   unsubscribe(); transport.closeEvents();
   const count = worker.commands.length;

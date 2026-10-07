@@ -75,8 +75,12 @@ One contributor is a confirmed WebKit native Worker leak: the bundled WebKit
 2359 does not own or destroy each VM's `JSHeapData`. WebKit corrected this in
 [322643@main](https://github.com/WebKit/WebKit/commit/6cf979a79f7bb78c0635ff43f02282d78137583e).
 An isolated browser ownership backport validates that cause; it is not a shipping
-SDK repair and does not explain every mixed-load memory component. The remaining
-growth still requires validation. Linux native Worker memory diagnostics and
+SDK repair. A second confirmed WebKit leak, the missing `adoptRef` in
+`WorkerUserGestureForwarder::create`, retains an object on each main-thread
+`Worker.postMessage`. The SDK avoids that path with child-owned MessagePort
+mailboxes for both control and pthread Workers; bootstrap, transferred data,
+OPFS ports and retirement are validated together. Long-run memory growth still
+requires qualification under the original limits. Linux native Worker memory diagnostics and
 mixed-load tests use a
 SHA256-pinned unmodified upstream WPE 322662@main build containing the repair;
 `make wasm-webkit-setup` prepares that browser. Its mixed-load driver preserves

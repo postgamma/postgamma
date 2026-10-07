@@ -46,7 +46,7 @@ def source_snapshot(root: Path, extensions=()):
     result["wasm_bridge_sources"] = {str(p.relative_to(root)): digest(p)
         for directory in ("wasm/bridge", "tests/wasm")
         for p in sorted((root / directory).rglob("*"))
-        if p.is_file() and p.suffix in (".c", ".cpp", ".h")}
+        if p.is_file() and (p.suffix in (".c", ".cpp", ".h") or directory == "wasm/bridge" and p.suffix == ".js")}
     if "pgvector" in extensions:
         for name in ("extensions/pgvector", "third_party/pgvector"):
             result[name] = tree_hashes(root / name)
@@ -524,6 +524,8 @@ class Builder:
         self.report["storage_notification"] = "direct BroadcastChannel"
         command = [self.emxx, "-pthread", "-sSUPPORT_LONGJMP=" + self.longjmp,
                    "--js-library", str(self.root / "runtime/platform/emscripten/mailbox.js"),
+                   *(["--extern-pre-js", str(self.root / "wasm/bridge/worker-messages.js")]
+                     if bridge_source == self.root / "wasm/bridge/sql.c" else []),
                    "-sEXPORTED_FUNCTIONS=" + json.dumps(["_" + name for name in (*roots, "emscripten_proxy_finish", "emscripten_proxy_execute_queue", "postgamma_storage_finish")]),
                    *("-Wl,--wrap=" + name for name in ("__wasi_fd_sync", "__syscall_fdatasync", "__syscall_openat", "__syscall_mkdirat")),
                    "-Wl,--fatal-warnings", "-Wl,-Map=" + str(self.current / "link.map"),

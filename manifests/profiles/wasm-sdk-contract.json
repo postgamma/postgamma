@@ -15,6 +15,7 @@
   },
   "invariants": [
     "The SQL API owner creates the control and fixed pthread pool as sibling Workers. Before loading the module, the control installs MessagePort Worker facades that preserve SDK onmessage/onerror properties and transfer lists; the API owner bounds allocations and terminates the entire group on every retirement path.",
+    "Each control and pthread Worker transfers its private mailbox to the API owner before the owner sends commands. The owner awaits the bounded handshake and uses only MessagePort.postMessage, avoiding WebKit's leaking main-thread WorkerUserGestureForwarder; module startup errors and retirement close the mailbox and native Worker together.",
     "Normal native exit completes cleanup and clears pthread_self before publishing DT_EXITED. After native joins and SDK pool return drain all pthread mappings, normal close terminates the idle pool without a second child acknowledgement; browser target gates independently verify physical reclamation.",
     "The checkMailbox postset preserves SDK dispatch while live and gates queued callbacks before a fatal module or storage owner terminates native lock owners.",
     "A failed pthread handles a private cmd-less retirement message on its own JS event loop, acknowledges through a MessagePort and closes its scope without native cleanup; its parent excludes it from terminateAllThreads and waits for that acknowledgement.",

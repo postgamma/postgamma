@@ -13,6 +13,7 @@ import {Readiness} from '../protocol/readiness.js';
 import {buildId} from '../loader/identity.js';
 import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
 import {ownPthreads} from '../runtime/pthreads.js';
+import {ownWorkerMailbox} from '../runtime/messages.js';
 export interface ArchiveOptions {signal?: AbortSignal}
 export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
 const archiveHeader = () => new TextEncoder().encode(JSON.stringify({format: 'postgamma.archive', version: 1, buildId}));
@@ -218,7 +219,9 @@ export class Database {
       verifiedAsset(base, manifest, manifest.entries.worker), compiledKernel(base, manifest),
     ]);
     const memory = ownedMemory(manifest);
-    return new Transport(new Worker(new URL(manifest.entries.worker, base), {type: 'module'}),
+    const worker = new Worker(new URL(manifest.entries.worker, base), {type: 'module'});
+    await ownWorkerMailbox(worker);
+    return new Transport(worker,
       new URL(manifest.entries.module, base), compiled, memory);
   }
   static async open(options: OpenOptions = {}): Promise<Database> {

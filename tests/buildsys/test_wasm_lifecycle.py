@@ -118,6 +118,7 @@ class LifecycleEvidenceTests(unittest.TestCase):
             (root / 'runtime/io.c').write_text('original')
             (root / 'wasm/bridge').mkdir(parents=True)
             (root / 'wasm/bridge/sql.c').write_text('bridge')
+            (root / 'wasm/bridge/worker-messages.js').write_text('mailbox bootstrap')
             (root / 'tests/wasm/sql').mkdir(parents=True)
             (root / 'tests/wasm/sql/close_gate.c').write_text('native fixture')
             link = {'status': 'passed', 'kernel_linked': True, 'extensions': [],
@@ -130,7 +131,8 @@ class LifecycleEvidenceTests(unittest.TestCase):
                    'harness_sources': {'source.ts': digest(root / 'source.ts')}}
             config = SimpleNamespace(root=root, mode='release')
             verify_inputs(config, sql)
-            for name in ('source.ts', 'module.js', 'runtime/io.c', 'wasm/bridge/sql.c', 'tests/wasm/sql/close_gate.c'):
+            for name in ('source.ts', 'module.js', 'runtime/io.c', 'wasm/bridge/sql.c',
+                         'wasm/bridge/worker-messages.js', 'tests/wasm/sql/close_gate.c'):
                 original = (root / name).read_text()
                 (root / name).write_text('changed')
                 with self.assertRaisesRegex(WasmError, 'changed'):

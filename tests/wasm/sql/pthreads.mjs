@@ -2,22 +2,21 @@
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
+import {WorkerFixture} from './worker-fixture.mjs';
 const {ownPthreads, installPthreadBroker} = await import(pathToFileURL(resolve(process.argv[2], 'runtime/pthreads.js')));
 const {pthreadPoolSize} = await import(pathToFileURL(resolve(process.argv[2], 'protocol/limits.js')));
 globalThis.ErrorEvent ??= class extends Event {
   constructor(type, init) {super(type, init); for (const key of ['message', 'filename', 'lineno', 'colno']) this[key] = init[key];}
 };
 const native = [], failures = [];
-class NativeWorker {
-  terminated = 0;
-  constructor(url, options) {this.url = url; this.options = options; native.push(this);}
-  postMessage(data, transfer) {
-    const copy = structuredClone(data, {transfer});
+let automaticMailbox = true;
+class NativeWorker extends WorkerFixture {
+  constructor(url, options) {super(automaticMailbox); this.url = url; this.options = options; native.push(this);}
+  receive(copy) {
     if (copy.port) {
       copy.port.postMessage({storageOwner: true}); copy.port.close();
-    } else queueMicrotask(() => this.onmessage({data: copy, ports: []}));
+    } else this.emit(copy);
   }
-  terminate() {this.terminated++;}
 }
 const savedWorker = globalThis.Worker;
 const moduleURL = new URL('https://example.invalid/assets/postgamma.mjs');
@@ -96,6 +95,31 @@ try {
   await wait(() => failures.length === 2);
   assert.match(failures[1].message, /asset manifest/);
   assert.equal(native.length, pthreadPoolSize + 1, 'Undeclared worker URLs cannot allocate threads');
+  assert(native.every(worker => worker.nativePosts === 0), 'Pthread commands avoid native owner postMessage');
   unexpected.terminate(); stop(); transferred.close();
+
+  automaticMailbox = false; group();
+  const delayed = new Worker(moduleURL, {type: 'module', name: 'em-pthread-0'}), replies = [];
+  delayed.onmessage = event => replies.push(event.data.value);
+  delayed.postMessage({value: 1}); delayed.postMessage({value: 2});
+  await wait(() => native.length === pthreadPoolSize + 2);
+  const delayedNative = native.at(-1);
+  assert.deepEqual(replies, [], 'Commands wait for the child mailbox');
+  delayedNative.startMailbox(); await wait(() => replies.length === 2);
+  assert.deepEqual(replies, [1, 2], 'Bootstrap preserves queued command order');
+  delayed.terminate(); await wait(() => delayedNative.terminated === 1);
+
+  const abandoned = new Worker(moduleURL, {type: 'module', name: 'em-pthread-1'});
+  await wait(() => native.length === pthreadPoolSize + 3);
+  abandoned.terminate(); await wait(() => native.at(-1).terminated === 1);
+  assert.equal(failures.length, 2, 'Retirement during bootstrap is not a fatal group error');
+  const broken = new Worker(moduleURL, {type: 'module', name: 'em-pthread-2'});
+  let startupError; broken.onerror = event => {startupError = event.message;};
+  await wait(() => native.length === pthreadPoolSize + 4);
+  native.at(-1).dispatchEvent(new ErrorEvent('error', {cancelable: true, message: 'bootstrap import failed'}));
+  await wait(() => failures.length === 3 && startupError);
+  assert.match(startupError, /bootstrap import failed/);
+  broken.terminate(); stop(); transferred.close();
+  assert(native.every(worker => worker.terminated === 1 && worker.nativePosts === 0));
   console.log('Pthread ownership: transferable data, direct OPFS ports, error events, bounded allocation and group retirement passed');
 } finally {stop?.(); transferred?.close(); globalThis.Worker = savedWorker;}

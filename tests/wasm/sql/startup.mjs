@@ -10,7 +10,7 @@ import {pathToFileURL} from 'node:url';
 const source = resolve(process.argv[2]), directory = await mkdtemp(join(tmpdir(), 'pgm-startup-'));
 try {
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
-  for (const name of ['worker/sql.js', 'protocol/wire.js', 'protocol/limits.js', 'runtime/pthreads.js']) {
+  for (const name of ['worker/sql.js', 'protocol/wire.js', 'protocol/limits.js', 'runtime/pthreads.js', 'runtime/messages.js']) {
     await mkdir(dirname(join(directory, name)), {recursive: true});
     await copyFile(join(source, name), join(directory, name));
   }
