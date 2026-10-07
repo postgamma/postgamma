@@ -63,6 +63,10 @@ wasm-opfs-check:
 wasm-browser-setup:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" browser-setup $(POSTGAMMA_WASM_ARGS)
 
+.PHONY: wasm-webkit-setup
+wasm-webkit-setup:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_webkit.py" --root "$(ROOT)" --deps-dir "$(WASM_DEPS_DIR)"
+
 wasm-browser-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-check $(POSTGAMMA_WASM_ARGS) --probe deployment
 

@@ -230,8 +230,13 @@ by default (`WASM_MEMORY_WAVES`), waits sixty seconds between waves
 Reports compare the last three natural-idle samples in each wave and retain
 process memory, thread counts and JS wrapper finalization counts. Finalization
 counts do not measure native VM destruction. Chromium, Firefox and WebKit are
-selected with `WASM_MEMORY_ENGINE`; `WASM_BROWSER_EXECUTABLE` can select a prepared
-browser build. WebKit's native allocator status is saved in `browser.native.log`.
+selected with `WASM_MEMORY_ENGINE`. On Linux x86-64, the WebKit diagnostic installs
+and uses the unmodified official WPE 322662@main bundle containing the Worker
+ownership repair. Its revision, archive size and SHA256 are pinned; all extracted
+files are checked against an installation receipt before reuse. Run
+`make wasm-webkit-setup` to prepare it separately. `WASM_BROWSER_EXECUTABLE` can
+select an explicit comparison build. WebKit's native allocator status is saved
+in `browser.native.log`.
 The command returns diagnostic completion; it does not substitute for mixed-load
 acceptance or automatically declare observed growth acceptable.
 
@@ -250,9 +255,10 @@ The unmodified official
 [WPE nightly 322662@main](https://wpewebkit.org/built-products/x86_64/release/nightly/MiniBrowser/)
 contains that source fix and completed the same two 14,000-Worker waves with
 1.70 MiB growth and all 28,000 JS wrappers naturally finalized. The pinned
-Playwright bundle is unchanged and still affected; a prepared official WPE
-`MiniBrowser` wrapper can be selected with `WASM_BROWSER_EXECUTABLE` for this
-diagnostic. Official WPE and Playwright MiniBrowser profile options are detected
+Playwright bundle is unchanged and still affected; the native diagnostic now uses
+the pinned official WPE build by default on Linux x86-64. It does not replace the
+Playwright executable: the two builds have different automation protocols.
+Official WPE and Playwright MiniBrowser profile options are detected
 without attaching an inspector. This evidence does not establish the cause of
 all original mixed-load growth or a matching cause in Chromium; the 128 MiB
 gates remain.

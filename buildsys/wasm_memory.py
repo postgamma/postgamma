@@ -2,6 +2,7 @@
 """Attribute browser/native memory; diagnostic receipts never qualify release gates."""
 import argparse
 from pathlib import Path
+import platform
 import shutil
 import tempfile
 from urllib.parse import urlencode
@@ -19,9 +20,12 @@ def workers(config, args, folder, report):
     tools, env = sdk_tools(config)
     metadata = description(config, tools, env)
     executable = args.browser_executable
-    if not executable and args.engine == 'webkit':
-        launcher = config.deps / 'browser-libs/launch-webkit.sh'
-        if launcher.is_file(): executable = str(launcher)
+    if not executable and args.engine == 'webkit' and platform.system() == 'Linux':
+        from wasm_webkit import install
+        launcher, receipt = install(config.deps)
+        executable = str(launcher)
+        report['nativeBrowserReceipt'] = str(receipt)
+        report['nativeBrowserReceiptSha256'] = digest(receipt)
     report['tools'] = metadata
     output = folder / 'browser.json'; report['browserReport'] = str(output)
     command = [tools['node'], str(config.root / 'tests/wasm/soak/worker-memory.mjs'),
@@ -41,7 +45,7 @@ def diagnose(config, args):
     report = {'kind': 'postgamma.wasm-memory-diagnostic', 'status': 'failed', 'productionAcceptance': False,
               'workload': args.workload, 'parameters': vars(args).copy()}
     report['parameters'] = {k: str(v) if isinstance(v, Path) else v for k, v in report['parameters'].items()}
-    inputs = ['buildsys/wasm_memory.py', 'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs',
+    inputs = ['buildsys/wasm_memory.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs',
               'tests/wasm/soak/browser.mjs', 'tests/wasm/soak/opfs-browser.mjs',
               'tests/wasm/soak/opfs-memory.html', 'tests/wasm/soak/opfs-memory.js',
               'tests/wasm/soak/worker-memory.mjs', 'tests/wasm/soak/worker-memory.js']
