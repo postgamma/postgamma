@@ -164,6 +164,17 @@ wasm-soak-check:
 wasm-soak-smoke:
 	@$(MAKE) wasm-soak-check WASM_SOAK_SECONDS=120 WASM_SOAK_ROUNDS=0 WASM_SOAK_ENGINES=chromium,firefox,webkit
 
+.PHONY: wasm-alpha-test wasm-alpha-check
+# The full functional matrix precedes endurance of its exact production archive.
+wasm-alpha-test:
+	@$(MAKE) source-init JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-setup JOBS="$(WASM_TEST_JOBS)"
+	@$(MAKE) wasm-browser-setup JOBS="$(WASM_TEST_JOBS)"
+	@ulimit -Sn "$$(ulimit -Hn)" && $(MAKE) wasm-alpha-check JOBS="$(WASM_TEST_JOBS)" WASM_MODE=release
+
+wasm-alpha-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_alpha.py" $(POSTGAMMA_WASM_ARGS) --seconds "$(WASM_SOAK_SECONDS)" --seed "$(WASM_SOAK_SEED)"
+
 .PHONY: wasm-memory-diagnose
 WASM_MEMORY_WORKLOAD ?= soak
 WASM_MEMORY_ITERATIONS ?= 2000

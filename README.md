@@ -552,6 +552,14 @@ build job; use `JOBS=2` to increase parallelism.
 gates with fail-fast stage handling. Release artifacts remain separate from
 debug builds. Neither entry point publishes the generated package.
 
+`make wasm-alpha-test` adds final alpha qualification in one command. It runs
+the full release suite, then tests that exact production npm archive for two
+active hours in each browser, serially (about six hours plus building and the
+functional suite). Its memory growth budget stays at 128 MiB. The final receipt
+is referenced by `build/wasm/reports/alpha.json`; incomplete duration, a failed
+stage or a changed source/package fails qualification. This command creates an
+installable tarball and does not publish it.
+
 `make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
 Every run includes shared runtime regression. The Browser kernel workflow uses
 these debug gates for relevant pull requests and adds ABI, wait/notify and

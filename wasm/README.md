@@ -91,6 +91,8 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-pglite-check WASM_MODE=release` | Run the pinned PGlite-derived cases in Chromium, Firefox and Linux WebKit, each with ephemeral and OPFS storage. Requires setup and `wasm-kernel-generate` for this mode. |
 | `make wasm-soak-test` | Prepare sources, SDK, browsers and a release build, then run the seeded mixed workload for two hours per browser (about six hours total). |
 | `make wasm-soak-check WASM_MODE=release` | Run the same endurance gate using an already prepared SDK and generated kernel. |
+| `make wasm-alpha-test` | Prepare tools, pass all release gates, then qualify the exact production npm archive for two active hours per browser. |
+| `make wasm-alpha-check WASM_MODE=release` | Run the same complete alpha qualification using already installed tools. |
 | `make wasm-lifecycle-check` | Run connection close progress/deadline and OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
@@ -180,6 +182,23 @@ checks rolled-back objects are absent and verifies zero outstanding native
 requests. Every 50 rounds it alternates clean close, Wasm trap and abort;
 recovery must preserve acknowledged commits and discard uncommitted changes.
 The SQL sequence is reproducible; native thread interleavings are not fixed.
+
+For final alpha acceptance, use `make wasm-alpha-test` instead of an isolated
+soak. It first requires every release stage, including native SQL/COPY oracles,
+PGlite cases, vector/contrib, archive/restore, OPFS recovery, lifecycle and the
+independently installed three-engine package matrix. Endurance then copies and
+rechecks that exact production package, without relinking its kernel or enabling
+the private testing bridge. Its recovery cycles alternate orderly close and
+control Worker errors/unhandled rejections injected by the test bootstrap.
+Native pthread trap/abort recovery remains mandatory in the separate lifecycle
+matrix. The receipt records both failure sources explicitly.
+
+All three engines run serially for at least 7200 active seconds each, followed
+by cleanup checks; the existing 128 MiB resource budget is unchanged. Source,
+package and SDK/kernel asset hashes must remain unchanged through completion.
+`build/wasm/reports/alpha.json` references the final receipt and npm archive.
+This takes about six hours plus preparation and functional tests. It does not
+publish to npm. Short replay and diagnostic reports cannot qualify alpha.
 
 ```sh
 # One command, including preparation; two hours in each of three browsers.
