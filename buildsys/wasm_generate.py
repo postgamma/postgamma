@@ -146,6 +146,32 @@ def verify_generation_sources(root: Path, inputs: dict) -> None:
         raise WasmError("generation inputs changed while running; rerun with stable inputs")
 
 
+def check_generator_tools(config):
+    """Reject an incompatible host frontend before compiling the kernel."""
+    current = config.build / 'wasm/generator-tools' / run_id()
+    report = dict(kind='postgamma.wasm-generator-tools', status='failed')
+    try:
+        tools, env = sdk_tools(config)
+        finder = config.root / 'buildsys/find_tool.py'
+        clang = capture([sys.executable, str(finder), 'clang++', '--root', str(config.root)])
+        resource = capture([str(Path(tools['settings']['LLVM_ROOT']) / 'clang'), '-print-resource-dir'], env)
+        source = config.root / 'tests/wasm/fixtures/sdk-headers.c'
+        command = [clang, '-x', 'c', '--target=wasm32-unknown-emscripten', '-std=gnu11',
+                   '--sysroot=' + str(Path(tools['settings']['CACHE']) / 'sysroot'),
+                   '-resource-dir=' + resource, '-pthread', '-Werror', '-fsyntax-only', str(source)]
+        report.update(command=command, clang_version=capture([clang, '--version']).splitlines()[0],
+                      clang_sha256=digest(Path(clang)), fixture_sha256=digest(source))
+        run(command, current / 'headers.log', env, config.root, timeout=30)
+        report['status'] = 'passed'
+    except Exception as error:
+        report['error'] = str(error)
+        raise WasmError('Host AST frontend cannot parse the selected SDK headers; select a compatible LLVM/Clang pair. See ' + str(current / 'headers.log')) from error
+    finally:
+        write_json(current / 'report.json', report)
+        print(f"wasm generator tools: {report['status']}; {current / 'report.json'}", flush=True)
+    return current / 'report.json'
+
+
 def ast_cached(command: list[str], outputs: list[Path], inputs: dict,
                log: Path, env: dict, root: Path) -> None:
     stamp = outputs[0].with_suffix(".ast-receipt.json")
@@ -162,13 +188,15 @@ def ast_cached(command: list[str], outputs: list[Path], inputs: dict,
 
 
 def generate(config, longjmp: str, candidate_probe: bool = False) -> Path:
+    generator_tools = check_generator_tools(config)
     directory = build_target(config, "capture", longjmp)
     tools, environment = sdk_tools(config)
     env = clean_environment(environment)
     current = directory / "runs" / ("generate-" + run_id())
     log = current / "build.log"
     report = {"kind": "postgamma.wasm-kernel-generation", "schema_version": 1,
-              "status": "failed", "kernel_linked": False, "sql_validated": False, "candidate_probe": candidate_probe}
+              "status": "failed", "kernel_linked": False, "sql_validated": False, "candidate_probe": candidate_probe,
+              "generator_tools": {'path': str(generator_tools), 'sha256': digest(generator_tools)}}
     root = config.root
     kernel_inputs = read_json(directory / "inputs.json")
     source, build = source_tree(config, directory, kernel_inputs), directory / "configure"
@@ -380,9 +408,12 @@ def main() -> int:
     parser.add_argument("--browser-executable", default="")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--candidate-probe", action="store_true")
+    parser.add_argument("--check-tools", action="store_true")
     args = parser.parse_args()
     try:
-        generate(configuration(args), args.longjmp, args.candidate_probe)
+        config = configuration(args)
+        if args.check_tools: check_generator_tools(config)
+        else: generate(config, args.longjmp, args.candidate_probe)
     except (WasmError, OSError, ValueError) as error:
         parser.exit(2, f"wasm generation: {error}\n")
     return 0

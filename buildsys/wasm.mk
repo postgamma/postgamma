@@ -26,6 +26,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 .PHONY: wasm-target-check
 .PHONY: wasm-kernel-configure wasm-kernel-capture wasm-kernel-generate wasm-runtime-check
 .PHONY: wasm-kernel-link
+.PHONY: wasm-generator-tools-check
 .PHONY: wasm wasm-check wasm-check-full wasm-release wasm-serve wasm-test
 WASM_KEEP_GOING ?= 0
 # This convenience entry point is deliberately serial by default on small hosts.
@@ -85,6 +86,9 @@ wasm-kernel-capture:
 
 wasm-kernel-generate:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_generate.py" $(POSTGAMMA_WASM_ARGS) $(VERIFY_UPSTREAM_PROBE_ARG)
+
+wasm-generator-tools-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_generate.py" $(POSTGAMMA_WASM_ARGS) --check-tools
 
 wasm-runtime-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_runtime.py" $(POSTGAMMA_WASM_ARGS)

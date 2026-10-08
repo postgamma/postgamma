@@ -10,7 +10,7 @@ from wasm_toolchain import WasmError, configuration, capture, digest, read_json,
 
 
 def stages(profile, platform_checks=False):
-    result = [('tools', ['doctor-ast', 'doctor-wasm']), ('unit', []), ('generation', ['wasm-kernel-generate']),
+    result = [('tools', ['doctor-ast', 'doctor-wasm', 'wasm-generator-tools-check']), ('unit', []), ('generation', ['wasm-kernel-generate']),
               ('runtime', ['wasm-runtime-check'])]
     if profile == 'weekly' or platform_checks:
         result += [('platform', ['wasm-platform-check']), ('wait', ['wasm-wait-check']),

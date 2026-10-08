@@ -50,6 +50,7 @@ class WasmCITests(unittest.TestCase):
             self.assertFalse(selected(Path(path)), path)
 
     def test_basic_suite_runs_oracle_sql_and_installed_package(self):
+        self.assertIn('wasm-generator-tools-check', dict(stages('basic'))['tools'])
         names = [name for name, _ in stages('basic')]
         self.assertLess(names.index('generation'), names.index('runtime'))
         self.assertLess(names.index('runtime'), names.index('sql'))
