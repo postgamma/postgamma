@@ -169,6 +169,10 @@ class WasmCITests(unittest.TestCase):
             self.assertEqual(report['status'], 'failed')
             self.assertEqual(report['stages'][-1]['name'], 'sql')
             self.assertFalse(any('wasm-package-check' in command for command in commands))
+            installation = next(row['command'] for row in report['stages'] if row['name'] == 'oracle-install')
+            self.assertIn('install', installation)
+            self.assertIn('DESTDIR=' + str(config.build / 'wasm/oracle/reference/tmp_install'), installation)
+            self.assertNotIn('temp-install', installation)
             self.assertEqual((native/'sentinel').read_text(), 'existing native build')
 
 if __name__ == '__main__': unittest.main()

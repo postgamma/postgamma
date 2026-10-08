@@ -74,7 +74,12 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
             report['stages'].append(row); begin = time.monotonic()
             command = ['make','-C',str(config.root),*targets,*assignments]
             if name == 'oracle-install':
-                command = ['make','-C',str(config.build/'wasm/oracle/reference'),'temp-install',f'-j{config.jobs}']
+                # temp-install also initializes an upstream regression template,
+                # which rejects root. Our SQL oracle owns its separate cluster
+                # and drops privileges; only a private installation is needed.
+                reference = config.build / 'wasm/oracle/reference'
+                command = ['make', '-C', str(reference), 'install',
+                           'DESTDIR=' + str(reference / 'tmp_install'), f'-j{config.jobs}']
             elif name == 'unit':
                 import sys
                 command = [sys.executable, '-m', 'unittest', 'discover', '-s', str(config.root/'tests/buildsys'), '-p', 'test_wasm*.py']
