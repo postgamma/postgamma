@@ -41,6 +41,12 @@ class SoakReceiptTests(unittest.TestCase):
         self.row['kind'] = 'postgamma.wasm-memory-diagnostic'
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
 
+    def test_production_failure_source_must_match_the_requested_workload(self):
+        self.parameters['faultSource'] = 'control-worker'
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+        self.row['parameters']['faultSource'] = 'control-worker'
+        validate(self.row, self.parameters)
+
     def test_native_webkit_requires_both_owned_and_physical_retirement(self):
         self.row.update(driver='native-wpe', engine='webkit', finalPhysicalWorkerThreads=0,
                         browserProtocolCommands=[], finalIdle=dict(seconds=60, elapsedSeconds=60, physicalWorkerThreads=0),

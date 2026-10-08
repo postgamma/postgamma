@@ -11,6 +11,7 @@ import {createRequire} from 'node:module';
 import {parseArgs} from 'node:util';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
+import {workerObserver} from './observer.mjs';
 const {values} = parseArgs({options: {root: {type: 'string'}, site: {type: 'string'}, url: {type: 'string'},
   executable: {type: 'string'}, output: {type: 'string'}, profile: {type: 'string'},
   engine: {type: 'string', default: 'webkit'}, seconds: {type: 'string'}, 'growth-mib': {type: 'string', default: '128'},
@@ -35,13 +36,6 @@ writeFileSync(eventsFile, '');writeFileSync(resourcesFile, '');
 const report = {kind: 'postgamma.wasm-soak-browser', status: 'in_progress', engine, driver,
   seconds, growthBytes, rounds: 0, reopens: 0, samples: [], pageErrors: [], failedRequests: []};
 const observer = readFileSync(join(folder, 'native-relay.js'));
-const workerObserver = `addEventListener('message', event => {
-  if (!event.data?.postgammaSoakSnapshot) return;
-  event.stopImmediatePropagation();
-  const port = event.ports[0];
-  Promise.resolve().then(() => globalThis.postgammaDiagnostic()).then(
-    snapshot => port.postMessage({snapshot}), error => port.postMessage({error: String(error)})).finally(() => port.close());
-}, {capture: true});\n`;
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 report.observerSources = {relay: sha(observer), workerPrefix: sha(workerObserver), driver: sha(readFileSync(fileURLToPath(import.meta.url)))};
 report.browserProtocolCommands = [];

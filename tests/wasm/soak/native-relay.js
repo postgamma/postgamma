@@ -68,6 +68,15 @@ async function emit(event) {
   });
 }
 window.soakEvent = emit;
+window.soakCrash = fault => {
+  if (controls.size !== 1 || ![1, 2].includes(fault)) throw new Error('Invalid production fault ownership');
+  const [id, worker] = controls.entries().next().value;
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(() => {if (!controls.has(id)) {clearInterval(timer);clearTimeout(deadline);resolve();}}, 10);
+    const deadline = setTimeout(() => {clearInterval(timer);reject(new Error('Production Worker cleanup deadline'));}, 10000);
+    worker.postMessage({postgammaSoakFault: fault});
+  });
+};
 addEventListener('error', event => {void emit({kind: 'page-error', error: event.message});});
 addEventListener('unhandledrejection', event => {void emit({kind: 'page-error', error: String(event.reason)});});
 const timer = setInterval(async () => {

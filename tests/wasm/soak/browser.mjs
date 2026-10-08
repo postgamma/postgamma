@@ -8,6 +8,7 @@ import {bounded, controlSnapshots, failureSnapshot} from '../browser/diagnostics
 import {resourceGate} from './resources.mjs';
 import {MemoryDiagnostics} from './memory.mjs';
 import {processes} from './processes.mjs';
+import {workerObserver} from './observer.mjs';
 const {values} = parseArgs({options: {root: {type: 'string'}, url: {type: 'string'}, output: {type: 'string'},
   profile: {type: 'string'}, engine: {type: 'string', default: 'chromium'}, executable: {type: 'string'},
   seconds: {type: 'string', default: '120'}, 'growth-mib': {type: 'string', default: '128'},
@@ -78,8 +79,16 @@ try {
     assert.equal(values.engine, 'chromium', 'CDP heap diagnostics require Chromium');
     memory = await MemoryDiagnostics.open(context, page, values.output);
   }
-  await page.addInitScript(() => {
-    const NativeWorker = window.Worker, active = new Set(), activePthreads = new Set();
+  const production = new URL(values.url).searchParams.get('faultSource') === 'control-worker';
+  if (production) await context.route('**/src/worker/sql.js?soakObserver=*', route => {
+    const url = new URL(route.request().url());
+    const id = url.searchParams.get('soakObserver');
+    assert(/^\d+$/.test(id));
+    return route.fulfill({contentType: 'text/javascript', body: workerObserver +
+      '\nimport ' + JSON.stringify(url.pathname + '#soakControl=' + id) + ';\n'});
+  });
+  await page.addInitScript(production => {
+    const NativeWorker = window.Worker, active = new Set(), activePthreads = new Set(), controls = new Map();
     let created = 0, terminated = 0, pthreadCreated = 0, pthreadTerminated = 0;
     window.soakWorkerOwnership = () => ({active: [...active], created, terminated,
       activePthreads: [...activePthreads], pthreadCreated, pthreadTerminated});
@@ -89,17 +98,28 @@ try {
         const id = /\/src\/worker\/sql\.js$/.test(url.pathname) ? String(++created) : undefined;
         if (id) url.hash = new URLSearchParams({soakControl: id}).toString();
         const pthreadId = new URLSearchParams(url.hash.slice(1)).get('postgammaPthread');
-        super(url, options); this.soakId = id; this.pthreadId = pthreadId;
-        if (id) active.add(id);
+        const target = new URL(url);
+        if (production && id) target.searchParams.set('soakObserver', id);
+        super(target, options); this.soakId = id; this.pthreadId = pthreadId;
+        if (id) {active.add(id);controls.set(id, this);}
         if (pthreadId) {activePthreads.add(pthreadId); pthreadCreated++;}
       }
       terminate() {
         super.terminate();
-        if (this.soakId && active.delete(this.soakId)) terminated++;
+        if (this.soakId && active.delete(this.soakId)) {terminated++;controls.delete(this.soakId);}
         if (this.pthreadId && activePthreads.delete(this.pthreadId)) pthreadTerminated++;
       }
     };
-  });
+    window.soakCrash = fault => {
+      if (controls.size !== 1 || ![1, 2].includes(fault)) throw new Error('Invalid production fault ownership');
+      const [id, worker] = controls.entries().next().value;
+      return new Promise((resolve, reject) => {
+        const timer = setInterval(() => {if (!controls.has(id)) {clearInterval(timer);clearTimeout(deadline);resolve();}}, 10);
+        const deadline = setTimeout(() => {clearInterval(timer);reject(new Error('Production Worker cleanup deadline'));}, 10000);
+        worker.postMessage({postgammaSoakFault: fault});
+      });
+    };
+  }, production);
   page.on('pageerror', error => report.pageErrors.push(String(error)));
   page.on('console', message => {report.recentConsole.push({type: message.type(), text: message.text().slice(0, 4000)}); if (report.recentConsole.length > 64) report.recentConsole.shift();});
   page.on('requestfailed', request => report.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));

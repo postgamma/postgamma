@@ -32,6 +32,8 @@ def validate(row, parameters):
     for name in ('seconds', 'seed', 'rounds', 'reopenEvery'):
         if actual.get(name) != parameters[name]:
             raise WasmError('Mixed workload parameter mismatch: ' + name)
+    if parameters.get('faultSource', 'native-pthread') != actual.get('faultSource', 'native-pthread'):
+        raise WasmError('Mixed workload failure source mismatch')
     if parameters['rounds']:
         if complete.get('iteration') != parameters['rounds']:
             raise WasmError('Replay did not complete the requested rounds')
@@ -58,7 +60,27 @@ def validate(row, parameters):
             raise WasmError('Native browser acceptance must not attach an automation protocol')
 
 
-def check(config, longjmp, engines, parameters, growth_mib):
+def production_package(config, receipt):
+    from wasm_package import verify_tree
+    package = read_json(receipt)
+    if package.get('status') != 'passed' or not package.get('consumer_validated'):
+        raise WasmError('Production endurance requires an independently installed package')
+    directory = Path(package['package'])
+    if verify_tree(directory, str(config.root)) != package['staged']:
+        raise WasmError('Production package changed before endurance')
+    if digest(Path(package['archive']['path'])) != package['archive']['sha256']:
+        raise WasmError('Production npm archive changed before endurance')
+    manifest = read_json(directory / 'postgamma.assets.json')
+    if (manifest['mode'] != config.mode or manifest['bridge']['testing'] or
+            set(manifest['extensions']) != set(STANDARD)):
+        raise WasmError('Endurance package must use the requested mode, standard extensions and production bridge')
+    for name, expected in package['sources'].items():
+        if digest(config.root / name) != expected:
+            raise WasmError('Production package source changed: ' + name)
+    return package
+
+
+def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None):
     if not engines or len(set(engines)) != len(engines) or any(e not in ENGINES for e in engines):
         raise WasmError('Invalid soak browser selection')
     if not 1 <= parameters['seconds'] <= 28800 or not 1 <= parameters['seed'] <= 0xffffffff:
@@ -72,6 +94,7 @@ def check(config, longjmp, engines, parameters, growth_mib):
         ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/browser.mjs',
          'tests/wasm/soak/native-webkit.mjs',
          'tests/wasm/soak/native.mjs', 'tests/wasm/soak/native-relay.js',
+         'tests/wasm/soak/observer.mjs',
          'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
          'tests/wasm/soak/resources.test.mjs', 'tests/wasm/soak/processes.test.mjs',
          'tests/wasm/browser/diagnostics.mjs')}
@@ -82,23 +105,54 @@ def check(config, longjmp, engines, parameters, growth_mib):
         if 'webkit' in engines and platform.system() == 'Linux':
             native_webkit, native_receipt = install_webkit(config.deps)
             report['nativeBrowserReceipt'] = {'path': str(native_receipt), 'sha256': digest(native_receipt)}
-        receipt = startup(config, longjmp, 'build', 'soak', STANDARD)
-        report['build_receipt'] = str(receipt)
-        sql = read_json(receipt); link = read_json(Path(sql['link_report']))
         # Other gates may relink the shared variant while this long run is active.
         # Freeze all loaded assets so reopen always uses the same exact build.
         site = current / 'site'
-        shutil.copytree(verify(config, receipt), site)
+        tools, env = sdk_tools(config)
+        if package_receipt:
+            package = production_package(config, package_receipt)
+            report['productionPackage'] = {'receipt': str(package_receipt), 'archive': package['archive'],
+                'buildId': package['staged']['build_id'], 'bridgeTesting': False,
+                'scope': 'Exact production npm assets; control Worker errors/rejections. Native pthread trap/abort coverage belongs to the separate lifecycle matrix.'}
+            shutil.copytree(Path(package['package']), site)
+            sources = {}
+            # Add workload files beside the installed package. Never replace
+            # or recompile an SDK/kernel file or its production manifest.
+            for folder, target in (('sql', 'tests'), ('storage', 'storage-tests'), ('vector', 'vector-tests')):
+                for path in sorted((config.root / 'tests/wasm' / folder).glob('*.ts')):
+                    sources[str(path.relative_to(config.root))] = digest(path)
+                    run([tools['node'], str(config.root / 'buildsys/wasm_typescript.mjs'), str(path),
+                         str(site / target / path.with_suffix('.js').name)], current / 'typescript.log', env, config.root)
+            html = config.root / 'tests/wasm/sql/sql.html'
+            (site / 'sql.html').write_bytes(html.read_bytes()); sources[str(html.relative_to(config.root))] = digest(html)
+            example = config.root / 'examples/wasm/vector-search.ts'
+            sources[str(example.relative_to(config.root))] = digest(example)
+            run([tools['node'], str(config.root / 'buildsys/wasm_typescript.mjs'), str(example),
+                 str(site / 'vector-example.js')], current / 'typescript.log', env, config.root)
+            for name, expected in package['staged']['files'].items():
+                if digest(site / name) != expected:
+                    raise WasmError('Workload preparation changed a production asset: ' + name)
+            sql = {'link_report': package['link_report'], 'harness_sources': sources}
+            parameters = dict(parameters, faultSource='control-worker')
+            report['parameters'] = parameters
+        else:
+            receipt = startup(config, longjmp, 'build', 'soak', STANDARD)
+            report['build_receipt'] = str(receipt)
+            sql = read_json(receipt)
+            shutil.copytree(verify(config, receipt), site)
+        link = read_json(Path(sql['link_report']))
+        if link['source_snapshot'] != source_snapshot(config.root, link['extensions']):
+            raise WasmError('Endurance kernel inputs do not match the current candidate')
         frozen = {str(path.relative_to(site)): digest(path) for path in site.rglob('*') if path.is_file()}
         report['site'] = str(site); report['assets'] = frozen
-        tools, env = sdk_tools(config)
         run([tools['node'], str(config.root / 'tests/wasm/soak/resources.test.mjs')],
             current / 'resource-gate.log', env, config.root)
         run([tools['node'], str(config.root / 'tests/wasm/soak/processes.test.mjs')],
             current / 'process-accounting.log', env, config.root)
         write_json(current / 'report.json', report)
         query = urlencode(dict(scenario='soak', seconds=parameters['seconds'], seed=parameters['seed'],
-                               rounds=parameters['rounds'], reopen=parameters['reopenEvery']))
+                               rounds=parameters['rounds'], reopen=parameters['reopenEvery'],
+                               faultSource=parameters.get('faultSource', 'native-pthread')))
         with serve(site, 'sql.html') as url:
             for engine in engines:
                 case = current / engine; case.mkdir()
@@ -136,6 +190,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
             raise WasmError('Frozen soak assets changed')
         if native_webkit and digest(native_receipt) != report['nativeBrowserReceipt']['sha256']:
             raise WasmError('Native WebKit receipt changed during the long run')
+        if package_receipt and production_package(config, package_receipt) != package:
+            raise WasmError('Production package receipt changed during endurance')
         if set(report['engines']) != set(engines) or any(row['status'] != 'passed' for row in report['engines'].values()):
             raise WasmError('Mixed workload browser matrix failed')
         report['status'] = 'passed'
@@ -146,6 +202,7 @@ def check(config, longjmp, engines, parameters, growth_mib):
         write_json(current / 'report.json', report)
         write_json(config.build / 'wasm/reports/soak.json', {'status': report['status'], 'run_report': str(current / 'report.json')})
         print(f"wasm soak: {report['status']}; {current / 'report.json'}", flush=True)
+    return current / 'report.json'
 
 
 def main():
@@ -160,9 +217,10 @@ def main():
     parser.add_argument('--seconds', type=int, default=7200); parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--rounds', type=int, default=0); parser.add_argument('--reopen-every', type=int, default=50)
     parser.add_argument('--growth-mib', type=int, default=128)
+    parser.add_argument('--package-report', type=Path)
     args = parser.parse_args()
     try: check(configuration(args), args.longjmp, args.engines.split(','),
-        dict(seconds=args.seconds, seed=args.seed, rounds=args.rounds, reopenEvery=args.reopen_every), args.growth_mib)
+        dict(seconds=args.seconds, seed=args.seed, rounds=args.rounds, reopenEvery=args.reopen_every), args.growth_mib, args.package_report)
     except Exception as error: parser.exit(2, 'wasm soak: ' + str(error).splitlines()[0] + '\n')
 
 

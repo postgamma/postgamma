@@ -5,13 +5,15 @@ import {Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 
 type Command = {lane: number; sql: string; started: number; elapsedMs?: number; sqlstate?: string | null; copyData?: string};
-const page = window as unknown as {soakEvent(event: unknown): Promise<void>; soakState: unknown};
+const page = window as unknown as {soakEvent(event: unknown): Promise<void>; soakState: unknown; soakCrash?(fault: number): Promise<void>};
 const emit = (value: unknown) => page.soakEvent(value);
 
 export async function soak(checks: string[], metrics: unknown[]) {
   const params = new URL(location.href).searchParams;
   const seconds = Number(params.get('seconds') ?? 120), seed = Number(params.get('seed') ?? 1);
   const rounds = Number(params.get('rounds') ?? 0), reopenEvery = Number(params.get('reopen') ?? 50);
+  const faultSource = params.get('faultSource') ?? 'native-pthread';
+  assert(['native-pthread', 'control-worker'].includes(faultSource), 'Known failure source');
   assert(Number.isSafeInteger(seed) && seed > 0 && seed <= 0xffffffff, 'Valid uint32 seed');
   assert(Number.isInteger(seconds) && seconds >= 1 && seconds <= 28800, 'Valid duration');
   assert(Number.isInteger(rounds) && rounds >= 0 && rounds <= 1000000, 'Valid replay round count');
@@ -83,11 +85,16 @@ export async function soak(checks: string[], metrics: unknown[]) {
     if (fault) {
       await sql(0, "BEGIN; UPDATE soak_rows SET value=-1 WHERE id IN (0,1); CREATE TABLE soak_transient(x int); NOTIFY soak_notice,'uncommitted'");
       await emit({kind: 'fault', iteration, fault, commands}); commands = [];
-      const transport = (db as unknown as {transport: {call(op: number, h: undefined, write: (w: Writer) => void): Promise<unknown>}}).transport;
-      await transport.call(65535, undefined, w => w.u32(fault)).then(() => {throw new Error('Fault did not discard the module');}, () => {});
+      if (faultSource === 'control-worker') {
+        assert(typeof page.soakCrash === 'function', 'Production fault injector is available');
+        await page.soakCrash!(fault);
+      } else {
+        const transport = (db as unknown as {transport: {call(op: number, h: undefined, write: (w: Writer) => void): Promise<unknown>}}).transport;
+        await transport.call(65535, undefined, w => w.u32(fault)).then(() => {throw new Error('Fault did not discard the module');}, () => {});
+      }
       const closed = db.diagnostics() as {storageReleased?: boolean; runningWorkers?: number; crashedWorkerRetired?: boolean};
       assert(closed.storageReleased && closed.runningWorkers === 0, 'Fatal teardown releases OPFS and callers');
-      assert(closed.crashedWorkerRetired === true, 'Failed native thread confirms its own scope retirement');
+      if (faultSource === 'native-pthread') assert(closed.crashedWorkerRetired === true, 'Failed native thread confirms its own scope retirement');
       metrics.push(closed); crashes++;
     } else {await close(); orderly++;}
     const before = performance.now(); await connect(false); await verify();
@@ -98,7 +105,7 @@ export async function soak(checks: string[], metrics: unknown[]) {
     commands = [];
   }
   await connect(true); await verify();
-  await emit({kind: 'ready', seed, seconds, rounds, reopenEvery, storage: storage.name}); commands = [];
+  await emit({kind: 'ready', seed, seconds, rounds, reopenEvery, faultSource, storage: storage.name}); commands = [];
   started = performance.now();
   while (rounds ? iteration < rounds : performance.now() - started < seconds * 1000) {
     iteration++;
