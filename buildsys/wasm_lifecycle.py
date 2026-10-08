@@ -70,6 +70,14 @@ def validate_case(row, scenario, repetitions):
             timings = [event for event in events if event.get('kind') == 'connect-startup-discard']
             if len(timings) != 1 or not 89000 <= timings[0].get('elapsedMs', 0) < 105000:
                 raise WasmError('missing or out-of-budget startup discard evidence')
+            phases = [event for event in events if event.get('kind') == 'connect-watchdog-phase']
+            budgets = {'initialMs': 180000, 'discardMs': 105000, 'recoveryMs': 30000}
+            if row.get('connectionPhaseBudgets') != budgets or [event.get('phase') for event in phases] != ['ready', 'discarded', 'recovered']:
+                raise WasmError('missing or reordered startup phase evidence')
+            if any(not 0 <= event.get('elapsedMs', -1) < maximum for event, maximum in zip(phases, budgets.values())):
+                raise WasmError('out-of-budget startup phase evidence')
+            if phases[1]['elapsedMs'] != timings[0]['elapsedMs']:
+                raise WasmError('startup discard timing differs between phase receipts')
         if scenario == 'diagnostics':
             held = []
             for phase in ('before', 'after'):
@@ -147,9 +155,12 @@ def matrix(config, longjmp, repetitions=20, sql_receipt=None):
                     print('wasm lifecycle: ' + engine + ' ' + scenario, flush=True)
                     try:
                         with tempfile.TemporaryDirectory(prefix='pgm-lifecycle-') as temporary:
+                            command_budget = (initial_timeout + timeout * (repetitions if scenario.startswith('fatal-') else 0)) / 1000 + 30
+                            if scenario == 'connect-progress':
+                                command_budget = initial_timeout / 1000 + 105 + 30 + 30
                             run(command + ['--profile', str(Path(temporary) / 'profile')],
                                 case / 'browser.log', dict(browser_environment(config, env), TMPDIR=temporary),
-                                config.root, timeout=(initial_timeout + timeout * (repetitions if scenario.startswith('fatal-') else 0)) / 1000 + 30)
+                                config.root, timeout=command_budget)
                         row = read_json(case / 'browser.json')
                         validate_case(row, scenario, repetitions)
                         report['engines'][engine][scenario] = row

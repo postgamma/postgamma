@@ -46,6 +46,10 @@ class LifecycleEvidenceTests(unittest.TestCase):
             row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': scenario, 'checks': checks},
                    'events': [{'kind': 'control-timeout', 'elapsedMs': 10001},
                               {'kind': 'connect-startup-discard', 'elapsedMs': 90010}]}
+            if scenario == 'connect-progress':
+                row['connectionPhaseBudgets'] = {'initialMs': 180000, 'discardMs': 105000, 'recoveryMs': 30000}
+                row['events'] += [dict(kind='connect-watchdog-phase', phase=phase, elapsedMs=elapsed)
+                                  for phase, elapsed in (('ready', 150000), ('discarded', 90010), ('recovered', 20000))]
             validate_case(row, scenario, 20)
             for check in checks:
                 broken = copy.deepcopy(row)
@@ -64,6 +68,29 @@ class LifecycleEvidenceTests(unittest.TestCase):
                     broken['events'][1]['elapsedMs'] = elapsed
                     with self.assertRaises(WasmError):
                         validate_case(broken, scenario, 20)
+
+    def test_startup_phase_bounds_cannot_be_replaced_by_one_large_timeout(self):
+        row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'connect-progress', 'checks': [
+            'connect-yields-to-sql', 'connect-yields-to-cancel', 'connect-startup-backpressure', 'connect-failure-retirement',
+            'connect-deadline-retirement', 'connect-stale-generation', 'connect-carrier-reservation', 'connect-pinned-commit',
+            'connect-bounded-startup-discard', 'connect-discard-opfs-release', 'connect-discard-recovery']},
+            'connectionPhaseBudgets': {'initialMs': 180000, 'discardMs': 105000, 'recoveryMs': 30000},
+            'events': [dict(kind='connect-watchdog-phase', phase=phase, elapsedMs=elapsed)
+                       for phase, elapsed in (('ready', 150000), ('discarded', 90010), ('recovered', 20000))] +
+                      [{'kind': 'connect-startup-discard', 'elapsedMs': 90010}]}
+        validate_case(row, 'connect-progress', 20)
+        for mutation in ('missing', 'duplicate', 'order', 'init-timeout', 'recover-timeout', 'nan', 'relaxed', 'inconsistent'):
+            broken = copy.deepcopy(row)
+            if mutation == 'missing': broken['events'].pop(0)
+            if mutation == 'duplicate': broken['events'].insert(0, broken['events'][0])
+            if mutation == 'order': broken['events'][0], broken['events'][1] = broken['events'][1], broken['events'][0]
+            if mutation == 'init-timeout': broken['events'][0]['elapsedMs'] = 180000
+            if mutation == 'recover-timeout': broken['events'][2]['elapsedMs'] = 30000
+            if mutation == 'nan': broken['events'][2]['elapsedMs'] = float('nan')
+            if mutation == 'relaxed': broken['connectionPhaseBudgets']['recoveryMs'] = 90000
+            if mutation == 'inconsistent': broken['events'][1]['elapsedMs'] = 90011
+            with self.subTest(mutation=mutation), self.assertRaises(WasmError):
+                validate_case(broken, 'connect-progress', 20)
 
     def test_connection_progress_requires_all_observations(self):
         row = {'status': 'passed', 'probe': {'status': 'passed', 'scenario': 'lifecycle', 'checks': [

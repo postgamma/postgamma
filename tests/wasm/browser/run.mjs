@@ -72,6 +72,21 @@ if (values.describe) {
       if (new URL(values.url).searchParams.get('scenario') === 'diagnostics')
         report.diagnosticGate = await diagnosticGate(page, report.initialTimeoutMs);
       const started = performance.now();
+      // OPFS creation and the deliberate 90s startup timeout are separate
+      // bounded phases. A single 180s wall clock can expire during a valid
+      // immediate reopen on a slow filesystem.
+      if (new URL(values.url).searchParams.get('scenario') === 'connect-progress') {
+        report.connectionPhaseBudgets = {initialMs: report.initialTimeoutMs, discardMs: 105000, recoveryMs: 30000};
+        for (const [phase, timeout] of [['ready', report.initialTimeoutMs], ['discarded', 105000], [null, 30000]]) {
+          await page.waitForFunction(name => window.probeResult !== null || name !== null &&
+            (window.probeEvents || []).some(e => e.kind === 'connect-watchdog-phase' && e.phase === name),
+            phase, {timeout});
+          const progress = await page.evaluate(() => ({done: window.probeResult !== null, events: window.probeEvents || []}));
+          report.events = progress.events;
+          writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
+          if (progress.done) break;
+        }
+      }
       // Bound every round separately. Keep partial progress on disk even if
       // a later renderer crash prevents reading the page's final evidence.
       for (let iteration = 1; iteration <= report.repetitions; iteration++) {

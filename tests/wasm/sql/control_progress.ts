@@ -6,6 +6,9 @@ import {Op, Reader, Writer} from '../src/protocol/wire.js';
 import {assert, scalar} from './helpers.js';
 
 export async function connectWatchdog(checks: string[], metrics: unknown[]) {
+  const phases = (window as unknown as {probeEvents: unknown[]}).probeEvents;
+  const phase = (name: string, elapsedMs: number) => phases.push({kind: 'connect-watchdog-phase', phase: name, elapsedMs});
+  const setupStarted = performance.now();
   const storage = {type: 'opfs' as const, name: 'connect-deadline-' + crypto.randomUUID()};
   const db = await Database.open({storage});
   const seed = await db.connect();
@@ -13,6 +16,7 @@ export async function connectWatchdog(checks: string[], metrics: unknown[]) {
   await seed.close();
   const transport = (db as unknown as {transport: {call(op: number, h: undefined, write: (w: Writer) => void): Promise<Reader>}}).transport;
   (await transport.call(65532, undefined, w => w.u32(1))).end();
+  phase('ready', performance.now() - setupStarted);
   // Keep a real ticket owned by startup even after its native deadline. The
   // API must discard the instance, not free a still-owned native payload.
   const started = performance.now();
@@ -25,6 +29,8 @@ export async function connectWatchdog(checks: string[], metrics: unknown[]) {
   assert(discarded.storageReleased === true && discarded.runningWorkers === 0,
     'Startup rejection waits for OPFS release and native caller termination');
   checks.push('connect-bounded-startup-discard', 'connect-discard-opfs-release');
+  phase('discarded', elapsedMs);
+  const recoveryStarted = performance.now();
   const recovered = await Database.open({storage, create: false});
   try {
     const connection = await recovered.connect();
@@ -33,6 +39,7 @@ export async function connectWatchdog(checks: string[], metrics: unknown[]) {
     await connection.close();
     checks.push('connect-discard-recovery');
   } finally {metrics.push(await recovered.close());}
+  phase('recovered', performance.now() - recoveryStarted);
   (window as unknown as {probeEvents: unknown[]}).probeEvents.push({kind: 'connect-startup-discard', elapsedMs});
 }
 
