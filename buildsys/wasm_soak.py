@@ -41,14 +41,21 @@ def validate(row, parameters):
         raise WasmError('Missing mixed workload or recovery evidence')
     if not parameters['rounds'] and parameters['seconds'] >= 300 and row.get('resourceGate', {}).get('status') != 'passed':
         raise WasmError('Long-run resource growth gate did not pass')
-    if row.get('driver') == 'native-wpe':
+    if row.get('driver') in ('native-wpe', 'native-firefox'):
         owner = row.get('workerOwnership', {})
-        if (row.get('engine') != 'webkit' or row.get('finalPhysicalWorkerThreads') != 0 or
+        expected = 'webkit' if row['driver'] == 'native-wpe' else 'firefox'
+        if (row.get('engine') != expected or row.get('finalPhysicalWorkerThreads') != 0 or
                 owner.get('active') != [] or owner.get('activePthreads') != [] or
                 owner.get('nativeOwnerPosts') != 0 or
                 not owner.get('created') or owner.get('created') != owner.get('terminated') or
                 not owner.get('pthreadCreated') or owner.get('pthreadCreated') != owner.get('pthreadTerminated')):
-            raise WasmError('Native WebKit Worker ownership or physical retirement evidence is incomplete')
+            raise WasmError('Native browser Worker ownership or physical retirement evidence is incomplete')
+        idle = row.get('finalIdle', {})
+        if (idle.get('seconds') != 60 or idle.get('elapsedSeconds', 0) < 60 or
+                idle.get('physicalWorkerThreads') != 0):
+            raise WasmError('Native browser final idle observation did not complete')
+        if row.get('browserProtocolCommands') != []:
+            raise WasmError('Native browser acceptance must not attach an automation protocol')
 
 
 def check(config, longjmp, engines, parameters, growth_mib):
@@ -63,7 +70,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
               'parameters': parameters, 'requested_engines': engines, 'engines': {}, 'growthMiB': growth_mib}
     runner_sources = {name: digest(config.root / name) for name in
         ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/browser.mjs',
-         'tests/wasm/soak/native-webkit.mjs', 'tests/wasm/soak/native-webkit-relay.js',
+         'tests/wasm/soak/native-webkit.mjs',
+         'tests/wasm/soak/native.mjs', 'tests/wasm/soak/native-relay.js',
          'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
          'tests/wasm/soak/resources.test.mjs', 'tests/wasm/soak/processes.test.mjs',
          'tests/wasm/browser/diagnostics.mjs')}
@@ -94,7 +102,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
         with serve(site, 'sql.html') as url:
             for engine in engines:
                 case = current / engine; case.mkdir()
-                driver = 'native-webkit.mjs' if engine == 'webkit' and native_webkit else 'browser.mjs'
+                native = bool(engine == 'webkit' and native_webkit or engine == 'firefox' and platform.system() == 'Linux')
+                driver = 'native.mjs' if native else 'browser.mjs'
                 command = [tools['node'], str(config.root / 'tests/wasm/soak' / driver),
                     '--root', str(config.root), '--url', url + '?' + query, '--engine', engine,
                     '--output', str(case / 'browser.json'), '--seconds', str(parameters['seconds']),
@@ -102,6 +111,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
                 launcher = config.deps / 'browser-libs/launch-webkit.sh'
                 if engine == 'webkit' and native_webkit:
                     command += ['--site', str(site), '--executable', str(native_webkit)]
+                elif native:
+                    command += ['--site', str(site)]
                 elif engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
                 elif engine == 'chromium' and config.browser_override: command += ['--executable', config.browser_override]
                 print(f"wasm soak: {engine}, {parameters['seconds']}s, seed {parameters['seed']}", flush=True)

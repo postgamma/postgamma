@@ -64,7 +64,7 @@ async function emit(event) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
     callbacks.set(id, {resolve, reject});
-    socket.send(JSON.stringify({sequence: id, event: {...event, ownership: ownership(), controlSnapshot}}));
+    socket.send(JSON.stringify({sequence: id, event: {...event, ...(event.kind === 'ready' ? {userAgent: navigator.userAgent} : {}), ownership: ownership(), controlSnapshot}}));
   });
 }
 window.soakEvent = emit;

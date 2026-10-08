@@ -207,7 +207,13 @@ diagnostic through a test bootstrap that imports the original verified module.
 SDK/kernel assets and manifest hashes remain unchanged. The 128 MiB growth
 budget and SQL/recovery checks are unchanged; native Linux Worker threads must
 retire within ten seconds. The runner checks and records the browser receipt.
-Chromium and Firefox keep their Playwright drivers. Other WebKit functional
+On Linux, the Firefox soak also launches the pinned browser directly, without
+Juggler, BiDi, response-body collection or an inspector. It uses the same
+acknowledged relay and independently verifies DOM Worker retirement through
+`/proc`. Both native drivers require a complete sixty-second natural idle
+after final close, within the existing duration-plus-startup/cleanup timeout.
+The original SDK/kernel assets remain frozen and checksum-verified. Chromium
+keeps its Playwright driver. Other Firefox and WebKit functional
 gates still use the separate Playwright bundle; a native soak does not qualify
 Safari/iOS or the full release matrix.
 
