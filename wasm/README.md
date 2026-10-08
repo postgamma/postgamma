@@ -326,6 +326,12 @@ entire group after cleanup, including control failures and cleanup timeouts.
 Closed transports release their Worker references, callback properties and
 MessagePort listeners. Per-instance identities use URL fragments so all
 instances keep the same HTTP asset cache keys.
+Manifest downloads and downloads for asset integrity verification use the
+request policy `cache: 'no-store'`. Firefox can retain temporary response-body
+copies with its default request policy, even when the server sends a
+`Cache-Control: no-store` response header. Bypassing that cache avoids duplicate
+download buffers during repeated opens. SHA-256 and byte-length verification
+still apply, and the bounded compiled-module cache still shares immutable code.
 The harness counts control and pthread Worker construction and termination independently
 of debugger targets. Retired targets must disappear within ten seconds;
 final close must leave no control or pthread target. These checks run before the

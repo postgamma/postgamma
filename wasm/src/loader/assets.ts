@@ -11,7 +11,7 @@ export async function assets(base: URL): Promise<AssetManifest> {
       typeof Worker !== 'function' || typeof WebAssembly !== 'object' ||
       !globalThis.crypto?.subtle || !globalThis.crypto?.getRandomValues)
     throw new Error('postgamma requires cross-origin isolation, shared Wasm memory, Workers and Web Crypto');
-  const response = await fetch(new URL('postgamma.assets.json', base));
+  const response = await fetch(new URL('postgamma.assets.json', base), {cache: 'no-store'});
   if (!response.ok) throw new Error(`Asset manifest download failed: ${response.status}`);
   const manifest = await response.json() as AssetManifest;
   if (manifest.schemaVersion !== 1 || manifest.buildId !== buildId)
@@ -24,7 +24,10 @@ export async function assets(base: URL): Promise<AssetManifest> {
 export async function verifiedAsset(base: URL, manifest: AssetManifest, name: string): Promise<ArrayBuffer> {
   const expected = manifest.files[name];
   if (!expected) throw new Error('Undeclared postgamma asset: ' + name);
-  const response = await fetch(new URL(name, base));
+  // Firefox can retain another copy of a default-cache response until its
+  // channel is collected, even with a no-store response header. Compiled code
+  // has its own bounded cache; integrity-checked downloads need no HTTP cache.
+  const response = await fetch(new URL(name, base), {cache: 'no-store'});
   if (!response.ok) throw new Error(`Asset download failed (${name}): ${response.status}`);
   const bytes = await response.arrayBuffer();
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));

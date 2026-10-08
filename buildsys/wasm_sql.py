@@ -74,6 +74,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][compiled_test] = digest(config.root / compiled_test)
             run([builder.tools["node"], str(config.root / compiled_test), str(site / "src")],
                 builder.current / "compiled.log", builder.env, config.root)
+            asset_test = "tests/wasm/sql/assets.mjs"
+            report["harness_sources"][asset_test] = digest(config.root / asset_test)
+            run([builder.tools["node"], str(config.root / asset_test), str(site / "src")],
+                builder.current / "assets.log", builder.env, config.root)
             pthread_test = "tests/wasm/sql/pthreads.mjs"
             report["harness_sources"][pthread_test] = digest(config.root / pthread_test)
             run([builder.tools["node"], str(config.root / pthread_test), str(site / "src")],
