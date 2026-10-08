@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+import pwd
 import re
 from pathlib import Path
 import subprocess
@@ -30,9 +31,13 @@ def oracle(root: Path, directory: Path, site: Path, build: Path | None = None) -
     fixture = json.loads(fixture_path.read_text())
     env = dict(os.environ, LD_LIBRARY_PATH=str(prefix / 'lib'), LC_ALL='C')
     log = directory / 'oracle.log'
+    # Build tools and /proc accounting may run as root on a test host, but
+    # PostgreSQL's private reference cluster must use an unprivileged account.
+    identity = pwd.getpwnam('nobody') if os.geteuid() == 0 else None
+    credentials = dict(user=identity.pw_uid, group=identity.pw_gid, extra_groups=()) if identity else {}
     def call(name, *args, input=None):
         result = subprocess.run([str(binaries[name]), *args], env=env, text=True,
-                                input=input, capture_output=True, timeout=30)
+                                input=input, capture_output=True, timeout=30, **credentials)
         with log.open('a') as output:
             output.write(result.stdout + result.stderr)
         if result.returncode:
@@ -40,11 +45,14 @@ def oracle(root: Path, directory: Path, site: Path, build: Path | None = None) -
         return result.stdout.strip()
     with tempfile.TemporaryDirectory(prefix='pgw-') as temporary:
         path = Path(temporary)
+        if identity:
+            os.chown(path, identity.pw_uid, identity.pw_gid)
         data = path / 'data'
+        server_log = path / 'postgres.log'
         call('initdb', '-D', str(data), '-A', 'trust', '-U', 'postgamma', '--no-locale')
         running = False
         try:
-            call('pg_ctl', '-D', str(data), '-l', str(directory / 'oracle-postgres.log'),
+            call('pg_ctl', '-D', str(data), '-l', str(server_log),
                  '-o', f"-k {path} -c listen_addresses='' -c shared_buffers=24MB", '-w', 'start')
             running = True
             def sql(query, input=None):
@@ -65,6 +73,7 @@ def oracle(root: Path, directory: Path, site: Path, build: Path | None = None) -
                 raise WasmError('native COPY roundtrip changed the fixture bytes')
             values['copy'] = copy_output
             report = {'kind': 'postgamma.wasm-sql-oracle', 'status': 'passed', 'version': version,
+                      'execution_uid': identity.pw_uid if identity else os.geteuid(),
                       'source_commit': subprocess.check_output(['git','-C',str(root/'postgres'),'rev-parse','HEAD'],text=True).strip(),
                       'source_version':source_version,
                       'binaries': {name: digest(p) for name, p in binaries.items()},
@@ -74,8 +83,12 @@ def oracle(root: Path, directory: Path, site: Path, build: Path | None = None) -
                       'values': values}
         finally:
             # Only the private cluster started above is stopped or removed.
-            if running:
-                call('pg_ctl', '-D', str(data), '-m', 'immediate', '-w', 'stop')
+            try:
+                if running:
+                    call('pg_ctl', '-D', str(data), '-m', 'immediate', '-w', 'stop')
+            finally:
+                if server_log.is_file():
+                    (directory / 'oracle-postgres.log').write_bytes(server_log.read_bytes())
     write_json(directory / 'oracle.json', report)
     write_json(site / 'oracle.json', values)
     write_json(site / 'fixtures.json', fixture)
