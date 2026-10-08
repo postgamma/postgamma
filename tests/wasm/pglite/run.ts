@@ -244,10 +244,12 @@ try {
       if (['database-close','reopen','vector-reopen'].includes(test.kind || '')) await lifecycle(test);
       else {
         connection = await database!.connect('pglite/' + test.id);
-        // Capacity cases assert byte limits and stream cancellation. A SQL
-        // timer measures host scheduling instead and can mask 54000 with
-        // 57014 on a busy machine. The browser still bounds every case at 90s.
-        const statementTimeout = test.kind?.startsWith('capacity-') ? '0' : '15s';
+        // Capacity cases assert byte limits and stream cancellation. Database
+        // creation copies the template and can checkpoint durable OPFS files.
+        // Neither fixture specifies a SQL latency limit: a 15s timer can mask
+        // its result with 57014 on a slow host. Every case remains bounded by
+        // the browser's unchanged 90s deadline.
+        const statementTimeout = test.kind?.startsWith('capacity-') || test.id === 'databases/create-drop' ? '0' : '15s';
         for (const sql of [`CREATE SCHEMA ${schema}`, `SET search_path TO ${schema},public`, "SET TIME ZONE 'UTC'", `SET statement_timeout='${statementTimeout}'`])
           await connection.query(sql);
         if (test.steps) for (const [i, value] of test.steps.entries()) {
