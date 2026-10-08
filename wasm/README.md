@@ -318,7 +318,18 @@ Total PSS and file PSS are also recorded. File-backed shared code pages are
 apportioned across all host processes; another browser exiting can raise this
 run's PSS without a new allocation. The allocation trend therefore uses
 `Pss_Anon + Pss_Shmem + SwapPss`, while the RSS gate still includes resident
-file pages. Missing `/proc` components fail the measurement gate.
+file pages. On older Linux kernels without `smaps_rollup`, the sampler reads
+every `smaps` mapping instead. Separate PSS categories remain `null` and their
+measurement is explicitly `not-run`; resident `Anonymous` is not substituted
+for weighted PSS. The sampler bounds anonymous/shared PSS from resident and
+proportional page counts, uses the backing filesystem to identify tmpfs, and
+includes rounding uncertainty. Unknown backing stays ambiguous; filenames
+never classify copy-on-write pages. The growth gate compares the final median
+upper bound against the initial median lower bound, with the same 128 MiB
+budget. Thus uncertainty can make a run fail, but cannot make excessive
+anonymous/shared growth pass. Reports retain both bounds and identify the
+measurement as `smaps-bounds`. Missing required fields or invalid bounds fail
+the measurement gate. No host kernel upgrade is required for this fallback.
 The API owner creates the control Worker and all 13 pthread Workers as siblings;
 private MessagePorts preserve the SDK message interface. This avoids retained
 nested Workers during repeated browser teardown. The transport terminates the

@@ -21,3 +21,19 @@ for (const field of ['anonymousPssBytes', 'sharedMemoryPssBytes', 'filePssBytes'
   assert.equal(resourceGate(stable.map(row => ({...row, [field]: undefined})), 100).status, 'failed', field);
 assert.equal(resourceGate([{...stable[0], retiredWorkerMaxAgeMs: 10001}], 0).status, 'failed');
 assert.equal(resourceGate([{...stable[0], retiredWorkerMaxAgeMs: 10000}], 0).status, 'not-run');
+const bounded = stable.map(row => ({...row, memoryAccounting: 'smaps-bounds',
+  anonymousPssBytes: null, sharedMemoryPssBytes: null, filePssBytes: null,
+  accountedMemoryLowerBytes: 449000, accountedMemoryUpperBytes: 451000}));
+const boundedGate = resourceGate(bounded, 2000);
+assert.equal(boundedGate.status, 'passed');
+assert.equal(boundedGate.accountedMemoryGrowthUpperBytes, 2000);
+assert.equal(boundedGate.accountedMemoryGrowthLowerBytes, -2000);
+assert.equal(boundedGate.pssBreakdownGate.status, 'not-run');
+assert.equal(boundedGate.filePssGrowthBytes, null);
+assert.equal(resourceGate(bounded, 1999).status, 'failed', 'Uncertainty cannot relax the original budget');
+assert.equal(resourceGate(bounded.map(row => ({...row, accountedMemoryLowerBytes: 452000})), 1e9).status, 'failed');
+assert.equal(resourceGate(bounded.map(row => ({...row, accountedMemoryUpperBytes: undefined})), 1e9).status, 'failed');
+assert.equal(resourceGate(bounded.map(row => ({...row, anonymousPssBytes: 0})), 1e9).status, 'failed', 'Missing categories stay null');
+const ambiguousGrowth = bounded.map((row, index) => ({...row, accountedMemoryUpperBytes: row.accountedMemoryUpperBytes + index * 1000}));
+assert.equal(resourceGate(ambiguousGrowth, 3000).status, 'failed');
+console.log('Resource gates: exact PSS and conservative old-kernel growth bounds passed');

@@ -65,7 +65,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
         ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/browser.mjs',
          'tests/wasm/soak/native-webkit.mjs', 'tests/wasm/soak/native-webkit-relay.js',
          'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
-         'tests/wasm/soak/resources.test.mjs', 'tests/wasm/browser/diagnostics.mjs')}
+         'tests/wasm/soak/resources.test.mjs', 'tests/wasm/soak/processes.test.mjs',
+         'tests/wasm/browser/diagnostics.mjs')}
     report['runner_sources'] = runner_sources
     started = time.monotonic()
     try:
@@ -85,6 +86,8 @@ def check(config, longjmp, engines, parameters, growth_mib):
         tools, env = sdk_tools(config)
         run([tools['node'], str(config.root / 'tests/wasm/soak/resources.test.mjs')],
             current / 'resource-gate.log', env, config.root)
+        run([tools['node'], str(config.root / 'tests/wasm/soak/processes.test.mjs')],
+            current / 'process-accounting.log', env, config.root)
         write_json(current / 'report.json', report)
         query = urlencode(dict(scenario='soak', seconds=parameters['seconds'], seed=parameters['seed'],
                                rounds=parameters['rounds'], reopen=parameters['reopenEvery']))
