@@ -84,7 +84,13 @@ try {
     const url = new URL(route.request().url());
     const id = url.searchParams.get('soakObserver');
     assert(/^\d+$/.test(id));
-    return route.fulfill({contentType: 'text/javascript', body: workerObserver +
+    // The observing module is still a Worker of an isolated page. Keep the
+    // server's policy on the synthetic response so Chromium can create it.
+    return route.fulfill({contentType: 'text/javascript', headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cache-Control': 'no-store',
+    }, body: workerObserver +
       '\nimport ' + JSON.stringify(url.pathname + '#soakControl=' + id) + ';\n'});
   });
   await page.addInitScript(production => {
