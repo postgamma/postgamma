@@ -229,7 +229,10 @@ budget and SQL/recovery checks are unchanged; native Linux Worker threads must
 retire within ten seconds. The runner checks and records the browser receipt.
 On Linux x86-64, the Firefox soak launches pinned Mozilla Firefox 155.0 directly,
 verified against the official archive SHA-512 and installed file hashes. The
-Playwright Firefox bundle initializes Juggler frame and Worker agents even
+installer records a separate `DisableAppUpdate` policy so the fixed browser
+cannot download or apply another version during qualification. Changed policies
+and pending updater state fail the browser preparation check.
+The Playwright Firefox bundle initializes Juggler frame and Worker agents even
 without a control-protocol connection; it cannot measure native memory cleanly.
 The upstream browser has no Juggler, BiDi or inspector attached. It uses the same
 acknowledged relay and independently verifies DOM Worker retirement through

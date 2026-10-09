@@ -25,6 +25,8 @@ PIN = {
               'cbc9eb0d9bfe392fffd9b14d54007f51f1ec514b5d9db396975babb38e5e07022',
     'bytes': 86978904,
 }
+POLICY_NAME = 'firefox/distribution/policies.json'
+POLICY = {'policies': {'DisableAppUpdate': True}}
 
 
 def sha512(path: Path) -> str:
@@ -53,6 +55,25 @@ def verify_bundle(bundle: Path):
             raise WasmError('Native Firefox must not contain Playwright Juggler agents')
 
 
+def configure_bundle(bundle: Path, files, expected=None):
+    browser = bundle / 'firefox'
+    if any((browser / name).exists() for name in ('updated', 'active-update.xml', 'updates/0/update.mar')):
+        raise WasmError('Pinned Firefox has staged automatic updates; archive that state before its next launch')
+    policy = bundle / POLICY_NAME
+    if POLICY_NAME in files or policy.is_symlink() or policy.parent.is_symlink():
+        raise WasmError('Refuse to replace an upstream or linked Firefox policy')
+    if expected is not None:
+        if (expected.get('path') != POLICY_NAME or expected.get('value') != POLICY or
+                not policy.is_file() or digest(policy) != expected.get('sha256')):
+            raise WasmError('Pinned Firefox update policy changed: ' + str(policy))
+    else:
+        if policy.exists() and read_json(policy) != POLICY:
+            raise WasmError('Pinned Firefox has an incompatible update policy: ' + str(policy))
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        write_json(policy, POLICY)
+    return {'path': POLICY_NAME, 'value': POLICY, 'sha256': digest(policy)}
+
+
 def install(deps: Path) -> tuple[Path, Path]:
     if (platform.system(), platform.machine()) != ('Linux', 'x86_64'):
         raise WasmError('The pinned native Firefox bundle requires Linux x86_64')
@@ -68,6 +89,12 @@ def install(deps: Path) -> tuple[Path, Path]:
             if not path.is_file() or digest(path) != expected:
                 raise WasmError('Native Firefox cache changed: ' + str(path))
         verify_bundle(bundle)
+        if 'configuration' in state and not isinstance(state['configuration'], dict):
+            raise WasmError('Pinned Firefox policy receipt is invalid: ' + str(receipt))
+        policy = configure_bundle(bundle, state['files'], state.get('configuration'))
+        if 'configuration' not in state:
+            state['configuration'] = policy
+            write_json(receipt, state)
         return bundle / 'firefox/firefox', receipt
     directory.mkdir(parents=True, exist_ok=True)
     archive = directory / 'bundle.tar.xz'
@@ -93,11 +120,14 @@ def install(deps: Path) -> tuple[Path, Path]:
         verify_bundle(staging)
         files = {str(path.relative_to(staging)): digest(path)
                  for path in sorted(staging.rglob('*')) if path.is_file()}
+        policy = configure_bundle(staging, files)
         staging.replace(bundle)
     write_json(receipt, {'kind': 'postgamma.wasm-native-firefox', 'pin': PIN,
-                        'files': files, 'executable': str(bundle / 'firefox/firefox'),
+                        'files': files, 'configuration': policy,
+                        'executable': str(bundle / 'firefox/firefox'),
                         'scope': 'Unmodified Mozilla browser for native memory tests; '
-                                 'no Playwright Juggler frame/Worker agents.'})
+                                 'no Playwright Juggler frame/Worker agents; '
+                                 'automatic browser updates disabled by a separately recorded policy.'})
     return bundle / 'firefox/firefox', receipt
 
 

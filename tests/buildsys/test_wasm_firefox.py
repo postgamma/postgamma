@@ -1,6 +1,7 @@
 """Native memory gates require an unchanged Mozilla build without Juggler."""
 import hashlib
 import io
+import json
 from pathlib import Path
 import sys
 import struct
@@ -63,6 +64,45 @@ class NativeFirefoxTests(unittest.TestCase):
                     mock.patch.object(firefox.platform, 'machine', return_value='x86_64'):
                 with self.assertRaisesRegex(WasmError, 'cache changed'):
                     firefox.install(deps)
+
+    def test_update_policy_is_separate_from_original_engine_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            (executable, receipt), _ = self.install(Path(temporary), self.bundle())
+            state = json.loads(receipt.read_text())
+            self.assertNotIn(firefox.POLICY_NAME, state['files'])
+            self.assertEqual(state['configuration']['value'], {'policies': {'DisableAppUpdate': True}})
+            policy = executable.parent / 'distribution/policies.json'
+            self.assertEqual(json.loads(policy.read_text()), state['configuration']['value'])
+
+    def test_changed_policy_and_pending_updates_fail_closed(self):
+        for changed in ('policy', 'pending-update'):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                deps = Path(temporary)
+                (executable, _), pin = self.install(deps, self.bundle())
+                if changed == 'policy':
+                    (executable.parent / 'distribution/policies.json').write_text('{}')
+                else:
+                    (executable.parent / 'updated').mkdir()
+                with mock.patch.object(firefox, 'PIN', pin), \
+                        mock.patch.object(firefox.platform, 'system', return_value='Linux'), \
+                        mock.patch.object(firefox.platform, 'machine', return_value='x86_64'):
+                    with self.assertRaisesRegex(WasmError, 'policy changed|staged automatic updates'):
+                        firefox.install(deps)
+
+    def test_old_receipt_can_record_policy_without_changing_engine_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            deps = Path(temporary)
+            (executable, receipt), pin = self.install(deps, self.bundle())
+            state = json.loads(receipt.read_text())
+            del state['configuration']
+            receipt.write_text(json.dumps(state))
+            with mock.patch.object(firefox, 'PIN', pin), \
+                    mock.patch.object(firefox.platform, 'system', return_value='Linux'), \
+                    mock.patch.object(firefox.platform, 'machine', return_value='x86_64'):
+                self.assertEqual(firefox.install(deps), (executable, receipt))
+            after = json.loads(receipt.read_text())
+            self.assertEqual(after['files'], state['files'])
+            self.assertEqual(after['configuration']['value'], firefox.POLICY)
 
     def test_bad_download_is_rejected_before_extraction(self):
         with tempfile.TemporaryDirectory() as temporary:
