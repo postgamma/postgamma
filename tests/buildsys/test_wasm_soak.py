@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'buildsys'))
-from wasm_soak import CHECKS, validate
+from wasm_soak import CHECKS, validate, validate_firefox_identity
 from wasm_toolchain import WasmError
 
 
@@ -72,6 +72,16 @@ class SoakReceiptTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
         self.row['browserProtocolCommands'] = ['session.new']
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
+
+    def test_native_firefox_cannot_substitute_an_automation_browser(self):
+        expected = {'path': '/deps/firefox-native/155.0/bundle/firefox/firefox', 'sha256': '1' * 64}
+        browser = {'driver': 'native-firefox', 'browserExecutable': expected.copy()}
+        validate_firefox_identity(browser, expected)
+        for field, value in (('path', '/deps/playwright/firefox'), ('sha256', '2' * 64)):
+            row = copy.deepcopy(browser); row['browserExecutable'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError):
+                validate_firefox_identity(row, expected)
+        with self.assertRaises(WasmError): validate_firefox_identity({'driver': 'native-firefox'}, expected)
 
 
 if __name__ == '__main__': unittest.main()

@@ -227,8 +227,11 @@ diagnostic through a test bootstrap that imports the original verified module.
 SDK/kernel assets and manifest hashes remain unchanged. The 128 MiB growth
 budget and SQL/recovery checks are unchanged; native Linux Worker threads must
 retire within ten seconds. The runner checks and records the browser receipt.
-On Linux, the Firefox soak also launches the pinned browser directly, without
-Juggler, BiDi, response-body collection or an inspector. It uses the same
+On Linux x86-64, the Firefox soak launches pinned Mozilla Firefox 155.0 directly,
+verified against the official archive SHA-512 and installed file hashes. The
+Playwright Firefox bundle initializes Juggler frame and Worker agents even
+without a control-protocol connection; it cannot measure native memory cleanly.
+The upstream browser has no Juggler, BiDi or inspector attached. It uses the same
 acknowledged relay and independently verifies DOM Worker retirement through
 `/proc`. Both native drivers require a complete sixty-second natural idle
 after final close, within the existing duration-plus-startup/cleanup timeout.

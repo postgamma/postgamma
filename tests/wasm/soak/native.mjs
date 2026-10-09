@@ -160,7 +160,8 @@ try {
   mkdirSync(values.profile, {recursive: true});
   const log = data => appendFileSync(output.replace(/\.json$/, '.native.log'), data);
   if (engine === 'firefox') {
-    const executable = values.executable || require('playwright').firefox.executablePath();
+    assert(values.executable, 'Native Firefox requires the verified Mozilla executable');
+    const executable = values.executable;
     report.command = [executable, '--no-remote', '--headless', '--profile', values.profile, originalURL.href];
   } else {
     report.command = [values.executable, '--headless', '--profile-dir=' + values.profile, originalURL.href];

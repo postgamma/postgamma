@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from wasm import serve
 from wasm_contrib import STANDARD
 from wasm_features import verify
+from wasm_firefox import install as install_firefox
 from wasm_link import source_snapshot
 from wasm_sql import startup
 from wasm_toolchain import (WasmError, browser_environment, configuration, digest,
@@ -21,6 +22,11 @@ ENGINES = ('chromium', 'firefox', 'webkit')
 CHECKS = {'soak-four-connections', 'soak-commit-model', 'soak-ddl-savepoint-rollback',
           'soak-copy', 'soak-notification-barrier', 'soak-sql-error-reuse',
           'soak-clean-reopen', 'soak-crash-recovery', 'soak-cancel-reuse'}
+
+
+def validate_firefox_identity(browser, expected):
+    if browser.get('driver') != 'native-firefox' or browser.get('browserExecutable') != expected:
+        raise WasmError('Native Firefox did not run the verified Mozilla executable')
 
 
 def validate(row, parameters):
@@ -91,7 +97,7 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
     report = {'kind': 'postgamma.wasm-soak', 'status': 'failed', 'mode': config.mode,
               'parameters': parameters, 'requested_engines': engines, 'engines': {}, 'growthMiB': growth_mib}
     runner_sources = {name: digest(config.root / name) for name in
-        ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'tests/wasm/soak/browser.mjs',
+        ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'buildsys/wasm_firefox.py', 'tests/wasm/soak/browser.mjs',
          'tests/wasm/soak/native-webkit.mjs',
          'tests/wasm/soak/native.mjs', 'tests/wasm/soak/native-relay.js',
          'tests/wasm/soak/observer.mjs',
@@ -101,7 +107,12 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
     report['runner_sources'] = runner_sources
     started = time.monotonic()
     try:
-        native_webkit = None
+        native_webkit = native_firefox = None
+        if 'firefox' in engines and platform.system() == 'Linux':
+            native_firefox, firefox_receipt = install_firefox(config.deps)
+            report['nativeFirefoxReceipt'] = {'path': str(firefox_receipt), 'sha256': digest(firefox_receipt)}
+            report['nativeFirefoxExecutable'] = {'path': str(native_firefox),
+                'sha256': read_json(firefox_receipt)['files']['firefox/firefox']}
         if 'webkit' in engines and platform.system() == 'Linux':
             native_webkit, native_receipt = install_webkit(config.deps)
             report['nativeBrowserReceipt'] = {'path': str(native_receipt), 'sha256': digest(native_receipt)}
@@ -165,6 +176,8 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
                 launcher = config.deps / 'browser-libs/launch-webkit.sh'
                 if engine == 'webkit' and native_webkit:
                     command += ['--site', str(site), '--executable', str(native_webkit)]
+                elif engine == 'firefox' and native_firefox:
+                    command += ['--site', str(site), '--executable', str(native_firefox)]
                 elif native:
                     command += ['--site', str(site)]
                 elif engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
@@ -177,7 +190,10 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
                         run(command + ['--profile', str(Path(temporary) / 'profile')], case / 'browser.log',
                             dict(browser_environment(config, env), TMPDIR=temporary), config.root,
                             timeout=max(parameters['seconds'] + 660, parameters['rounds'] * 30 + 660))
-                    browser = read_json(case / 'browser.json'); validate(browser, parameters)
+                    browser = read_json(case / 'browser.json')
+                    if engine == 'firefox' and native_firefox:
+                        validate_firefox_identity(browser, report['nativeFirefoxExecutable'])
+                    validate(browser, parameters)
                     row.update(status='passed', complete=browser['complete'], resourceGate=browser['resourceGate'])
                 except Exception as error: row['error'] = str(error)
                 row['elapsedSeconds'] = time.monotonic() - begin
@@ -190,6 +206,10 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
             raise WasmError('Frozen soak assets changed')
         if native_webkit and digest(native_receipt) != report['nativeBrowserReceipt']['sha256']:
             raise WasmError('Native WebKit receipt changed during the long run')
+        if native_firefox:
+            install_firefox(config.deps)  # Reverify the installed browser tree.
+            if digest(firefox_receipt) != report['nativeFirefoxReceipt']['sha256']:
+                raise WasmError('Native Firefox receipt changed during the long run')
         if package_receipt and production_package(config, package_receipt) != package:
             raise WasmError('Production package receipt changed during endurance')
         if set(report['engines']) != set(engines) or any(row['status'] != 'passed' for row in report['engines'].values()):
