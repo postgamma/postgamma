@@ -95,6 +95,13 @@ the workload, OPFS/close checks and resource limits, and measures actual Linux
 Worker threads for the ten-second retirement check. Playwright functional gates
 still use their separate affected bundle. Native diagnostics and short mixed-load
 checks do not complete long-run acceptance.
+The SDK also materializes each fresh shared memory's buffer in the allocating
+realm before Worker startup. In the pinned WPE build,
+[`JSWebAssemblyMemory::finishCreation`](https://github.com/WebKit/WebKit/blob/9eb4e2ad5983af0d494b62b38e55ff9010fb5993/Source/JavaScriptCore/wasm/js/JSWebAssemblyMemory.cpp)
+accounts the empty backing store before the real allocation is adopted; the
+buffer wrapper supplies the owner VM's initial allocation pressure. This
+addresses delayed collection, but a short mixed-load pass does not prove lower
+absolute memory use or fully explain the earlier endurance failures.
 Run `make wasm-soak-test` to validate two
 hours in each engine, including clean reopen, trap/abort recovery, cancellation
 and unchanged resource limits. Short regressions and forced-GC diagnostics do

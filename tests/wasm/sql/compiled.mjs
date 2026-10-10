@@ -20,6 +20,14 @@ try {
   assert.equal(new Uint8Array(clonedMemory.buffer)[0], 41, 'Worker clones share the owned memory');
   assert.equal(new Uint8Array(otherMemory.buffer)[0], 0, 'Each database gets fresh memory');
   assert.throws(() => ownedMemory({capabilities: {initialMemoryBytes: 65535, maximumMemoryBytes: 65536}}), /memory policy/);
+  const Memory = WebAssembly.Memory;
+  try {
+    for (const buffer of [new ArrayBuffer(65536), new SharedArrayBuffer(131072)]) {
+      WebAssembly.Memory = class { get buffer() { return buffer; } };
+      assert.throws(() => ownedMemory(memoryManifest), /declared shared memory buffer/,
+        'The allocating realm validates sharing and initial size before transferring memory to Workers');
+    }
+  } finally { WebAssembly.Memory = Memory; }
   // A real Wasm module exports fresh linear memory on each instantiation.
   const bytes = new Uint8Array([0,97,115,109,1,0,0,0,5,3,1,0,1,7,10,1,6,109,101,109,111,114,121,2,0]);
   const base = new URL('https://example.invalid/'), manifest = key => ({
