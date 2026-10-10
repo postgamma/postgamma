@@ -19,14 +19,27 @@ try {
   new Uint8Array(memory.buffer)[0] = 41;
   assert.equal(new Uint8Array(clonedMemory.buffer)[0], 41, 'Worker clones share the owned memory');
   assert.equal(new Uint8Array(otherMemory.buffer)[0], 0, 'Each database gets fresh memory');
+  assert.equal(memory.buffer.byteLength, 65536, 'Owned memory reaches its declared initial size before use');
+  assert.equal(memory.grow(1), 1);
+  assert.equal(memory.buffer.byteLength, 131072);
+  assert.throws(() => memory.grow(1), RangeError, 'Initial growth preserves the declared maximum');
+  const importedMemory = new WebAssembly.Module(new Uint8Array([
+    0,97,115,109,1,0,0,0,2,16,1,3,101,110,118,6,109,101,109,111,114,121,2,3,2,2,
+  ]));
+  new WebAssembly.Instance(importedMemory, {env: {memory}});
   assert.throws(() => ownedMemory({capabilities: {initialMemoryBytes: 65535, maximumMemoryBytes: 65536}}), /memory policy/);
   const Memory = WebAssembly.Memory;
   try {
     for (const buffer of [new ArrayBuffer(65536), new SharedArrayBuffer(131072)]) {
-      WebAssembly.Memory = class { get buffer() { return buffer; } };
+      WebAssembly.Memory = class { grow() { return 0; } get buffer() { return buffer; } };
       assert.throws(() => ownedMemory(memoryManifest), /declared shared memory buffer/,
         'The allocating realm validates sharing and initial size before transferring memory to Workers');
     }
+    WebAssembly.Memory = class {
+      grow() { throw new RangeError('Initial owned memory allocation failed'); }
+      get buffer() { throw new Error('Failed growth must not expose a buffer'); }
+    };
+    assert.throws(() => ownedMemory(memoryManifest), /Initial owned memory allocation failed/);
   } finally { WebAssembly.Memory = Memory; }
   // A real Wasm module exports fresh linear memory on each instantiation.
   const bytes = new Uint8Array([0,97,115,109,1,0,0,0,5,3,1,0,1,7,10,1,6,109,101,109,111,114,121,2,0]);

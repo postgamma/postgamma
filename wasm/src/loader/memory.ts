@@ -9,10 +9,12 @@ export function ownedMemory(manifest: AssetManifest): WebAssembly.Memory {
   // Allocate in the API owner's realm, which outlives its control Workers.
   // Some WebKit builds retain shared memories allocated by retired Workers.
   // Every open gets fresh memory; only immutable compiled code is cached.
-  const memory = new WebAssembly.Memory({initial: initial / 65536, maximum: maximum / 65536, shared: true});
-  // Materialize the buffer in this realm before cloning the memory to Workers.
-  // WebKit registers Memory's initial GC allocation before adopting its backing
-  // store. Creating the buffer wrapper accounts for the actual allocation.
+  // WebKit adopts constructor backing memory after reporting its GC cost.
+  // Growing an empty memory reports the real allocation to the owning VM;
+  // otherwise retired instances can wait behind an understated GC budget.
+  const memory = new WebAssembly.Memory({initial: 0, maximum: maximum / 65536, shared: true});
+  memory.grow(initial / 65536);
+  // Materialize and validate the shared buffer before cloning it to Workers.
   const buffer: unknown = memory.buffer;
   if (!(buffer instanceof SharedArrayBuffer) || buffer.byteLength !== initial)
     throw new Error('Kernel requires the declared shared memory buffer');
