@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import platform
 import shutil
+import sys
 import tempfile
 import time
 from urllib.parse import urlencode
@@ -27,6 +28,13 @@ CHECKS = {'soak-four-connections', 'soak-commit-model', 'soak-ddl-savepoint-roll
 def validate_firefox_identity(browser, expected):
     if browser.get('driver') != 'native-firefox' or browser.get('browserExecutable') != expected:
         raise WasmError('Native Firefox did not run the verified Mozilla executable')
+    validate_firefox_network(browser)
+
+
+def validate_firefox_network(browser):
+    network = browser.get('networkScope', {})
+    if network.get('loopbackOnly') is not True or network.get('interfaces') != ['lo']:
+        raise WasmError('Native Firefox resource tests must isolate unrelated browser network traffic')
 
 
 def validate(row, parameters):
@@ -52,6 +60,8 @@ def validate(row, parameters):
     if not parameters['rounds'] and parameters['seconds'] >= 300 and row.get('resourceGate', {}).get('status') != 'passed':
         raise WasmError('Long-run resource growth gate did not pass')
     if row.get('driver') in ('native-wpe', 'native-firefox'):
+        if row['driver'] == 'native-firefox':
+            validate_firefox_network(row)
         owner = row.get('workerOwnership', {})
         expected = 'webkit' if row['driver'] == 'native-wpe' else 'firefox'
         if (row.get('engine') != expected or row.get('finalPhysicalWorkerThreads') != 0 or
@@ -102,6 +112,7 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
         ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'buildsys/wasm_firefox.py', 'tests/wasm/soak/browser.mjs',
          'tests/wasm/soak/native-webkit.mjs',
          'tests/wasm/soak/native.mjs', 'tests/wasm/soak/native-relay.js',
+         'tests/wasm/soak/loopback.py',
          'tests/wasm/soak/failure.mjs', 'tests/wasm/soak/failure.test.mjs',
          'tests/wasm/soak/observer.mjs',
          'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
@@ -183,6 +194,8 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
                     command += ['--site', str(site), '--executable', str(native_webkit)]
                 elif engine == 'firefox' and native_firefox:
                     command += ['--site', str(site), '--executable', str(native_firefox)]
+                    command = [sys.executable, str(config.root / 'tests/wasm/soak/loopback.py'),
+                               *command, '--loopback-only']
                 elif native:
                     command += ['--site', str(site)]
                 elif engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]

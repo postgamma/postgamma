@@ -68,6 +68,7 @@ class SoakReceiptTests(unittest.TestCase):
 
     def test_native_firefox_requires_complete_idle_and_no_protocol(self):
         self.row.update(driver='native-firefox', engine='firefox', finalPhysicalWorkerThreads=0,
+                        networkScope={'loopbackOnly': True, 'interfaces': ['lo']},
                         browserProtocolCommands=[], finalIdle=dict(seconds=60, elapsedSeconds=60, physicalWorkerThreads=0),
                         workerOwnership=dict(active=[], activePthreads=[], created=3, terminated=3,
                                              pthreadCreated=39, pthreadTerminated=39, nativeOwnerPosts=0))
@@ -80,13 +81,22 @@ class SoakReceiptTests(unittest.TestCase):
 
     def test_native_firefox_cannot_substitute_an_automation_browser(self):
         expected = {'path': '/deps/firefox-native/155.0/bundle/firefox/firefox', 'sha256': '1' * 64}
-        browser = {'driver': 'native-firefox', 'browserExecutable': expected.copy()}
+        browser = {'driver': 'native-firefox', 'browserExecutable': expected.copy(),
+                   'networkScope': {'loopbackOnly': True, 'interfaces': ['lo']}}
         validate_firefox_identity(browser, expected)
         for field, value in (('path', '/deps/playwright/firefox'), ('sha256', '2' * 64)):
             row = copy.deepcopy(browser); row['browserExecutable'][field] = value
             with self.subTest(field=field), self.assertRaises(WasmError):
                 validate_firefox_identity(row, expected)
         with self.assertRaises(WasmError): validate_firefox_identity({'driver': 'native-firefox'}, expected)
+
+    def test_native_firefox_cannot_accept_unisolated_background_network(self):
+        expected = {'path': '/deps/firefox', 'sha256': '1' * 64}
+        for network in ({}, {'loopbackOnly': False, 'interfaces': ['lo']},
+                        {'loopbackOnly': True, 'interfaces': ['lo', 'eth0']}):
+            with self.subTest(network=network), self.assertRaises(WasmError):
+                validate_firefox_identity({'driver': 'native-firefox', 'browserExecutable': expected,
+                                           'networkScope': network}, expected)
 
 
 if __name__ == '__main__': unittest.main()

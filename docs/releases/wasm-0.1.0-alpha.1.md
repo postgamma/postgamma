@@ -24,7 +24,14 @@ package; the native Python and C SDK have separate acceptance requirements.
 ## Accepted scope and deployment
 
 The tested platform is Linux x86-64 with the project's pinned Chromium,
-Firefox and WebKit engines, using normal browser profiles. Safari on macOS/iOS
+Firefox and WebKit engines, using normal browser profiles. Native Firefox resource
+runs place the browser and localhost asset server in a loopback-only Linux network
+namespace. This excludes unrelated browser downloads and remote configuration
+updates without overriding browser preferences, GC or memory limits. The runner
+requires util-linux `unshare` and permission to create a network namespace, using
+an unprivileged user namespace when run without root. It fails if isolation is
+unavailable. Other functional tests retain their existing networking.
+Safari on macOS/iOS
 and mobile devices remain unaccepted. Node.js, WASI, multiple live instances
 and arbitrary native extension loading are outside this preview's profile.
 

@@ -4,7 +4,7 @@
 // evidence without an automation response-body collector or worker inspector.
 import {createServer} from 'node:http';
 import {spawn} from 'node:child_process';
-import {readFileSync, writeFileSync, appendFileSync, readdirSync, mkdirSync} from 'node:fs';
+import {readFileSync, readlinkSync, writeFileSync, appendFileSync, readdirSync, mkdirSync} from 'node:fs';
 import {resolve, join, dirname, extname, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
@@ -16,7 +16,7 @@ import {firefoxFailureMemory} from './failure.mjs';
 const {values} = parseArgs({options: {root: {type: 'string'}, site: {type: 'string'}, url: {type: 'string'},
   executable: {type: 'string'}, output: {type: 'string'}, profile: {type: 'string'},
   engine: {type: 'string', default: 'webkit'}, seconds: {type: 'string'}, 'growth-mib': {type: 'string', default: '128'},
-  'idle-seconds': {type: 'string', default: '60'}}});
+  'idle-seconds': {type: 'string', default: '60'}, 'loopback-only': {type: 'boolean', default: false}}});
 const root = resolve(values.root), site = resolve(values.site), output = resolve(values.output);
 const folder = dirname(fileURLToPath(import.meta.url));
 const {processes} = await import('./processes.mjs');
@@ -36,6 +36,11 @@ const eventsFile = output.replace(/\.json$/, '.events.jsonl'), resourcesFile = o
 writeFileSync(eventsFile, '');writeFileSync(resourcesFile, '');
 const report = {kind: 'postgamma.wasm-soak-browser', status: 'in_progress', engine, driver,
   seconds, growthBytes, rounds: 0, reopens: 0, samples: [], pageErrors: [], failedRequests: []};
+const interfaces = readFileSync('/proc/self/net/dev', 'utf8').trim().split('\n').slice(2)
+  .map(line => line.split(':')[0].trim());
+report.networkScope = {loopbackOnly: values['loopback-only'], interfaces,
+  namespace: readlinkSync('/proc/self/ns/net')};
+if (values['loopback-only']) assert.deepEqual(interfaces, ['lo'], 'Resource test namespace has only loopback');
 const observer = readFileSync(join(folder, 'native-relay.js'));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 report.observerSources = {relay: sha(observer), workerPrefix: sha(workerObserver), driver: sha(readFileSync(fileURLToPath(import.meta.url)))};
@@ -232,6 +237,8 @@ finally {
     + 'Linux OS Worker threads replace retired inspector targets; final Worker threads must retire within10s. '
     + 'An observer bootstrap imports the integrity-verified original control module and dispatches its existing read-only diagnostic. '
     + 'Every original SDK/kernel asset retains its original bytes and manifest checksum.';
+  if (report.networkScope.loopbackOnly) report.measurementScope +=
+    ' The browser and asset server share a loopback-only network namespace; browser preferences, GC and allocators are not overridden.';
   if (report.failureMemory?.signal) report.measurementScope +=
     ' A native memory report was requested only after the failed gate; its allocations are diagnostic and excluded from acceptance.';
   save();
