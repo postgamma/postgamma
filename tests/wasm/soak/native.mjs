@@ -12,6 +12,7 @@ import {parseArgs} from 'node:util';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {workerObserver} from './observer.mjs';
+import {firefoxFailureMemory} from './failure.mjs';
 const {values} = parseArgs({options: {root: {type: 'string'}, site: {type: 'string'}, url: {type: 'string'},
   executable: {type: 'string'}, output: {type: 'string'}, profile: {type: 'string'},
   engine: {type: 'string', default: 'webkit'}, seconds: {type: 'string'}, 'growth-mib': {type: 'string', default: '128'},
@@ -58,6 +59,39 @@ function workerThreads(row) {
     }
   }
   return count;
+}
+async function observeFailure() {
+  const directory = output.replace(/\.json$/, '.failure');
+  try {
+    mkdirSync(directory, {recursive: true});
+    const resources = processes(), threads = [], mappings = [];
+    for (const process of resources.processRows) {
+      const base = `/proc/${process.pid}`;
+      let tids;
+      try {
+        const bytes = readFileSync(base + '/smaps'), path = join(directory, `${process.pid}.smaps`);
+        writeFileSync(path, bytes);mappings.push({pid: process.pid, path, sha256: sha(bytes)});
+        tids = readdirSync(base + '/task');
+      } catch (error) {if (['ENOENT', 'ESRCH'].includes(error.code)) continue;throw error;}
+      for (const tid of tids) {
+        try {
+          const task = `${base}/task/${tid}`;
+          threads.push({pid: process.pid, tid: Number(tid),
+            name: readFileSync(task + '/comm', 'utf8').trim(),
+            state: readFileSync(task + '/status', 'utf8').match(/^State:.*$/m)?.[0],
+            wait: readFileSync(task + '/wchan', 'utf8').trim()});
+        } catch (error) {if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error;}
+      }
+    }
+    report.failureObservation = {phase: 'after-failed-gate', productionAcceptance: false,
+      resources, threads, mappings, physicalWorkerThreads: workerThreads(resources), directory};
+  } catch (error) {report.failureObservationError = String(error);}
+  save();
+  if (engine === 'firefox' && child?.exitCode === null && child?.signalCode === null) {
+    await firefoxFailureMemory(report, {pid: child.pid, temporary: dirname(values.profile),
+      output: join(directory, 'firefox-memory.json.gz')});
+    save();
+  }
 }
 async function eventReceived(event) {
   lastProgress = performance.now();appendFileSync(eventsFile, JSON.stringify(event) + '\n');
@@ -185,7 +219,10 @@ try {
   report.finalIdle = {seconds: idleSeconds, elapsedSeconds: (performance.now() - idleStarted) / 1000,
     resources: finalResources, physicalWorkerThreads: 0};
   report.status = 'passed';report.phase = 'completed';
-} catch (error) {report.status = 'failed';report.error = String(error.stack || error);process.exitCode = 1;}
+} catch (error) {
+  report.status = 'failed';report.error = String(error.stack || error);process.exitCode = 1;
+  clearInterval(monitor);clearTimeout(timer);save();await observeFailure();
+}
 finally {
   clearInterval(monitor);clearTimeout(timer);report.elapsedSeconds = (performance.now() - started) / 1000;
   report.eventsFile = eventsFile;report.resourcesFile = resourcesFile;
@@ -195,6 +232,8 @@ finally {
     + 'Linux OS Worker threads replace retired inspector targets; final Worker threads must retire within10s. '
     + 'An observer bootstrap imports the integrity-verified original control module and dispatches its existing read-only diagnostic. '
     + 'Every original SDK/kernel asset retains its original bytes and manifest checksum.';
+  if (report.failureMemory?.signal) report.measurementScope +=
+    ' A native memory report was requested only after the failed gate; its allocations are diagnostic and excluded from acceptance.';
   save();
   if (child && child.exitCode === null && child.signalCode === null) {
     try {process.kill(-child.pid, 'SIGTERM');} catch (error) {if (error.code !== 'ESRCH') throw error;}

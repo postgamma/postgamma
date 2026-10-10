@@ -32,6 +32,8 @@ def validate_firefox_identity(browser, expected):
 def validate(row, parameters):
     if row.get('kind') == 'postgamma.wasm-memory-diagnostic':
         raise WasmError('Memory profiling cannot qualify a production resource gate')
+    if any(field in row for field in ('failureMemory', 'failureObservation', 'failureObservationError')):
+        raise WasmError('Post-failure diagnostics cannot qualify a production run')
     if row.get('status') != 'passed' or not CHECKS <= set(row.get('probe', {}).get('checks', [])):
         raise WasmError('Mixed workload did not complete all checks')
     actual, complete = row.get('parameters', {}), row.get('complete', {})
@@ -100,6 +102,7 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
         ('buildsys/wasm_soak.py', 'buildsys/wasm_webkit.py', 'buildsys/wasm_firefox.py', 'tests/wasm/soak/browser.mjs',
          'tests/wasm/soak/native-webkit.mjs',
          'tests/wasm/soak/native.mjs', 'tests/wasm/soak/native-relay.js',
+         'tests/wasm/soak/failure.mjs', 'tests/wasm/soak/failure.test.mjs',
          'tests/wasm/soak/observer.mjs',
          'tests/wasm/soak/memory.mjs', 'tests/wasm/soak/processes.mjs', 'tests/wasm/soak/resources.mjs',
          'tests/wasm/soak/resources.test.mjs', 'tests/wasm/soak/processes.test.mjs',
@@ -160,6 +163,8 @@ def check(config, longjmp, engines, parameters, growth_mib, package_receipt=None
             current / 'resource-gate.log', env, config.root)
         run([tools['node'], str(config.root / 'tests/wasm/soak/processes.test.mjs')],
             current / 'process-accounting.log', env, config.root)
+        run([tools['node'], str(config.root / 'tests/wasm/soak/failure.test.mjs')],
+            current / 'failure-diagnostics.log', env, config.root)
         write_json(current / 'report.json', report)
         query = urlencode(dict(scenario='soak', seconds=parameters['seconds'], seed=parameters['seed'],
                                rounds=parameters['rounds'], reopen=parameters['reopenEvery'],

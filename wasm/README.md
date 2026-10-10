@@ -219,6 +219,14 @@ Failure snapshots include the active round and Worker wait state. Missing
 progress, incomplete duration, SQL/model mismatches and resource-budget failures
 fail the command; failed rounds are not silently retried.
 
+Native failures preserve process `smaps` and OS thread names, states and wait
+channels under `browser.failure/` before browser cleanup. Firefox also dumps a
+native memory report with SIGRTMIN only after the run has failed, without GC
+minimization. Its raw gzip and SHA-256 are recorded in the failed browser receipt.
+These observations are diagnostic; they cannot qualify a failed run. Passing
+runs do not send the memory-report signal. The observer stops reporting a host
+failure back as further page errors, preserving the original failure cause.
+
 On Linux x86-64, the WebKit soak uses the same pinned, unmodified upstream WPE
 322662@main as the native Worker diagnostic, including the Worker VM ownership
 repair absent from the Playwright bundle. It exchanges bounded, acknowledged

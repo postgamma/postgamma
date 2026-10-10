@@ -41,6 +41,11 @@ class SoakReceiptTests(unittest.TestCase):
         self.row['kind'] = 'postgamma.wasm-memory-diagnostic'
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
 
+    def test_post_failure_snapshots_cannot_be_relabelled_as_passing(self):
+        for field in ('failureMemory', 'failureObservation', 'failureObservationError'):
+            row = copy.deepcopy(self.row); row[field] = {'phase': 'after-failed-gate'}
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+
     def test_production_failure_source_must_match_the_requested_workload(self):
         self.parameters['faultSource'] = 'control-worker'
         with self.assertRaises(WasmError): validate(self.row, self.parameters)
