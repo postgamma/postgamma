@@ -148,7 +148,7 @@ sockets.on('connection', socket => {
     let message;
     try {message = JSON.parse(data);}catch (error) {rejectComplete(error);return;}
     const work = tail.then(() => eventReceived(message.event));
-    tail = work.catch(error => {report.error = String(error.stack || error);rejectComplete(error);});
+    tail = work.catch(rejectComplete);
     work.then(() => socket.send(JSON.stringify({sequence:message.sequence})), error => socket.send(JSON.stringify({sequence:message.sequence,error:String(error)})));
   });
   socket.on('error', rejectComplete);socket.on('close', () => {if (report.status !== 'passed') rejectComplete(new Error('Observer disconnected'));});

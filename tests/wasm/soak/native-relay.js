@@ -23,7 +23,7 @@ window.Worker = class extends nativeWorker {
   postMessage(...args) {nativeOwnerPosts++; return super.postMessage(...args);}
 };
 const socket = new WebSocket(new URL('/__soak', location.href).href.replace(/^http/, 'ws'));
-let sequence = 0, lastSample = 0;
+let sequence = 0, lastSample = 0, observerFailure;
 const callbacks = new Map();
 const ready = new Promise((resolve, reject) => {
   socket.addEventListener('open', resolve, {once: true});
@@ -33,7 +33,10 @@ socket.addEventListener('message', ({data}) => {
   const message = JSON.parse(data), entry = callbacks.get(message.sequence);
   if (!entry) throw new Error('Unknown soak observer acknowledgement');
   callbacks.delete(message.sequence);
-  if (message.error) entry.reject(new Error(message.error)); else entry.resolve();
+  if (message.error) {
+    observerFailure ??= new Error(message.error);
+    entry.reject(observerFailure);
+  } else entry.resolve();
 });
 socket.addEventListener('close', () => {
   for (const entry of callbacks.values()) entry.reject(new Error('Soak observer disconnected'));
@@ -55,6 +58,7 @@ async function snapshot() {
 }
 async function emit(event) {
   await ready;
+  if (observerFailure) throw observerFailure;
   const now = performance.now();
   const sampled = ['ready', 'round', 'reopen'].includes(event.kind) &&
     (now - lastSample > 10000 || event.kind === 'ready' || event.kind === 'round' && event.iteration % window.soakReopenEvery === 0);
@@ -77,10 +81,15 @@ window.soakCrash = fault => {
     worker.postMessage({postgammaSoakFault: fault});
   });
 };
-addEventListener('error', event => {void emit({kind: 'page-error', error: event.message});});
-addEventListener('unhandledrejection', event => {void emit({kind: 'page-error', error: String(event.reason)});});
+addEventListener('error', event => {
+  if (!observerFailure) void emit({kind: 'page-error', error: event.message}).catch(() => {});
+});
+addEventListener('unhandledrejection', event => {
+  if (!observerFailure) void emit({kind: 'page-error', error: String(event.reason)}).catch(() => {});
+});
 const timer = setInterval(async () => {
   if (!window.probeResult) return;
   clearInterval(timer);
-  await emit({kind: 'result', result: window.probeResult});
+  try {await emit({kind: 'result', result: window.probeResult});}
+  catch { /* The host keeps the original failed gate while collecting evidence. */ }
 }, 100);
