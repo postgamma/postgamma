@@ -528,6 +528,9 @@ make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000 \
   DOCS_TLS_CERT=/path/to/fullchain.pem DOCS_TLS_KEY=/path/to/key.pem
 ```
 
+Renewed certificate files are loaded for new connections without restarting the
+preview server. Configure automatic renewal on the host when using a public CA.
+
 `DOCS_HTTPS=1` forces HTTPS on loopback too. `DOCS_HTTPS=0` explicitly selects
 HTTP, which only supports the live database on localhost. This is a development
 server; deploy `build/docs/site/` to a static HTTPS host for a published website.

@@ -13,6 +13,7 @@ import socket
 import ssl
 import subprocess
 import tempfile
+import threading
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 import zlib
@@ -26,6 +27,51 @@ GENERATED_REFERENCES = {
 VERSION_MARKER = "{{ POSTGAMMA_VERSION }}"
 RELEASES_URL_MARKER = "{{ POSTGAMMA_RELEASES_URL }}"
 RELEASE_STATE_MARKER = "{{ POSTGAMMA_RELEASE_STATE }}"
+
+
+class ReloadingTLSContext:
+    """Use renewed certificate files for new connections without restarting MkDocs."""
+
+    def __init__(self, cert: Path, key: Path):
+        self.cert, self.key = cert, key
+        self.lock = threading.Lock()
+        self.stamp = self.file_stamp()
+        self.context = self.load()
+        self.failed_stamp = None
+        self.last_error = None
+
+    def file_stamp(self) -> tuple:
+        return tuple((info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+                     for info in (self.cert.stat(), self.key.stat()))
+
+    def load(self) -> ssl.SSLContext:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(self.cert, self.key)
+        return context
+
+    def current(self) -> ssl.SSLContext:
+        with self.lock:
+            stamp = None
+            try:
+                stamp = self.file_stamp()
+                if stamp != self.stamp and stamp != self.failed_stamp:
+                    context = self.load()
+                    # A renewal may replace the certificate and key separately.
+                    # Keep serving the old pair until both files are stable.
+                    if self.file_stamp() == stamp:
+                        self.context, self.stamp = context, stamp
+                        self.failed_stamp = None
+                        self.last_error = None
+                        logging.getLogger("mkdocs.preview").info("Loaded renewed HTTPS certificate")
+            except (OSError, ssl.SSLError) as error:
+                failure = (stamp, str(error))
+                if failure != self.last_error:
+                    logging.getLogger("mkdocs.preview").warning(
+                        "Cannot load renewed HTTPS certificate; retaining previous certificate: %s", error)
+                    self.last_error = failure
+                self.failed_stamp = stamp
+            return self.context
 
 
 def https_enabled(host: str) -> bool:
@@ -148,15 +194,14 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
     if use_https:
         root = Path(kwargs["config"].config_file_path).resolve().parent
         cert, key, names = preview_certificate(root, host)
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        context.load_cert_chain(cert, key)
+        contexts = ReloadingTLSContext(cert, key)
 
         class TLSRequestHandler(server.RequestHandlerClass):
             def handle(self) -> None:
                 previous_timeout = self.connection.gettimeout()
                 try:
                     self.connection.settimeout(10)
+                    self.connection.context = contexts.current()
                     self.connection.do_handshake()
                 except (ssl.SSLError, ConnectionError, TimeoutError) as error:
                     # A browser may reject the development certificate or a
@@ -170,7 +215,7 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
         server.RequestHandlerClass = TLSRequestHandler
         # Handshake in the request thread, so an idle connection does not block
         # acceptance of the other connections used by the browser's Workers.
-        server.socket = context.wrap_socket(server.socket, server_side=True,
+        server.socket = contexts.context.wrap_socket(server.socket, server_side=True,
                                             do_handshake_on_connect=False)
         server.url = urlunsplit(urlsplit(server.url)._replace(scheme="https"))
         if names:

@@ -48,6 +48,59 @@ class DocumentationTlsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "both DOCS_TLS_CERT and DOCS_TLS_KEY"):
                 mkdocs_hooks.preview_certificate(Path("."), "0.0.0.0")
 
+    def test_certificate_renewal_without_server_restart(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {
+            "POSTGAMMA_DOCS_HTTPS": "1", "POSTGAMMA_DOCS_TLS_CERT": "",
+            "POSTGAMMA_DOCS_TLS_KEY": "", "POSTGAMMA_DOCS_TLS_HOSTS": "",
+        }):
+            root = Path(temporary)
+            pairs = []
+            for generation in ("old", "new"):
+                os.environ["POSTGAMMA_DOCS_TLS_DIR"] = str(root / generation)
+                cert, key, _ = mkdocs_hooks.preview_certificate(root, "127.0.0.1")
+                pairs.append((cert, key))
+            cert, key = root / "fullchain.pem", root / "privkey.pem"
+            cert.write_bytes(pairs[0][0].read_bytes())
+            key.write_bytes(pairs[0][1].read_bytes())
+            os.environ.update(POSTGAMMA_DOCS_TLS_CERT=str(cert), POSTGAMMA_DOCS_TLS_KEY=str(key))
+
+            def app(environ, respond):
+                respond("200 OK", [("Content-Type", "text/plain")])
+                return [b"ready"]
+
+            server = make_server("127.0.0.1", 0, app, ThreadedServer, QuietHandler)
+            server.url = f"http://127.0.0.1:{server.server_port}/"
+            server.root = str(root)
+            mkdocs_hooks.on_serve(server, config=SimpleNamespace(config_file_path=root / "mkdocs.yml"))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            def request(trusted):
+                client = http.client.HTTPSConnection("127.0.0.1", server.server_port, timeout=5,
+                                                    context=ssl.create_default_context(cafile=str(trusted)))
+                try:
+                    client.request("GET", "/")
+                    response = client.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.read(), b"ready")
+                finally:
+                    client.close()
+
+            try:
+                request(pairs[0][0])
+                cert.write_bytes(pairs[1][0].read_bytes())
+                with self.assertLogs("mkdocs.preview", level="WARNING") as messages:
+                    request(pairs[0][0])
+                self.assertIn("retaining previous certificate", messages.output[0])
+                key.write_bytes(pairs[1][1].read_bytes())
+                request(pairs[1][0])
+                with self.assertRaises(ssl.SSLCertVerificationError):
+                    request(pairs[0][0])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
     def test_tls_get_verifies_certificate_and_isolation_headers(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {
             "POSTGAMMA_DOCS_HTTPS": "1", "POSTGAMMA_DOCS_TLS_CERT": "",
