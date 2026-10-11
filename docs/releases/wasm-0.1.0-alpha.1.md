@@ -10,7 +10,7 @@ package; the native Python and C SDK have separate acceptance requirements.
 - PostgreSQL 19 SQL and transactions in browser Workers, with four independent
   connections sharing one database;
 - opt-in parallel scans, partial aggregation, parallel hash joins and Gather
-  Merge, with one parallel worker shared across the four sessions; see the
+  Merge, with two parallel workers shared across the four sessions; see the
   [parallel query configuration](../getting-started/browser.md#parallel-queries);
 - parameterized queries, bounded result iteration, COPY streams, cancellation,
   SQLSTATE and structured errors;
@@ -46,7 +46,7 @@ asset placement and a runnable query example.
 
 The initial shared linear memory is 128 MiB and its ceiling is 512 MiB;
 JavaScript heaps, compiled code and browser memory are additional. The pthread
-pool has 13 slots. Collected query results are limited to 32 MiB including
+pool has 14 slots. Collected query results are limited to 32 MiB including
 metadata, and native materialized results to 24 MiB; use result iteration for
 larger results. Individual values are limited to 16 MiB.
 

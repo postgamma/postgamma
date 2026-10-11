@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const {vectorBudget} = await import(pathToFileURL(path.resolve(process.argv[2])).href);
+const {pthreadPoolSize} = await import(pathToFileURL(path.resolve(path.dirname(process.argv[2]), '../src/protocol/limits.js')).href);
 const launch = '2026-09-13 00:00:00 GMT [1000000006] DEBUG:  using 1 parallel workers';
 const callback = 'kernel: DEBUG: using 1 parallel workers';
 const base = {
-  samples: 2, peakThreads: 13, peakMemory: 134217728, returnedWorkers: 13,
+  samples: 2, peakThreads: pthreadPoolSize, peakMemory: 134217728, returnedWorkers: pthreadPoolSize,
   runningWorkers: 0, droppedLogs: 0, resources: {locks: 0, shmem: 0, dsm: 0, pipes: 0},
   ioStackBytes: 0,
   peakQueuedBytes: 0, peakPending: 0, peakHostQueuedBytes: 0,

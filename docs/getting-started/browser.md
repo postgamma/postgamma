@@ -130,23 +130,25 @@ A connection can opt into PostgreSQL parallel query execution:
 
 ```js
 await connection.exec(`
-  SET max_parallel_workers = 1;
-  SET max_parallel_workers_per_gather = 1;
+  SET max_parallel_workers = 2;
+  SET max_parallel_workers_per_gather = 2;
 `);
 ```
 
-The supported profile is four independent sessions sharing at most one parallel
-worker, in addition to each query's leader. Configure every participating
+The supported profile is four independent sessions sharing at most two parallel
+workers, in addition to each query's leader. Configure every participating
 connection this way. New connections start with parallel workers disabled.
 The planner chooses parallel execution when its costs justify it; inspect
 `EXPLAIN (ANALYZE, FORMAT JSON)` for `Workers Launched`, since a parallel plan
-can fall back to its leader when the worker is occupied. The worker limit is
+can fall back to its leader when both workers are occupied. The worker limit is
 shared with parallel index maintenance; larger worker counts are outside this
 profile. Keep `parallel_leader_participation` at its default of `on`.
 
 `make wasm-parallel-check WASM_MODE=release` exercises parallel scans, partial
 aggregates, parallel hash joins and Gather Merge in Chromium, Firefox and
-Linux WebKit with ephemeral and OPFS storage. It compares complete ordered
+Linux WebKit with ephemeral and OPFS storage. Every accepted parallel plan must
+show `Workers Planned: 2` and `Workers Launched: 2` in `EXPLAIN ANALYZE`, including
+with leader participation disabled and after OPFS reopen. It compares complete ordered
 results with serial execution and checks snapshots, session settings,
 cancellation, statement timeout, worker errors, worker-budget fallback,
 persistent reopen and resource release. `make wasm-test` includes this gate;
@@ -162,7 +164,7 @@ cases. All three engines are required gates. OPFS is tested with normal
 persistent browser profiles; private browsing can disable its storage APIs.
 The complete storage error and crash-recovery suite remains a Chromium gate.
 
-The shared linear-memory ceiling is 512 MiB with a fixed 13-slot pthread pool.
+The shared linear-memory ceiling is 512 MiB with a fixed 14-slot pthread pool.
 JS heap, compilation memory and browser VM/RSS are additional and are not
 measured by that ceiling. The timings below are local release observations, not
 performance guarantees. Safari on macOS/iOS, mobile browsers, Node.js and WASI

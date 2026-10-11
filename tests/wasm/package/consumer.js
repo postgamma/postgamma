@@ -142,8 +142,8 @@ try {
       scalar(await copied.query("SELECT to_regclass('package_rows')::text")) === null, 'Installed archive/restore/clone API');
     await copied.close(); metrics.push(await clone.close()); checks.push('archive-api');
     checks.push(persistent ? 'opfs-reopen-relocated-assets' : 'ephemeral-reopen-relocated-assets');
-    assert(metrics.every(m => m.peakThreads <= 13 && m.peakMemory <= 536870912 &&
-      m.returnedWorkers === 13 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');
+    assert(metrics.every(m => m.peakThreads <= 14 && m.peakMemory <= 536870912 &&
+      m.returnedWorkers === 14 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');
     window.probeResult = {status: 'passed', checks, version, buildId: manifest.buildId, metrics, timings, ticks};
   }
 } catch (error) {window.probeResult = {status: 'failed', checks, error: String(error), stack: error.stack,

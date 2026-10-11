@@ -335,7 +335,7 @@ threads, file descriptors, Wasm linear memory and OPFS handles. After a
 growth limits: 128 MiB for both RSS and anonymous/shared-memory PSS plus SwapPss
 (`WASM_SOAK_GROWTH_MIB`), 32 browser threads, 128 file descriptors and 8 virtual
 OPFS opens. Physical OPFS handles remain bounded at 63,
-Wasm threads at 13 and linear memory at 512 MiB. Growth comparisons use the same
+Wasm threads at 14 and linear memory at 512 MiB. Growth comparisons use the same
 point before each reopen, after PostgreSQL's file cache has warmed; cold reopen
 samples are retained but are not compared to a warmed cache. Normal close must release all
 native locks/shared-memory/DSM/pipes and workers; fatal cleanup gates queued
@@ -370,7 +370,7 @@ budget. Thus uncertainty can make a run fail, but cannot make excessive
 anonymous/shared growth pass. Reports retain both bounds and identify the
 measurement as `smaps-bounds`. Missing required fields or invalid bounds fail
 the measurement gate. No host kernel upgrade is required for this fallback.
-The API owner creates the control Worker and all 13 pthread Workers as siblings;
+The API owner creates the control Worker and all 14 pthread Workers as siblings;
 private MessagePorts preserve the SDK message interface. This avoids retained
 nested Workers during repeated browser teardown. The transport terminates the
 entire group after cleanup, including control failures and cleanup timeouts.
@@ -540,13 +540,16 @@ outputs when their inputs match. It never selects an older passing report to
 replace a failing attempt. `reports/resource-budget.json` contains the complete
 budget and points to its immutable run report. The policy is in
 [`wasm-resource-budget.json`](../manifests/profiles/wasm-resource-budget.json).
-It reserves a control Worker plus 13 pthread slots (supervisor, six background,
-four carriers, I/O owner, and one spare), with 74 MiB of C stacks in total.
+It reserves a control Worker plus 14 pthread slots (supervisor, six background,
+four carriers, I/O owner, and two parallel-worker reserves), with 82 MiB of C
+stacks in total. The extra slot allows two parallel workers alongside OPFS and
+four sessions. The policy is provisional pending full resource qualification;
+historical capacity receipts cover the preceding 13-slot pool.
 The capacity probe starts all slots together, touches synthetic static/TLS
 reserves and 264 MiB of estimated allocations, grows shared memory, verifies refreshed
 views in JS and pthreads, rejects an excessive allocation with ENOMEM, and
 releases allocations across two rounds. The candidate starts at 128 MiB and
-allows growth to 512 MiB. The SQL gate now validates these bounds for debug
+allows growth to 512 MiB. The SQL gate checks these bounds for debug
 Chromium and ephemeral WasmFS, including kernel layout, stack depth and managed
 JS queue measurements.
 Total browser VM/RSS overhead remains unmeasured.
@@ -769,7 +772,7 @@ all four carriers and admission/queue limits. The full run writes
 scenario results and source/asset identities. Diagnostics sample on commands
 and lifecycle transitions by default. To sample during long commands or initdb,
 pass `diagnostics: {sampleIntervalMs: 10}` to `Database.open()`; `0` disables
-periodic sampling. Sampling can miss transient peaks; the 13-slot SDK pool
+periodic sampling. Sampling can miss transient peaks; the 14-slot SDK pool
 supplies the hard pthread bound. Caller-retained results
 and the browser's VM/code memory are outside managed queue accounting.
 The `capacity` scenario additionally checks four simultaneous 5 MiB
@@ -875,7 +878,7 @@ The storage-errors case verifies that a WAL flush failure cannot acknowledge
 COMMIT and that uncertain namespace writes require a fresh module. Recovery must
 retain acknowledged commits and transaction atomicity; a transaction whose reply
 was lost may already be committed. The OPFS resource checks include the measured
-2 MiB I/O stack, existing 13-Worker pool, 512 MiB linear memory maximum, bounded
+2 MiB I/O stack, 14-Worker pool, 512 MiB linear memory maximum, bounded
 queues, 63 data access handles plus two metadata handles, and healthy shutdown drain.
 Browser VM/RSS and hardware power-loss durability are not measured.
 
@@ -921,7 +924,7 @@ Run `make wasm-sql-check JOBS=2` first to create a passing base-kernel receipt
 for the resource comparison. The full vector gate records matching core input
 identity, static/TLS and asset-size deltas, the repeated ABI memory measurement,
 and separate workload peaks in `vector-resource-budget.json`. These checks use
-the existing 13-Worker and 512 MiB limits. They cover debug Chromium; browser
+the 14-Worker and 512 MiB limits. They cover debug Chromium; browser
 VM/RSS, hardware power loss and the full upstream pgvector regression suite
 are outside this measured scope.
 

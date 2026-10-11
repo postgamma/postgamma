@@ -21,11 +21,11 @@ class ResourceBudgetTests(unittest.TestCase):
         policy = self.policy()
         plan = budget.plan(policy)
         mib = 1024 * 1024
-        self.assertEqual((plan["pthread_count"], plan["worker_count"]), (13, 14))
-        self.assertEqual(plan["stack_bytes"], 74 * mib)
-        self.assertEqual(plan["tls_reserve_bytes"], 14 * mib)
-        self.assertEqual(plan["estimated_linear_peak_bytes"], 368 * mib)
-        self.assertEqual(plan["maximum_headroom_bytes"], 144 * mib)
+        self.assertEqual((plan["pthread_count"], plan["worker_count"]), (14, 15))
+        self.assertEqual(plan["stack_bytes"], 82 * mib)
+        self.assertEqual(plan["tls_reserve_bytes"], 15 * mib)
+        self.assertEqual(plan["estimated_linear_peak_bytes"], 377 * mib)
+        self.assertEqual(plan["maximum_headroom_bytes"], 135 * mib)
         policy["outside_linear_memory"]["estimated_bytes"] *= 2
         self.assertEqual(plan, budget.plan(policy))
 
@@ -46,12 +46,12 @@ class ResourceBudgetTests(unittest.TestCase):
             policy = self.policy()
             toolchain.write_json(root / budget.POLICY, policy)
             before, flags = budget.probe_configuration(root)
-            self.assertIn("-sPTHREAD_POOL_SIZE=13", flags)
+            self.assertIn("-sPTHREAD_POOL_SIZE=14", flags)
             policy["thread_roles"][-1]["count"] += 1
             toolchain.write_json(root / budget.POLICY, policy)
             after, flags = budget.probe_configuration(root)
             self.assertNotEqual(before, after)
-            self.assertIn("-sPTHREAD_POOL_SIZE=14", flags)
+            self.assertIn("-sPTHREAD_POOL_SIZE=15", flags)
 
     def test_a_failed_or_build_only_dependency_cannot_close_the_budget(self):
         policy = self.policy()

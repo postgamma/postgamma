@@ -43,7 +43,7 @@ socket.addEventListener('close', () => {
   callbacks.clear();
 });
 async function snapshot() {
-  if (controls.size !== 1 || pthreads.size !== 13) throw new Error('Incomplete live Worker ownership');
+  if (controls.size !== 1 || pthreads.size !== 14) throw new Error('Incomplete live Worker ownership');
   const worker = controls.values().next().value, channel = new MessageChannel();
   try {
     return await new Promise((resolve, reject) => {

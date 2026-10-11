@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "postgamma.wasm-resource-policy",
-  "status": "validated",
+  "status": "provisional",
   "target": "wasm32-emscripten-pthreads",
   "initial_memory_bytes": 134217728,
   "maximum_memory_bytes": 536870912,
@@ -34,9 +34,9 @@
     },
     {
       "role": "reserve",
-      "count": 1,
+      "count": 2,
       "stack_bytes": 8388608,
-      "lifetime": "capacity reserved for a transient role"
+      "lifetime": "two parallel query workers, including with four carriers and the OPFS I/O owner active"
     }
   ],
   "static_reserve_bytes": 16777216,
@@ -186,6 +186,6 @@
       }
     },
     "full_acceptance_command": "make wasm-check-full WASM_MODE=release JOBS=2",
-    "note": "Targeted expanded-capacity evidence; a fresh full receipt matching all sources is required for release. previous_validation applies only to the earlier limits."
+    "note": "Historical targeted capacity evidence for the 13-slot pool. The current 14-slot pool adds capacity for two parallel workers with OPFS; a fresh full receipt matching this policy is required for release. previous_validation applies only to the earlier limits."
   }
 }

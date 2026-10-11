@@ -84,13 +84,14 @@ NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 Parallel queries are opt-in on each connection:
 
 ```ts
-await connection.exec('SET max_parallel_workers = 1; SET max_parallel_workers_per_gather = 1');
+await connection.exec('SET max_parallel_workers = 2; SET max_parallel_workers_per_gather = 2');
 ```
 
-The supported budget is one parallel worker shared by the four sessions, in
+The supported budget is two parallel workers shared by the four sessions, in
 addition to query leaders. Keep `parallel_leader_participation = on` (the
-PostgreSQL default). The optimizer selects suitable parallel plans; an occupied
-worker causes serial fallback. `EXPLAIN ANALYZE` reports `Workers Launched`.
+PostgreSQL default). The optimizer selects suitable parallel plans; when both
+workers are occupied, queries fall back to serial execution. Acceptance requires
+`Workers Planned: 2` and `Workers Launched: 2` in `EXPLAIN ANALYZE`.
 New connections start with parallel workers disabled. The worker budget is
 also used by parallel index maintenance; larger worker counts are unvalidated.
 

@@ -110,10 +110,10 @@ async function eventReceived(event) {
   }
   if (event.controlSnapshot) {
     assert.equal(event.ownership.nativeOwnerPosts, 0, 'SDK messages use child-owned ports rather than leaking native owner posts');
-    assert.equal(event.ownership.active.length, 1);assert.equal(event.ownership.activePthreads.length, 13);
+    assert.equal(event.ownership.active.length, 1);assert.equal(event.ownership.activePthreads.length, 14);
     const value = event.controlSnapshot;
     assert(!value.error && value.pending <= 1, 'Healthy quiescent control snapshot');
-    assert(value.memoryBytes <= 536870912 && value.threads.length <= 13, 'Native memory/thread bounds');
+    assert(value.memoryBytes <= 536870912 && value.threads.length <= 14, 'Native memory/thread bounds');
     assert(value.storage?.store && value.storage.store.handles <= 63, 'OPFS owner handle bound');
     const resource = processes(), physical = workerThreads(resource), expected = event.ownership.active.length + event.ownership.activePthreads.length;
     assert(physical >= expected, 'Every owned Worker has a native thread');

@@ -12,6 +12,25 @@ from wasm_toolchain import (WasmError, browser_environment, configuration, diges
                             read_json, run, run_id, sdk_tools, write_json)
 
 
+def parallel_plans(row):
+    """Require actual two-worker execution, including after persistent reopen."""
+    expected = {prefix + '-' + case for prefix in ('ephemeral', 'opfs') for case in
+                ('scan', 'aggregate', 'hash-join', 'gather-merge', 'worker-guc',
+                 'snapshot', 'leader-excluded', 'reuse-after-errors')} | {'opfs-reopen'}
+    plans = [event for event in row.get('events', []) if event.get('kind') == 'parallel-plan']
+    if len(plans) != len(expected) or {event.get('label') for event in plans} != expected:
+        raise WasmError('Missing two-worker execution plans')
+
+    def nodes(plan):
+        return [plan] + [node for child in plan.get('Plans', []) for node in nodes(child)]
+
+    for event in plans:
+        gathers = [node for node in nodes(event['plan']) if node.get('Node Type') in ('Gather', 'Gather Merge')]
+        if not gathers or any(node.get('Workers Planned') != 2 or node.get('Workers Launched') != 2 for node in gathers):
+            raise WasmError('EXPLAIN must show two planned and two launched workers: ' + event['label'])
+    return len(plans)
+
+
 def verify(config, receipt):
     sql = read_json(receipt)
     link = read_json(Path(sql['link_report']))
@@ -76,11 +95,13 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'contrib-local-guc-rollback', 'contrib-session-reuse', 'contrib-opfs-reopen', 'contrib-archive-roundtrip'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing contrib checks')
                     if scenario == 'parallel':
-                        required = {'parallel-scan-values', 'parallel-aggregate-values', 'parallel-hash-join-values',
+                        required = {'parallel-two-workers', 'parallel-leader-excluded',
+                            'parallel-scan-values', 'parallel-aggregate-values', 'parallel-hash-join-values',
                             'parallel-gather-merge-values', 'parallel-guc-isolation', 'parallel-snapshot',
                             'parallel-cancel', 'parallel-peer-progress', 'parallel-worker-budget-fallback', 'parallel-timeout', 'parallel-worker-error',
                             'parallel-reuse', 'parallel-ephemeral', 'parallel-opfs', 'parallel-opfs-reopen', 'parallel-resource-release'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing parallel SQL checks')
+                        parallel_plans(row)
                     for module in row['probe']['metrics']:
                         if module.get('resources') != dict(locks=0, shmem=0, dsm=0, pipes=0) or module.get('runningWorkers') != 0:
                             raise WasmError('Feature module did not release native resources')

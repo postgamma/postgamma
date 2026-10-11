@@ -1,12 +1,12 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {assert} from '../tests/helpers.js';
-import {limits} from '../src/protocol/limits.js';
+import {limits, pthreadPoolSize} from '../src/protocol/limits.js';
 
 export function vectorBudget(modules: any[], parallel: boolean) {
   let parallelObservations = 0, workersLaunched = 0, parallelThreadsStarted = 0;
   for (const m of modules) {
-    assert(m.samples >= 2 && m.peakThreads <= 13 && m.peakMemory <= 536870912, 'Vector workload stays within the existing target budget');
-    assert(m.returnedWorkers === 13 && m.runningWorkers === 0 && m.droppedLogs === 0, 'Vector healthy Worker drain');
+    assert(m.samples >= 2 && m.peakThreads <= pthreadPoolSize && m.peakMemory <= 536870912, 'Vector workload stays within the target budget');
+    assert(m.returnedWorkers === pthreadPoolSize && m.runningWorkers === 0 && m.droppedLogs === 0, 'Vector healthy Worker drain');
     assert(Object.values(m.resources).every(n => n === 0), 'Vector native resource release');
     assert(m.peakQueuedBytes <= limits.workerQueueBytes && m.peakPending <= limits.maxPendingCommands &&
       m.peakHostQueuedBytes <= limits.connectionQueueBytes * limits.maxConnections, 'Vector bridge queue bounds');
@@ -26,7 +26,7 @@ export function vectorBudget(modules: any[], parallel: boolean) {
     }
     assert(m.ioStackBytes === 0 || m.ioStackBytes === 2097152, 'Measured optional I/O stack');
     stack += m.ioStackBytes;
-    assert(classes === 3 && stack <= 77594624, 'Vector stacks fit the existing role reservations');
+    assert(classes === 3 && stack <= 85983232, 'Vector stacks fit the role reservations');
   }
   if (parallel) assert(workersLaunched === 2 && parallelThreadsStarted === 2 && parallelObservations === 2, 'Both index builds actually launched and reclaimed a parallel worker');
   return {scope: 'Chromium, scalar pgvector', healthyModules: modules.length,
