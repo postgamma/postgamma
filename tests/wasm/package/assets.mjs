@@ -1,0 +1,50 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {mkdtemp, mkdir, readFile, rm, symlink, writeFile} from 'node:fs/promises';
+import {join, resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+const {copyAssets, isolationHeaders} = await import(pathToFileURL(resolve(process.argv[2])));
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const root = await mkdtemp(join(tmpdir(), 'postgamma-assets-'));
+try {
+  const source = join(root, 'source'), target = join(root, 'public/postgamma');
+  await mkdir(join(source, 'licenses'), {recursive: true});
+  await mkdir(join(source, 'src/worker'), {recursive: true});
+  const data = Buffer.from([0,97,115,109,1,0,0,0]);
+  const files = {'postgamma.wasm': data, 'src/worker/sql.js': Buffer.from('export {};')};
+  for (const [name, value] of Object.entries(files)) await writeFile(join(source, name), value);
+  for (const name of ['LICENSE', 'NOTICE', 'licenses/LICENSE.postgresql']) await writeFile(join(source, name), name);
+  const manifest = {schemaVersion: 1, buildId: '0123456789abcdef', files: Object.fromEntries(
+    Object.entries(files).map(([name, bytes]) => [name, {bytes: bytes.length, sha256: hash(bytes)}]))};
+  const save = () => writeFile(join(source, 'postgamma.assets.json'), JSON.stringify(manifest));
+  await save();
+  const copied = await copyAssets(target, {source});
+  assert.equal(copied.buildId, manifest.buildId);
+  assert.deepEqual(await readFile(join(target, 'postgamma.wasm')), data);
+  await writeFile(join(target, 'unrelated.txt'), 'preserve');
+  await copyAssets(target, {source});
+  assert.equal(await readFile(join(target, 'unrelated.txt'), 'utf8'), 'preserve');
+  const changed = Buffer.from('export const updated = true;');
+  await writeFile(join(source, 'src/worker/sql.js'), changed);
+  manifest.files['src/worker/sql.js'] = {bytes: changed.length, sha256: hash(changed)};
+  manifest.buildId = 'fedcba9876543210'; await save();
+  await copyAssets(target, {source});
+  assert.deepEqual(await readFile(join(target, 'src/worker/sql.js')), changed);
+  await writeFile(join(target, 'src/worker/sql.js'), 'user modification');
+  await assert.rejects(copyAssets(target, {source}), /modified file/);
+  assert.equal(await readFile(join(target, 'src/worker/sql.js'), 'utf8'), 'user modification');
+  await writeFile(join(source, 'postgamma.wasm'), 'bad hash');
+  await assert.rejects(copyAssets(join(root, 'corrupt'), {source}), /hash mismatch/);
+  await assert.rejects(readFile(join(root, 'corrupt/postgamma.assets.json')), {code: 'ENOENT'});
+  await writeFile(join(source, 'postgamma.wasm'), data);
+  await assert.rejects(copyAssets(source, {source}), /overlap/);
+  manifest.files['../escape'] = {bytes: 0, sha256: hash('')}; await save();
+  await assert.rejects(copyAssets(join(root, 'traversal'), {source}), /Invalid asset entry/);
+  delete manifest.files['../escape']; await save();
+  await mkdir(join(root, 'outside')); await symlink(join(root, 'outside'), join(root, 'link'));
+  await assert.rejects(copyAssets(join(root, 'link/postgamma'), {source}), /symbolic links/);
+  assert.equal(isolationHeaders['Cross-Origin-Opener-Policy'], 'same-origin');
+  console.log('assets: complete copy, repeat, update, preserved files, integrity and path checks passed');
+} finally {await rm(root, {recursive: true, force: true});}

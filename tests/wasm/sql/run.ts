@@ -98,6 +98,10 @@ try {
   else if (scenario === 'controls') await controls(db, checks);
   else if (scenario === 'types') await types(db, checks);
   else if (scenario === 'streams') await streams(db, checks);
+  else if (scenario === 'sdk') {
+    await statements(db, checks); await controls(db, checks);
+    await types(db, checks); await streams(db, checks);
+  }
   else if (scenario === 'vector-load') await loadVector(db, checks);
   else if (scenario === 'vector-query') await vectorQueries(db, checks);
   else if (scenario === 'concurrency') await concurrency(db, checks);

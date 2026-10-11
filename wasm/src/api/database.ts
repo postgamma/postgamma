@@ -247,7 +247,9 @@ export class Database {
     const interval = options.diagnostics?.sampleIntervalMs ?? 0;
     if (!Number.isInteger(interval) || interval < 0 || interval > 60000)
       throw new RangeError('sampleIntervalMs must be an integer from 0 to 60000');
-    const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', import.meta.url);
+    // Keep the fallback URL out of bundlers' static asset-import rewriting.
+    const moduleUrl = import.meta.url;
+    const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', moduleUrl);
     if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
     const manifest = await assets(base);
     if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');

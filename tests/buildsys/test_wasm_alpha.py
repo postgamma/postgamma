@@ -58,7 +58,8 @@ class AlphaReceiptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); package = root / 'package'; package.mkdir()
             required = ('src/index.js', 'src/index.d.ts', 'LICENSE', 'NOTICE',
-                        'licenses/LICENSE.postgresql', 'licenses/LICENSE.emscripten', 'licenses/LICENSE.musl')
+                        'licenses/LICENSE.postgresql', 'licenses/LICENSE.emscripten', 'licenses/LICENSE.musl',
+                        'tooling/assets.mjs', 'tooling/assets.d.ts')
             for name in required:
                 path = package / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(name)
             (package / 'package.json').write_text(json.dumps(dict(version='0.1.0-alpha.1')))

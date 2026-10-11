@@ -21,6 +21,7 @@ def stages(profile, platform_checks=False):
         result += [('vector', ['wasm-vector-check'])]
         result += [('contrib', ['wasm-contrib-check'])]
         result += [('parallel', ['wasm-parallel-check'])]
+        result += [('sdk', ['wasm-sdk-check'])]
     result += [('pglite', ['wasm-pglite-check'])]
     if profile == 'weekly':
         result += [('storage', ['wasm-storage-check'])]
@@ -28,7 +29,7 @@ def stages(profile, platform_checks=False):
         result += [('lifecycle', ['wasm-lifecycle-check'])]
         result += [('soak-smoke', ['wasm-soak-smoke'])]
     result += [('package', ['wasm-package-check'])]
-    if profile == 'weekly': result += [('matrix', ['wasm-matrix-check'])]
+    if profile == 'weekly': result += [('bundlers', ['wasm-bundler-check']), ('matrix', ['wasm-matrix-check'])]
     return result
 
 
@@ -58,8 +59,8 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
     started = time.monotonic()
     dependencies = {'generation': ('tools',), 'oracle-build': ('tools',),
                     'oracle-install': ('oracle-build',), 'sql': ('generation', 'oracle-install'),
-                    'vector': ('generation', 'oracle-install'), 'matrix': ('package',)}
-    for name in ('runtime', 'pglite', 'storage', 'archive', 'contrib', 'parallel', 'lifecycle', 'soak-smoke', 'package'): dependencies[name] = ('generation',)
+                    'vector': ('generation', 'oracle-install'), 'matrix': ('package',), 'bundlers': ('package',)}
+    for name in ('runtime', 'pglite', 'storage', 'archive', 'contrib', 'parallel', 'sdk', 'lifecycle', 'soak-smoke', 'package'): dependencies[name] = ('generation',)
     for name in ('platform', 'wait', 'recovery'): dependencies[name] = ('tools',)
     try:
         for name, targets in stages(profile, platform_checks):

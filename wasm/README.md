@@ -56,7 +56,9 @@ Setup uses the candidate Emscripten version pinned in
 Node.js/npm, and the Playwright version locked in `package-lock.json`. It
 downloads tools into `.deps/wasm/` and installs npm dependencies in
 `wasm/node_modules/`. Repeating setup reuses matching installations; ordinary
-builds and checks do not install packages or require a Python virtualenv.
+kernel builds and checks do not download tools or require a Python virtualenv.
+The bundler gate separately installs its locked Vite/webpack test tools into
+`.deps/wasm/bundlers/` on first use and reuses them afterwards.
 
 On Ubuntu 24.04 x86-64, missing Chromium libraries are downloaded through the
 configured apt repositories and extracted into `.deps/wasm/browser-libs/`.
@@ -89,6 +91,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-check` | Build and run target initdb, parameterized SQL, required background roles, shutdown, and two reopens in Chromium. |
 | `make wasm-serve` | Build and serve the startup fixture with COOP/COEP headers for manual inspection. |
 | `make wasm-sql-check` | Run SQL, binding, concurrency, error, stream, lifecycle, OPFS failure recovery, fatal and resource scenarios on one kernel build, with a native SQL/COPY oracle. |
+| `make wasm-sdk-check WASM_MODE=release` | Refresh generation and test prepared statements, AbortSignal/deadlines, transaction callbacks, codecs and browser COPY streams in Chromium, Firefox and Linux WebKit. Requires the installed SDK and browsers. Included in `wasm-test`. |
 | `make wasm-pglite-check WASM_MODE=release` | Run the pinned PGlite-derived cases in Chromium, Firefox and Linux WebKit, each with ephemeral and OPFS storage. Requires setup and `wasm-kernel-generate` for this mode. |
 | `make wasm-soak-test` | Prepare sources, SDK, browsers and a release build, then run the seeded mixed workload for two hours per browser (about six hours total). |
 | `make wasm-soak-check WASM_MODE=release` | Run the same endurance gate using an already prepared SDK and generated kernel. |
@@ -104,6 +107,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
 | `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
+| `make wasm-bundler-check WASM_MODE=release` | Install/reuse locked Vite and webpack test tools, build both examples from the latest production tarball and execute their output in Chromium. Requires `wasm-package-check`; included in `wasm-test`. |
 | `make wasm-ci` | Run tool/unit/generation/shared-runtime/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |
 | `make wasm-test` | Set up and run all release Wasm gates, including the PGlite-derived matrix; retain independent failures in one report. |
 | `make wasm-release` | Build an optimized package and run SQL, vector, PGlite-derived, storage, lifecycle, package and browser gates. |

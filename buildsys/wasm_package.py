@@ -32,7 +32,7 @@ def verify_tree(package: Path, forbidden: str = '') -> dict:
     if any(forbidden and forbidden.encode() in p.read_bytes() for p in files):
         raise WasmError('consumer package contains a checkout path')
     for required in ('src/index.js', 'src/index.d.ts', 'LICENSE', 'NOTICE', 'licenses/LICENSE.postgresql',
-                     'licenses/LICENSE.emscripten', 'licenses/LICENSE.musl'):
+                     'licenses/LICENSE.emscripten', 'licenses/LICENSE.musl', 'tooling/assets.mjs', 'tooling/assets.d.ts'):
         if not (package / required).is_file():
             raise WasmError('consumer package is missing ' + required)
     return {'files': {str(p.relative_to(package)): digest(p) for p in files},
@@ -49,6 +49,10 @@ def consumer(config, tools, env, archive: Path, current: Path, engine='chromium'
         current / ('install-' + engine + '.log'), env, directory)
     package = directory / 'node_modules/@postgamma/wasm'
     evidence = verify_tree(package, str(config.root))
+    run([tools['node'], str(config.root / 'tests/wasm/package/assets.mjs'), str(package / 'tooling/assets.mjs')],
+        current / ('copy-assets-check-' + engine + '.log'), env, directory)
+    run([str(directory / 'node_modules/.bin/postgamma-assets'), str(directory / 'public/postgamma')],
+        current / ('copy-assets-' + engine + '.log'), env, directory)
     for name in ('consumer.html', 'consumer.js', 'consumer.ts'):
         shutil.copy2(config.root / 'tests/wasm/package' / name, directory / name)
     from wasm_pgvector_fixtures import fixtures
@@ -77,7 +81,8 @@ def consumer(config, tools, env, archive: Path, current: Path, engine='chromium'
 
 def package(config, longjmp, extensions, check=True):
     source_paths = [*sorted((config.package / 'src').rglob('*.ts')),
-                    *sorted((config.root / 'tests/wasm/package').glob('*')),
+                    *sorted((config.package / 'tooling').glob('*')),
+                    *sorted((config.root / 'tests/wasm/package').rglob('*')),
                     *(config.package / name for name in ('package.json', 'package-lock.json', 'tsconfig.json', 'PACKAGE_README.md')),
                     *(config.root / name for name in ('VERSION', 'LICENSE', 'NOTICE'))]
     inputs = {str(path.relative_to(config.root)): digest(path) for path in source_paths if path.is_file()}
@@ -104,9 +109,12 @@ def package(config, longjmp, extensions, check=True):
                     'homepage': 'https://postgamma.com',
                     'repository': {'type': 'git', 'url': 'https://github.com/postgamma/postgamma.git'},
                     'exports': {'.': {'types': './src/index.d.ts', 'import': './src/index.js'},
+                                './tooling': {'types': './tooling/assets.d.ts', 'import': './tooling/assets.mjs'},
                                 './assets/*': './*', './package.json': './package.json'},
-                    'types': './src/index.d.ts', 'files': ['src/', 'postgamma.*', 'licenses/', 'LICENSE', 'NOTICE', 'README.md']}
+                    'bin': {'postgamma-assets': './tooling/assets.mjs'}, 'engines': {'node': '>=20'},
+                    'types': './src/index.d.ts', 'files': ['src/', 'tooling/', 'postgamma.*', 'licenses/', 'LICENSE', 'NOTICE', 'README.md']}
         write_json(stage / 'package.json', metadata)
+        shutil.copytree(config.package / 'tooling', stage / 'tooling')
         for name in ('LICENSE', 'NOTICE'):
             shutil.copy2(config.root / name, stage / name)
         shutil.copy2(config.root / 'wasm/PACKAGE_README.md', stage / 'README.md')

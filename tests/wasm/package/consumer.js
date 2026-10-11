@@ -1,5 +1,5 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {Database, DatabaseError, version} from '@postgamma/wasm';
+import {Database, DatabaseError, Codecs, version} from '@postgamma/wasm';
 window.probeResult = null;
 const metrics = [], timings = {}, checks = [];
 const persistent = new URL(location.href).searchParams.get('storage') !== 'ephemeral';
@@ -13,7 +13,7 @@ try {
     try {const db = await Database.open(); await db.close(); window.probeResult = {status: 'unexpected-success'};}
     catch (error) {window.probeResult = {status: 'rejected', error: String(error)};}
   } else {
-    const manifest = await (await fetch('./node_modules/@postgamma/wasm/postgamma.assets.json')).json();
+    const manifest = await (await fetch('./public/postgamma/postgamma.assets.json')).json();
     assert(version === manifest.version && !manifest.bridge.testing, 'Production package version and bridge');
     const name = 'package-' + crypto.randomUUID(), start = performance.now();
     stage('open');
@@ -30,6 +30,22 @@ try {
     await a.query('INSERT INTO package_rows VALUES ($1::int8)', {parameters: [{typeOid: 20, value: '9223372036854775807'}]});
     assert(scalar(await b.query('SELECT id FROM package_rows')) === '9223372036854775807', 'Exact int64 and committed visibility');
     checks.push('parameters-exact-values-transactions');
+    stage('sdk');
+    const codecs = new Codecs(), statement = await a.prepare('SELECT $1::int8');
+    try {
+      const result = await statement.query({parameters: [codecs.parameter(20, 9007199254740993n)]});
+      assert(codecs.decode(result[0]).rows[0][0] === 9007199254740993n, 'Installed prepared statement and codecs');
+    } finally {await statement.close();}
+    await a.transaction(async tx => {
+      await tx.query('CREATE TABLE package_streams(id int)');
+    }, {timeoutMs: 5000});
+    await a.copyFrom('COPY package_streams FROM STDIN', new Blob(['1\n2\n']));
+    const streamChunks = [];
+    await a.copyTo('COPY (SELECT * FROM package_streams ORDER BY id) TO STDOUT', new WritableStream({write(bytes) {streamChunks.push(bytes);}}));
+    assert(await new Blob(streamChunks).text() === '1\n2\n', 'Installed COPY stream helpers');
+    try {await a.query('SELECT 1', {timeoutMs: 0}); throw new Error('Expected timeout');}
+    catch (error) {assert(error.name === 'TimeoutError', 'Installed query deadline');}
+    checks.push('prepared-codecs-api', 'transaction-callback-api', 'copy-stream-api', 'deadline-api');
     stage('concurrency');
     const concurrent = connections.map(c => c.query('SELECT pg_sleep(0.3), 7'));
     const deadline = performance.now() + 5000;

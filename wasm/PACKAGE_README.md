@@ -29,6 +29,33 @@ directory rather than only importing its JS entry. Point `Database.open()` at
 that copy with `assetBase: new URL('/postgamma/', location.href)` when needed.
 The API and asset copy must come from the same package build.
 
+Run `npx --no-install postgamma-assets public/postgamma` after installing the
+package. The helper verifies asset hashes before copying the complete runtime,
+including Workers, initialization data and license notices. Repeated builds
+update files owned by the helper and preserve unrelated files; modified asset
+files cause an error. Complete the copy before serving the destination.
+
+For Vite, call the helper from your configuration:
+
+```js
+import {copyAssets, isolationHeaders} from '@postgamma/wasm/tooling';
+await copyAssets('public/postgamma');
+export default {
+  server: {headers: isolationHeaders},
+  preview: {headers: isolationHeaders},
+  optimizeDeps: {exclude: ['@postgamma/wasm']},
+  build: {target: 'es2022'},
+};
+```
+
+The repository's `examples/wasm/bundlers` contains a working page and Vite and
+webpack configuration examples. Copy `app.js` and `index.html` with the chosen
+configuration into an application containing the installed package and bundler.
+Run `vite`, `vite build`, `vite preview`, or `webpack serve` / `webpack`.
+For webpack, also install webpack-cli and webpack-dev-server. Production hosting
+must send the same isolation headers and serve the generated asset directory;
+development-server configuration does not configure your production host.
+
 For an unbundled page, map `@postgamma/wasm` to the deployed `src/index.js` using
 an import map. All Worker, Wasm and initialization-resource paths then resolve
 relative to that package. No compiler, Python, PostgreSQL installation or Arrow

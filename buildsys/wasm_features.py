@@ -102,6 +102,12 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'parallel-reuse', 'parallel-ephemeral', 'parallel-opfs', 'parallel-opfs-reopen', 'parallel-resource-release'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing parallel SQL checks')
                         parallel_plans(row)
+                    if scenario == 'sdk':
+                        required = {'prepared-queued-close-order', 'prepared-lock-wait-yields-driver',
+                            'transaction-close-rollback', 'transaction-timeout-rollback', 'prepare-timeout-cleanup',
+                            'codecs-text-binary-scalars', 'codecs-custom-type-isolation', 'codecs-array-bounds',
+                            'copy-resource-release', 'copy-source-timeout', 'copy-sink-timeout'}
+                        if not required <= set(row['probe']['checks']): raise WasmError('Missing browser SDK checks')
                     for module in row['probe']['metrics']:
                         if module.get('resources') != dict(locks=0, shmem=0, dsm=0, pipes=0) or module.get('runningWorkers') != 0:
                             raise WasmError('Feature module did not release native resources')
@@ -133,7 +139,7 @@ def main():
     parser.add_argument('--mode', default='debug', choices=('debug', 'release'))
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--longjmp', default='emscripten'); parser.add_argument('--jobs', type=int, default=2)
-    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel', 'statements', 'controls', 'types', 'streams'))
+    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel', 'statements', 'controls', 'types', 'streams', 'sdk'))
     parser.add_argument('--extensions', default='standard')
     parser.add_argument('--engines', default='chromium,firefox,webkit')
     args = parser.parse_args()
