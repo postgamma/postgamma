@@ -14,7 +14,7 @@ export async function storage(checks: string[], metrics: unknown[]) {
   assert(scalar(await b.query('SELECT value FROM durable_values')) === 'committed', 'OPFS sessions remain independent');
   await a.query('ROLLBACK');
   let denied = false;
-  try {const other = await Database.open({...options, create: false}); await other.close();}
+  try {const other = await Database.open({...options, create: false, lock: 'fail'}); await other.close();}
   catch (error) {denied = String(error).includes('live owner');}
   assert(denied, 'Second owner is rejected before initdb/recovery');
   const probe = await (db as any).transport.call(65534, undefined, (w: any) => w.u32(1));
@@ -32,7 +32,7 @@ export async function storage(checks: string[], metrics: unknown[]) {
   await new Promise(resolve => setTimeout(resolve, 50));
   assert(!closed, 'Close waits for in-flight storage before releasing resources');
   denied = false;
-  try {const other = await Database.open({...options, create: false}); await other.close();}
+  try {const other = await Database.open({...options, create: false, lock: 'fail'}); await other.close();}
   catch (error) {denied = String(error).includes('live owner');}
   assert(denied, 'Ownership remains held during in-flight close');
   control.release();

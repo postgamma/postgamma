@@ -1,5 +1,5 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {Database, DatabaseError, Codecs, version} from '@postgamma/wasm';
+import {Database, DatabaseError, DatabaseLockedError, Codecs, version} from '@postgamma/wasm';
 window.probeResult = null;
 const metrics = [], timings = {}, checks = [];
 const persistent = new URL(location.href).searchParams.get('storage') !== 'ephemeral';
@@ -18,8 +18,19 @@ try {
     const name = 'package-' + crypto.randomUUID(), start = performance.now();
     stage('open');
     const storage = persistent ? {type: 'opfs', name} : undefined;
-    const db = await Database.open({storage});
+    const opening = new AbortController();
+    const db = await Database.open({storage, signal: opening.signal});
+    opening.abort(); // Once open resolves, later cancellation must leave the DB usable.
+    checks.push('open-signal-lifetime-api');
     timings.createMs = performance.now() - start;
+    if (persistent) {
+      try {await Database.open({storage, lock: 'fail'}); throw new Error('Expected exclusive ownership');}
+      catch (error) {
+        assert(error instanceof DatabaseLockedError && error.code === 'DATABASE_LOCKED' &&
+          error.databaseName === name && error.reason === 'busy', 'Installed structured ownership error');
+      }
+      checks.push('database-locked-error-api');
+    }
     stage('connect');
     const connections = await Promise.all(Array.from({length: 4}, () => db.connect()));
     const [a,b] = connections;

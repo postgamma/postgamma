@@ -21,6 +21,7 @@ try {
     commands = [];
     constructor() {super(); worker = this;}
     receive(data) {
+      if (data.postgammaPrepare) {this.emit({postgammaPrepared: true}); return;}
       if (data.postgammaPthreadBroker) return;
       assert(data instanceof ArrayBuffer);
       const view = new DataView(data), sequence = view.getUint32(4, true), op = view.getUint32(8, true);

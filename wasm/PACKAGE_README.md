@@ -63,7 +63,13 @@ runtime is required by the browser application.
 
 Omit `storage` for an ephemeral database. OPFS requires Web Locks,
 BroadcastChannel and synchronous file access handles; one origin/database name
-has one live owner. Always close
+has one live owner. Opening an occupied database waits up to 5000 ms by default;
+use `lockTimeoutMs` to change the bound or `lock: 'fail'` for immediate rejection.
+`DatabaseLockedError` exposes `databaseName`, `reason` (`'busy'` or `'timeout'`)
+and `code: 'DATABASE_LOCKED'`, and supports `instanceof`. Pass `signal` to cancel
+opening. A waiting open allocates no Wasm memory or pthreads until ownership is
+acquired. Tabs do not share sessions or automatically take over a live owner.
+Always close
 the database to release its Workers and file handles. Clusters are target-specific;
 do not mount a native PostgreSQL data directory. Synchronous COMMIT waits for the
 browser storage barrier; hardware power-loss durability is not established.

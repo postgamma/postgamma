@@ -14,13 +14,14 @@ try {
   for (const [name, content] of Object.entries({
     'loader/kernel.js': 'export const loadKernel = async () => globalThis.fixture.module;',
     'bindings/sql.js': 'export const exchange = (...args) => globalThis.fixture.exchange(...args); export const tick = () => globalThis.fixture.tick();',
-    'storage/ownership.js': 'export const acquire = async () => globalThis.fixture.release;',
+    'storage/ownership.js': 'export const acquire = async () => globalThis.fixture.release; export class DatabaseLockedError extends Error {}',
   })) await writeFile(join(directory, name), content);
   const {Writer, Op, VERSION} = await import(pathToFileURL(join(directory, 'protocol/wire.js')));
   for (const failure of ['startup', 'pthread-owner', 'pthread-driver', 'pthread-timeout']) {
     globalThis.postgammaNativeRetired = false;
     const deadline = new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('No fatal cleanup acknowledgement')), 7000);});
-    let began, delivered;
+    let began, delivered, prepared;
+    const preparation = new Promise(resolve => {prepared = resolve;});
     const cleaning = new Promise(resolve => {began = resolve;});
     const completed = new Promise(resolve => {delivered = resolve;});
     const pendingIO = new Promise(resolve => {unblock = resolve;});
@@ -96,6 +97,7 @@ try {
     };
     globalThis.self = {addEventListener() {}, close() {throw new Error('Control termination belongs to the parent transport');}};
     globalThis.postMessage = message => {
+      if (message.postgammaPrepared) {prepared(); return;}
       assert(ownerStopped, 'The parent receives the fatal receipt after child shutdown gets an event-loop turn');
       messages.push(message); delivered(message);
     };
@@ -103,6 +105,8 @@ try {
     const request = new Writer().u32(VERSION).u32(1).u32(Op.open)
       .u32(0).u32(4).text('/database').u32(1).text('db').text('').u32(0).finish();
     const broker = new MessageChannel();
+    self.onmessage({data: {postgammaPrepare: true, storageName: 'db'}});
+    await Promise.race([preparation, deadline]);
     self.onmessage({data: {postgammaPthreadBroker: true}, ports: [broker.port2]});
     broker.port1.close(); broker.port2.close();
     self.onmessage({data: request});

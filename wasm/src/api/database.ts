@@ -14,6 +14,10 @@ import {buildId} from '../loader/identity.js';
 import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
 import {ownPthreads} from '../runtime/pthreads.js';
 import {ownWorkerMailbox} from '../runtime/messages.js';
+import {prepareOwnership} from '../runtime/open.js';
+import {validateLockOptions} from '../storage/ownership.js';
+import type {LockOptions} from '../storage/ownership.js';
+export {DatabaseLockedError} from '../storage/ownership.js';
 import {OperationControl, abortable} from './control.js';
 import type {ControlOptions} from './control.js';
 import {SerialQueue} from './queue.js';
@@ -34,9 +38,11 @@ function openMessage(w: Writer, options: OpenOptions) {
     .text((options as {storageTestChannel?: string}).storageTestChannel ?? '')
     .u32(options.diagnostics?.sampleIntervalMs ?? 0);
 }
-export interface OpenOptions {
+export interface OpenOptions extends LockOptions {
   create?: boolean; path?: string; workers?: number;
   storage?: {type: 'opfs'; name: string};
+  /** Cancel opening, including waiting for OPFS ownership. */
+  signal?: AbortSignal;
   /** URL of the complete matching asset directory, ending with a slash. */
   assetBase?: string | URL;
   /** Optional periodic diagnostics, 1..60000 ms; default 0 samples on commands only. */
@@ -253,6 +259,11 @@ export class Database {
   private logicalWork?: {control: OperationControl; done: Promise<void>};
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
   private static async createTransport(options: OpenOptions): Promise<Transport> {
+    validateLockOptions(options);
+    options.signal?.throwIfAborted();
+    if (options.storage && (options.storage.type !== 'opfs' || typeof options.storage.name !== 'string' ||
+        !/^[a-zA-Z0-9_-]{1,64}$/.test(options.storage.name)))
+      throw new TypeError('OPFS database name must contain 1-64 ASCII letters, digits, underscores or hyphens');
     const interval = options.diagnostics?.sampleIntervalMs ?? 0;
     if (!Number.isInteger(interval) || interval < 0 || interval > 60000)
       throw new RangeError('sampleIntervalMs must be an integer from 0 to 60000');
@@ -260,23 +271,34 @@ export class Database {
     const moduleUrl = import.meta.url;
     const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', moduleUrl);
     if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
-    const manifest = await assets(base);
+    const wait = <T>(work: Promise<T>) => options.signal ? abortable(work, options.signal) : work;
+    const manifest = await wait(assets(base));
     if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
-    const [, compiled] = await Promise.all([
-      verifiedAsset(base, manifest, manifest.entries.worker), compiledKernel(base, manifest),
-    ]);
-    const memory = ownedMemory(manifest);
+    await wait(verifiedAsset(base, manifest, manifest.entries.worker));
+    options.signal?.throwIfAborted();
     const worker = new Worker(new URL(manifest.entries.worker, base), {type: 'module'});
-    await ownWorkerMailbox(worker);
-    return new Transport(worker,
-      new URL(manifest.entries.module, base), compiled, memory);
+    try {
+      await wait(ownWorkerMailbox(worker));
+      await prepareOwnership(worker, options.storage?.name ?? null, options, options.signal);
+      const compiled = await wait(compiledKernel(base, manifest));
+      options.signal?.throwIfAborted();
+      const memory = ownedMemory(manifest);
+      return new Transport(worker, new URL(manifest.entries.module, base), compiled, memory);
+    } catch (error) {worker.terminate(); throw error;}
   }
   static async open(options: OpenOptions = {}): Promise<Database> {
     const transport = await Database.createTransport(options);
+    const abort = () => {void transport.discard(new DOMException('Database opening aborted', 'AbortError'));};
+    options.signal?.addEventListener('abort', abort, {once: true});
     try {
+      if (options.signal?.aborted) {abort(); throw options.signal.reason;}
       const r = await transport.call(Op.open, undefined, w => openMessage(w, options));
+      options.signal?.throwIfAborted();
       const handle = r.handle(); r.end(); return new Database(transport, handle);
-    } catch (error) {transport.terminate(); throw error;}
+    } catch (error) {
+      if (options.signal?.aborted) await transport.discard(new DOMException('Database opening aborted', 'AbortError'));
+      transport.terminate(); throw options.signal?.aborted ? options.signal.reason : error;
+    } finally {options.signal?.removeEventListener('abort', abort);}
   }
   /** Restore a complete archive from this exact asset build into a new target.
    * Failed OPFS targets retain an incomplete marker and cannot be opened. */

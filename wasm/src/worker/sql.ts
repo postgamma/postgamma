@@ -4,7 +4,7 @@ import {exchange, tick} from '../bindings/sql.js';
 import type {SqlModule} from '../bindings/sql.js';
 import {DatabaseError, LIMIT, Op, Reader, VERSION, Writer, response} from '../protocol/wire.js';
 import {limits} from '../protocol/limits.js';
-import {acquire} from '../storage/ownership.js';
+import {acquire, DatabaseLockedError} from '../storage/ownership.js';
 import {installPthreadBroker} from '../runtime/pthreads.js';
 import {installWorkerMailbox} from '../runtime/messages.js';
 installWorkerMailbox();
@@ -16,6 +16,7 @@ function record(text: string) {
 }
 let loaded: SqlModule | undefined;
 let ownership: (() => Promise<void>) | undefined;
+let preparing = false, prepared = false, preparedStorageName: string | null = null;
 let storageWorker: Worker | undefined, storagePort: MessagePort | undefined;
 const stopped = new AbortController();
 let queuedBytes = 0, peakQueuedBytes = 0;
@@ -190,6 +191,9 @@ function startKernel() {return loadKernel({print: record, printErr: text => {
   record(text); console.error(text.slice(0, limits.logLineCharacters));
 }}, compiledModule, kernelMemory).then(value => {
   const module = value as SqlModule;
+  // Loading may finish after a cancelled OPEN has begun releasing ownership.
+  // Never start native owners or install callbacks into that retired instance.
+  if (failed) {module.PThread.terminateAllThreads(); throw new Error('Database startup was discarded');}
   loaded = module;
   // The strict SDK pool is fully created before loadKernel resolves. Own its
   // error events: the SDK's default handler rethrows and leaves the original
@@ -247,8 +251,27 @@ let queue = Promise.resolve();
 let brokerInstalled = false;
 self.onmessage = ({data, ports}) => {
   if (failed) return;
+  if (data?.postgammaPrepare === true) {
+    if (preparing || prepared || brokerInstalled || kernel) {void fail(new Error('Database ownership already requested')); return;}
+    preparing = true;
+    void (async () => {
+      try {
+        if (data.storageName !== null && typeof data.storageName !== 'string') throw new TypeError('Invalid storage name');
+        if (data.storageName !== null) ownership = await acquire(data.storageName, data, stopped.signal);
+        if (failed) {await ownership?.(); ownership = undefined; return;}
+        preparedStorageName = data.storageName; prepared = true;
+        postMessage({postgammaPrepared: true});
+      } catch (error) {
+        if (failed) return;
+        failed = true;
+        postMessage({postgammaPrepared: false, error: error instanceof DatabaseLockedError ?
+          {code: error.code, databaseName: error.databaseName, reason: error.reason} : {message: String(error)}});
+      }
+    })();
+    return;
+  }
   if (data?.postgammaPthreadBroker === true) {
-    if (brokerInstalled || kernel || ports.length !== 1) {void fail(new Error('Invalid pthread Worker owner')); return;}
+    if (!prepared || brokerInstalled || kernel || ports.length !== 1) {void fail(new Error('Invalid pthread Worker owner')); return;}
     if (data.compiled !== undefined && !(data.compiled instanceof WebAssembly.Module)) {
       void fail(new Error('Invalid compiled kernel module')); return;
     }
@@ -279,8 +302,8 @@ self.onmessage = ({data, ports}) => {
       const storage = request.u32(), name = request.text(); request.text();
       samplingIntervalMs = request.u32(); request.end();
       if (samplingIntervalMs > 60000) throw new Error('Invalid diagnostic sampling interval');
+      if ((storage === 1 ? name : null) !== preparedStorageName) throw new Error('Database differs from its storage ownership');
       if (storage === 1) {
-        currentCommand.phase = 'storage-ownership'; ownership = await acquire(name!);
         if (op === Op.restoreOpen) {
           const root = await navigator.storage.getDirectory();
           const databases = await root.getDirectoryHandle('postgamma', {create: true});
