@@ -291,3 +291,22 @@ The package version is derived from PostGamma's release version; for example,
 `0.1.0a1` becomes npm `0.1.0-alpha.1`. `postgamma.assets.json` records the actual
 target, build mode, source revisions, capabilities and asset hashes. Preserve
 LICENSE, NOTICE and licenses/ when redistributing the package.
+
+## Experimental psql terminal
+
+`await db.psql()` starts the matching upstream psql frontend inside the browser
+kernel. It exclusively owns the instance: close any SQL connections first, and
+close the database before starting a new psql session. `terminal.write(text)`
+accepts 1–16384 UTF-8 bytes, including your newline; `terminal.read()` returns
+`{data: Uint8Array, state: 'running' | 'input' | 'exited', exitCode}`. Decode
+output incrementally with `TextDecoder` and drain it regularly for backpressure.
+`terminal.interrupt()` cancels input/query execution, and `db.close()` joins the
+frontend before closing the kernel. The homepage implements line editing and a
+bounded output display around these primitives.
+
+This is a browser-local terminal. Shell/editor/pager commands, network
+connections, signal-timer-based `\watch`, readline completion and file
+upload/download are unavailable.
+SQL and psql metacommands run in the upstream C frontend, using private libpq
+over the in-memory PostgreSQL wire transport. One invocation is allowed per
+module; its private frontend globals are discarded with that module.

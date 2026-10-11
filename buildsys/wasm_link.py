@@ -372,6 +372,43 @@ class Builder:
         print("wasm link: compiling private initdb", flush=True)
         self.namespace_group("initdb", jobs, keep=("postgamma_initdb_create",))
         self.logical_tools()
+        self.psql()
+
+    def psql(self):
+        # Unlike repeatable dump/restore invocations, this interactive closure
+        # is single-use and owns the entire module until Database.close(). Use
+        # pristine frontend sources, with private globals and allocation arena.
+        run(["make", "-C", str(self.raw / "src/bin/psql"), "psqlscanslash.c",
+             "sql_help.h", "sql_help.c", "tab-complete.c"], self.log, self.env, self.root)
+        flags = ["-DFRONTEND", "-DUSE_PRIVATE_ENCODING_FUNCS",
+                 *["-I" + str(self.capture_source / path) for path in
+                   ("src/interfaces/libpq", "src/bin/psql", "src/common", "src/port")],
+                 "-I" + str(self.raw / "src/bin/psql"),
+                 "-I" + str(self.root / "wasm/bridge")]
+        upstream = [*flags, "-include", str(self.root / "wasm/bridge/psql_runtime.h")]
+        jobs = []
+        for source, key, extra in self.frontend_jobs("psql"):
+            if source.is_relative_to(self.source / "src/interfaces/libpq") or source.name == "pqsignal.c":
+                continue
+            if source.is_relative_to(self.source):
+                source = self.capture_source / source.relative_to(self.source)
+            elif source.is_relative_to(self.artifacts):
+                source = self.raw / source.relative_to(self.artifacts)
+            jobs.append((source, key, [*extra, *upstream]))
+        names = ("command common copy crosstabview describe help input large_obj "
+                 "mainloop prompt psqlscanslash sql_help startup stringutils tab-complete variables").split()
+        for name in names:
+            source = self.capture_source / "src/bin/psql" / (name + ".c")
+            if name in ("psqlscanslash", "sql_help", "tab-complete"):
+                source = self.raw / "src/bin/psql" / (name + ".c")
+            jobs.append((source, "psql/" + name, [*upstream,
+                         *(["-Dmain=postgamma_psql_main"] if name == "startup" else [])]))
+        jobs += [(self.capture_source / "src/interfaces/libpq/pqexpbuffer.c", "psql/pqexpbuffer", upstream),
+                 (self.root / "wasm/bridge/psql.c", "psql/host", flags),
+                 (self.root / "wasm/bridge/logical_alloc.c", "psql/alloc", flags)]
+        print("wasm link: compiling private interactive psql", flush=True)
+        self.namespace_group("psql", jobs, keep=("postgamma_wasm_psql_",),
+                             imports=self.report["namespaces"]["libpq"]["mapping"])
 
     def logical_tools(self):
         flags = ["-DFRONTEND", "-DPOSTGAMMA_FRONTEND_TOOL", "-DUSE_PRIVATE_ENCODING_FUNCS",

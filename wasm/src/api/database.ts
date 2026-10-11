@@ -257,6 +257,8 @@ export class Database {
   private archiveCancel: (() => Promise<unknown>) | undefined;
   private archiveWork: Promise<ReadableStream<Uint8Array>> | undefined;
   private logicalWork?: {control: OperationControl; done: Promise<void>};
+  private terminal?: PsqlTerminal;
+  private terminalStarting?: Promise<PsqlTerminal>;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
   private static async createTransport(options: OpenOptions): Promise<Transport> {
     validateLockOptions(options);
@@ -356,6 +358,7 @@ export class Database {
   private logicalOperation(restore: boolean, stream: Blob | ReadableStream<Uint8Array> | WritableStream<Uint8Array>,
                            options: LogicalRestoreOptions): Promise<void> {
     if (this.closing) return Promise.reject(new ClosedError());
+    if (this.terminal || this.terminalStarting) return Promise.reject(new Error('psql owns this instance'));
     if (this.logicalWork) return Promise.reject(new Error('A logical operation is already active'));
     const booleans = ['schemaOnly', 'dataOnly', 'noOwner', 'noPrivileges', ...(restore ? ['clean'] : [])];
     if (Object.keys(options).some(key => ![...booleans, 'database', 'user', 'signal', 'timeoutMs'].includes(key)) ||
@@ -426,7 +429,8 @@ export class Database {
     }
   }
   private async createArchive(options: ArchiveOptions): Promise<ReadableStream<Uint8Array>> {
-    if (this.closing || this.starting.size || this.logicalWork) throw new Error('Archive requires an idle database');
+    if (this.closing || this.starting.size || this.logicalWork || this.terminal || this.terminalStarting)
+      throw new Error('Archive requires an idle database');
     options.signal?.throwIfAborted();
     this.closing = true;
     const frozen: Connection[] = [];
@@ -484,6 +488,7 @@ export class Database {
   }
   async connect(name = 'postgamma-wasm'): Promise<Connection> {
     if (this.closing) throw new ClosedError();
+    if (this.terminal || this.terminalStarting) throw new Error('psql owns this instance');
     const timer = setTimeout(() => {
       void this.transport.discard(new Error('Connection startup exceeded its 90s deadline; instance discarded'));
     }, connectionStartupTimeoutMs);
@@ -512,6 +517,17 @@ export class Database {
   }
   diagnostics() {return this.transport.metrics;}
   sample() {return this.transport.sample;}
+  /** Experimental real psql. One invocation per instance; owns the instance
+   * until close(). Create a new Database to restart the terminal. */
+  psql(): Promise<PsqlTerminal> {
+    if (this.closing) return Promise.reject(new ClosedError());
+    if (this.terminal || this.terminalStarting || this.connections.size || this.starting.size || this.logicalWork)
+      return Promise.reject(new Error('psql requires an exclusive instance'));
+    this.terminalStarting = this.transport.call(Op.psqlStart, this.handle).then(reply => {
+      reply.end(); return this.terminal = new PsqlTerminal(this.transport, this.handle);
+    }).finally(() => {this.terminalStarting = undefined;});
+    return this.terminalStarting;
+  }
   async telemetry() {
     const r = await this.transport.call(Op.telemetry, this.handle);
     const t = {workers: r.u32(), connections: r.u64(), requests: r.u64(), running: r.u64(),
@@ -526,6 +542,8 @@ export class Database {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
     this.closeWork = (async () => {
+      await this.terminalStarting?.catch(() => {});
+      await this.terminal?.close();
       if (this.logicalWork) {
         this.logicalWork.control.abort(new ClosedError());
         await this.logicalWork.done.catch(() => {});
@@ -557,6 +575,45 @@ export class Database {
       return this.transport.metrics;
     })().catch(error => {if (!this.nativeClosed) this.closeWork = undefined; throw error;});
     return this.closeWork;
+  }
+}
+export interface PsqlOutput {data: Uint8Array; state: 'running' | 'input' | 'exited'; exitCode: number}
+export class PsqlTerminal {
+  private closing = false;
+  private closeWork?: Promise<void>;
+  private transport: Transport;
+  private handle: Handle;
+  /** @internal Use Database.psql(). */
+  constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
+  async read(): Promise<PsqlOutput> {
+    if (this.closing) throw new ClosedError();
+    const reply = await this.transport.call(Op.psqlRead, this.handle);
+    const state = reply.u32(), exitCode = reply.i32(), data = reply.blob(); reply.end();
+    if (state > 2 || !data) throw new Error('Invalid psql output');
+    return {data, state: (['running', 'input', 'exited'] as const)[state], exitCode};
+  }
+  async write(input: string): Promise<void> {
+    if (this.closing) throw new ClosedError();
+    const data = new TextEncoder().encode(input);
+    if (!data.length || data.length > 16384 || input.includes('\0')) throw new RangeError('psql input must be 1..16384 UTF-8 bytes without NUL');
+    (await this.transport.call(Op.psqlWrite, this.handle, writer => writer.blob(data))).end();
+  }
+  async interrupt(): Promise<void> {
+    if (this.closing) throw new ClosedError();
+    (await this.transport.call(Op.psqlInterrupt, this.handle)).end();
+  }
+  close(): Promise<void> {
+    if (this.closeWork) return this.closeWork;
+    this.closing = true;
+    return this.closeWork = (async () => {
+      const deadline = performance.now() + 15000;
+      for (;;) {
+        const reply = await this.transport.call(Op.psqlClose, this.handle), done = reply.u32(); reply.end();
+        if (done === 1) return;
+        if (done !== 0 || performance.now() >= deadline) throw new Error('psql shutdown exceeded its deadline');
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    })().catch(async error => {await this.transport.discard(error); throw error;});
   }
 }
 async function lifecycleStep(transport: Transport, op: number, handle: Handle): Promise<void> {

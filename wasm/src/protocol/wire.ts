@@ -1,12 +1,13 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {limits} from './limits.js';
-export const VERSION = 9;
+export const VERSION = 10;
 export const LIMIT = limits.commandBytes;
 export const Op = {open: 1, connect: 2, execute: 3, next: 4, release: 5, disconnect: 6,
   close: 7, status: 8, cancel: 9, telemetry: 10, stop: 11, copyRead: 12, copyWrite: 13, copyFinish: 14, copyClose: 15, copyAbort: 16, connectPoll: 17, script: 18, events: 19,
   restoreOpen: 20, archiveRead: 21, archiveWrite: 22, restoreFinish: 23,
   prepare: 24, statementExecute: 25, statementInfo: 26, statementClose: 27, statementFree: 28,
-  logicalDump: 29, logicalRestore: 30, logicalStep: 31, logicalClose: 32} as const;
+  logicalDump: 29, logicalRestore: 30, logicalStep: 31, logicalClose: 32,
+  psqlStart: 33, psqlRead: 34, psqlWrite: 35, psqlInterrupt: 36, psqlClose: 37} as const;
 export interface Handle {kind: number; id: number; generation: number}
 export class Writer {
   private parts: Uint8Array[] = [];

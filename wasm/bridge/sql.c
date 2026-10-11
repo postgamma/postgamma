@@ -8,6 +8,7 @@
 #include "postgamma/dsm_platform.h"
 #include "postgamma/io_platform.h"
 #include "postgamma/wasm_storage.h"
+#include "psql.h"
 #include <emscripten.h>
 #include <emscripten/proxying.h>
 #include <emscripten/threading.h>
@@ -31,9 +32,10 @@ enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS,
        RESTORE_OPEN, ARCHIVE_READ, ARCHIVE_WRITE, RESTORE_FINISH,
        PREPARE, STATEMENT_EXECUTE, STATEMENT_INFO, STATEMENT_CLOSE, STATEMENT_FREE,
-       LOGICAL_DUMP, LOGICAL_RESTORE, LOGICAL_STEP, LOGICAL_CLOSE };
+       LOGICAL_DUMP, LOGICAL_RESTORE, LOGICAL_STEP, LOGICAL_CLOSE,
+       PSQL_START, PSQL_READ, PSQL_WRITE, PSQL_INTERRUPT, PSQL_CLOSE };
 enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING, STATEMENT = 7, LOGICAL };
-#define WIRE_VERSION 9
+#define WIRE_VERSION 10
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -52,6 +54,7 @@ static Handle handles[SLOT_COUNT];
 static pthread_t driver;
 static _Atomic int state; /* 0 idle, 1 submitted, 2 reply, 3 stopped, -1 allocation failure */
 static bool started;
+static bool psql_owned;
 static unsigned char *input;
 static size_t input_size;
 static Writer reply;
@@ -405,7 +408,7 @@ static bool command(void)
 #endif
     if (op != OPEN && op != STOP && op != EVENTS && (op < RESTORE_OPEN || op > RESTORE_FINISH))
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ||
-                   op == LOGICAL_DUMP || op == LOGICAL_RESTORE ? INSTANCE :
+                   op == LOGICAL_DUMP || op == LOGICAL_RESTORE || (op >= PSQL_START && op <= PSQL_CLOSE) ? INSTANCE :
                    op == LOGICAL_STEP || op == LOGICAL_CLOSE ? LOGICAL :
                    op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
@@ -418,6 +421,9 @@ static bool command(void)
         if (!slot) status = PGM_STATUS_BUSY;
     }
     if (r.failed || status) goto done;
+    if (psql_owned && (op == CONNECT || op == LOGICAL_DUMP || op == LOGICAL_RESTORE || op == CLOSE)) {
+        status = PGM_STATUS_BUSY; bridge_message = "Close the exclusive psql terminal first"; goto done;
+    }
     if (h && h->closing && op != DISCONNECT && op != RELEASE && op != COPY_CLOSE &&
         op != STATEMENT_CLOSE && op != STATEMENT_FREE && op != LOGICAL_CLOSE) {
         status = PGM_STATUS_BUSY; bridge_message = "Handle is closing"; goto done;
@@ -735,6 +741,41 @@ static bool command(void)
     case LOGICAL_CLOSE:
         status = logical_command(op, h, slot, &r, &payload, &error, &bridge_message);
         break;
+    case PSQL_START:
+        if (r.offset != r.size) {r.failed = true; break;}
+        if (children(h) || psql_owned) {status = PGM_STATUS_BUSY; break;}
+        if (postgamma_wasm_psql_start(h->pointer)) {
+            status = PGM_STATUS_BUSY; bridge_message = "psql requires a fresh, exclusive instance";
+        } else psql_owned = true;
+        break;
+    case PSQL_READ: {
+        if (r.offset != r.size) {r.failed = true; break;}
+        if (!psql_owned) {status = PGM_STATUS_INVALID_ARGUMENT; break;}
+        unsigned char data[16384]; unsigned state; int code;
+        size_t size = postgamma_wasm_psql_read(data, sizeof(data), &state, &code);
+        put(&payload, state); put(&payload, (unsigned)code); value(&payload, data, size, false);
+        break;
+    }
+    case PSQL_WRITE: {
+        size_t size; const void *data = blob(&r, &size);
+        if (r.failed || r.offset != r.size || !size || size > 16384) {r.failed = true; break;}
+        if (!psql_owned) {status = PGM_STATUS_INVALID_ARGUMENT; break;}
+        int code = postgamma_wasm_psql_write(data, size);
+        if (code) {status = PGM_STATUS_BUSY; bridge_message = "psql input is full or closed";}
+        break;
+    }
+    case PSQL_INTERRUPT:
+        if (r.offset != r.size) {r.failed = true; break;}
+        if (psql_owned) postgamma_wasm_psql_interrupt();
+        break;
+    case PSQL_CLOSE: {
+        if (r.offset != r.size) {r.failed = true; break;}
+        int code = psql_owned ? postgamma_wasm_psql_close() : 0;
+        if (!code) {psql_owned = false; put(&payload, 1);}
+        else if (code == EAGAIN) put(&payload, 0);
+        else {status = PGM_STATUS_INTERNAL_ERROR; bridge_message = "Could not join psql";}
+        break;
+    }
     case CLOSE:
         if (r.offset != r.size) { r.failed = true; break; }
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
