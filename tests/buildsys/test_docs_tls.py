@@ -62,16 +62,22 @@ class DocumentationTlsTests(unittest.TestCase):
             identity = (cert.read_bytes(), key.read_bytes())
             mkdocs_hooks.preview_certificate(root, "127.0.0.1")
             self.assertEqual((cert.read_bytes(), key.read_bytes()), identity)
+            asset = root / "assets/wasm/worker.mjs"
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"original module")
 
             def app(environ, respond):
                 status = "404 Not Found" if environ["PATH_INFO"] == "/missing" else "200 OK"
                 respond(status, [("Content-Type", "text/plain")])
+                if environ["PATH_INFO"] == "/assets/wasm/worker.mjs":
+                    return [asset.read_bytes()]
                 return [b"wasm" * 10000 if environ["PATH_INFO"] == "/asset.wasm"
                         else environ["wsgi.url_scheme"].encode()]
 
             server = make_server("127.0.0.1", 0, app, ThreadedServer, QuietHandler)
             port = server.server_port
             server.url = f"http://127.0.0.1:{port}/"
+            server.root = str(root)
             mkdocs_hooks.on_serve(server, config=SimpleNamespace(config_file_path=root / "mkdocs.yml"))
             self.assertEqual(server.url, f"https://127.0.0.1:{port}/")
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -111,6 +117,26 @@ class DocumentationTlsTests(unittest.TestCase):
                     try:
                         with self.assertRaises(ssl.SSLCertVerificationError):
                             client.request("GET", "/")
+                    finally:
+                        client.close()
+                etag = ""
+                for expected in (200, 304, 200):
+                    if expected == 200 and etag:
+                        asset.write_bytes(b"rebuilt module")
+                    client = http.client.HTTPSConnection("127.0.0.1", port, timeout=5, context=context)
+                    try:
+                        client.request("GET", "/assets/wasm/worker.mjs", headers={"If-None-Match": etag})
+                        response = client.getresponse()
+                        self.assertEqual(response.status, expected)
+                        self.assertEqual(response.getheader("Cache-Control"), "no-cache")
+                        self.assertEqual(response.getheader("Cross-Origin-Embedder-Policy"), "require-corp")
+                        if expected == 304:
+                            self.assertEqual(response.getheader("ETag"), etag)
+                            self.assertEqual(response.read(), b"")
+                        else:
+                            self.assertNotEqual(response.getheader("ETag"), etag)
+                            self.assertEqual(response.read(), asset.read_bytes())
+                        etag = response.getheader("ETag")
                     finally:
                         client.close()
             finally:

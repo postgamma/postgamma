@@ -504,9 +504,21 @@ make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000
 
 Then visit **`https://SERVER_IP:8000/`**. `DOCS_HTTPS=auto` is the default:
 loopback uses HTTP, and other bind addresses use HTTPS. OpenSSL generates a
-reusable development certificate under `build/docs/tls/`; confirm the browser's
-self-signed certificate prompt on first access. The development server supplies
-the isolation headers needed by the live Wasm demo and retains live reload.
+reusable development certificate under `build/docs/tls/`. Copy its public
+certificate to the computer running your browser (the private key stays on the
+server):
+
+```bash
+scp USER@SERVER:/path/to/checkout/build/docs/tls/preview.crt .
+```
+
+Import `preview.crt` into that computer's browser or operating system's trusted
+certificate authorities, then reopen the page. This is a one-time step until
+the development certificate is renewed. Merely bypassing the certificate
+warning [disables Chromium's HTTP cache](https://github.com/chromium/chromium/blob/main/net/http/http_cache_transaction.cc),
+which can make repeated Worker downloads exceed the startup deadline on a slow
+connection. The development server supplies isolation headers, gzip compression
+and cache validation while retaining live reload.
 
 Use `DOCS_TLS_HOSTS=your.hostname,SERVER_IP` to add certificate names when the
 public address differs from a local interface. To use an existing certificate:

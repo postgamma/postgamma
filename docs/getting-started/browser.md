@@ -25,9 +25,12 @@ bundles a source-built production package. Later `make docs-serve` invocations
 reuse it. The preview server supplies isolation headers. When it runs remotely,
 run `make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000` and open
 `https://SERVER_IP:8000/`. Non-loopback binds automatically enable HTTPS and
-generate a reusable self-signed development certificate; confirm the browser's
-certificate prompt on first access. To supply a certificate already trusted by
-your browser, set `DOCS_TLS_CERT=/path/to/fullchain.pem` and
+generate a reusable self-signed development certificate. Copy
+`build/docs/tls/preview.crt` to the computer running the browser and import it
+into its trusted certificate authorities. Merely skipping the certificate
+warning disables Chromium's HTTP cache and can make Worker startup time out on
+slow connections. To supply a certificate already trusted by your browser,
+set `DOCS_TLS_CERT=/path/to/fullchain.pem` and
 `DOCS_TLS_KEY=/path/to/key.pem`. The default loopback address uses HTTP.
 
 ## Build and install

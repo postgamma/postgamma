@@ -133,6 +133,16 @@ def on_files(files: Any, config: Any) -> Any:
 
 def on_serve(server: Any, **kwargs: Any) -> Any:
     """Local preview uses native isolation headers, retaining MkDocs live reload."""
+    logger = logging.getLogger("mkdocs.preview")
+
+    class PreviewRequestHandler(server.RequestHandlerClass):
+        def log_request(self, code: Any = "-", size: Any = "-") -> None:
+            if str(code) == "304":
+                logger.debug('"%s" code %s', self.requestline, code)
+            else:
+                super().log_request(code, size)
+
+    server.RequestHandlerClass = PreviewRequestHandler
     host, port = server.server_address[:2]
     use_https = https_enabled(host)
     if use_https:
@@ -141,7 +151,6 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(cert, key)
-        logger = logging.getLogger("mkdocs.https")
 
         class TLSRequestHandler(server.RequestHandlerClass):
             def handle(self) -> None:
@@ -165,7 +174,10 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
                                             do_handshake_on_connect=False)
         server.url = urlunsplit(urlsplit(server.url)._replace(scheme="https"))
         if names:
-            logger.info("HTTPS development certificate: %s (self-signed; confirm the browser certificate prompt)", cert)
+            public_cert = cert.parent.parent / "preview.crt"
+            public_cert.write_bytes(cert.read_bytes())
+            logger.info("HTTPS development certificate: %s", cert)
+            logger.info("Trust this certificate on the computer running the browser: %s", public_cert)
             for name in names:
                 if name.startswith("IP:") and not ipaddress.ip_address(name[3:]).is_loopback:
                     address = name[3:]
@@ -188,9 +200,10 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
                 except ValueError:
                     pass
         compressed = False
+        not_modified = False
 
         def respond(status: str, headers: list, exc_info: Any = None) -> Any:
-            nonlocal compressed
+            nonlocal compressed, not_modified
             headers = [(k, v) for k, v in headers if k.lower() not in {
                 "cross-origin-opener-policy", "cross-origin-embedder-policy"}]
             headers.extend([("Cross-Origin-Opener-Policy", "same-origin"),
@@ -198,6 +211,28 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
             # The Wasm kernel is over 10 MiB uncompressed. Stream gzip for
             # static assets while preserving MkDocs' live-reload responses.
             path = environ.get("PATH_INFO", "")
+            mount = getattr(server, "mount_path", "/")
+            if (status.startswith("200 ") and environ.get("REQUEST_METHOD") in {"GET", "HEAD"}
+                    and path.startswith(mount + "assets/wasm/")):
+                # Validate each request, including after a live rebuild, while
+                # allowing pthread Workers to reuse unchanged module bodies.
+                asset_root = Path(server.root).resolve()
+                asset = (asset_root / path[len(mount):]).resolve()
+                if asset.is_relative_to(asset_root):
+                    try:
+                        info = asset.stat()
+                    except OSError:
+                        pass
+                    else:
+                        etag = f'W/"{info.st_mtime_ns:x}-{info.st_size:x}"'
+                        headers.extend([("ETag", etag), ("Cache-Control", "no-cache")])
+                        matches = {value.strip().removeprefix("W/") for value in
+                                   environ.get("HTTP_IF_NONE_MATCH", "").split(",")}
+                        if etag[2:] in matches or "*" in matches:
+                            not_modified = True
+                            status = "304 Not Modified"
+                            headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
+                            headers.append(("Vary", "Accept-Encoding"))
             eligible = (status.startswith("200 ") and environ.get("REQUEST_METHOD") == "GET"
                         and not path.startswith("/livereload/")
                         and (path.endswith("/") or Path(path).suffix in {
@@ -211,6 +246,10 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
                 headers.append(("Content-Encoding", "gzip"))
             return start_response(status, headers, exc_info)
         response = app(environ, respond)
+        if not_modified:
+            if hasattr(response, "close"):
+                response.close()
+            return []
         if not compressed:
             return response
 
