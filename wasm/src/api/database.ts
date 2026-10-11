@@ -748,6 +748,10 @@ export class Statement {
   }
   async execute(options: ExecuteOptions = {}): Promise<Request> {
     if (this.closing || this.closed) throw new ClosedError();
+    return this.executeAdmitted(options);
+  }
+  private async executeAdmitted(options: ExecuteOptions): Promise<Request> {
+    if (this.closed) throw new ClosedError();
     const work = this.connection.executeStatement(this.handle, options, request => this.requests.delete(request));
     this.starting.add(work);
     try {const request = await work; this.requests.add(request); return request;}
@@ -756,7 +760,7 @@ export class Statement {
   query(options: ExecuteOptions = {}): Promise<Result[]> {
     if (this.closing || this.closed) return Promise.reject(new ClosedError());
     return this.connection.enqueue(64 + parameterBytes(options), async signal =>
-      collectRequest(await this.execute({...options, signal, timeoutMs: undefined})), options);
+      collectRequest(await this.executeAdmitted({...options, signal, timeoutMs: undefined})), options);
   }
   close(): Promise<void> {
     if (this.closed) return Promise.resolve();

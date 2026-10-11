@@ -22,6 +22,13 @@ export async function statements(db: Database, checks: string[]) {
   assert(closed, 'Closed statement handles cannot be reused');
   checks.push('prepared-inferred-metadata', 'prepared-reuse', 'prepared-close');
 
+  const ordered = await c.prepare('SELECT $1::int4');
+  const beforeClose = ordered.query({parameters: [{typeOid: 23, value: '42'}]});
+  const orderedClose = ordered.close();
+  assert(scalar(await beforeClose) === '42', 'Close preserves queries admitted before it');
+  await orderedClose;
+  checks.push('prepared-queued-close-order');
+
   const explicit = await c.prepare('SELECT $1 AS data', {parameterTypes: [17]});
   const bytes = new Uint8Array([0, 127, 128, 255]);
   const binary = (await explicit.query({binary: true, parameters: [{typeOid: 17, value: bytes}]}))[0].rows[0][0];
