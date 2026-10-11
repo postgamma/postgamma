@@ -26,6 +26,7 @@ def stages(profile, platform_checks=False):
     if profile == 'weekly':
         result += [('storage', ['wasm-storage-check'])]
         result += [('archive', ['wasm-archive-check'])]
+        result += [('logical', ['wasm-logical-check'])]
         result += [('lifecycle', ['wasm-lifecycle-check'])]
         result += [('soak-smoke', ['wasm-soak-smoke'])]
     result += [('package', ['wasm-package-check'])]
@@ -59,7 +60,8 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
     started = time.monotonic()
     dependencies = {'generation': ('tools',), 'oracle-build': ('tools',),
                     'oracle-install': ('oracle-build',), 'sql': ('generation', 'oracle-install'),
-                    'vector': ('generation', 'oracle-install'), 'matrix': ('package',), 'bundlers': ('package',)}
+                    'vector': ('generation', 'oracle-install'), 'logical': ('generation', 'oracle-install'),
+                    'matrix': ('package',), 'bundlers': ('package',)}
     for name in ('runtime', 'pglite', 'storage', 'archive', 'contrib', 'parallel', 'sdk', 'lifecycle', 'soak-smoke', 'package'): dependencies[name] = ('generation',)
     for name in ('platform', 'wait', 'recovery'): dependencies[name] = ('tools',)
     try:

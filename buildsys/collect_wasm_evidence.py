@@ -17,7 +17,7 @@ def selected(path):
         return False
     if path.suffix not in ('.json', '.jsonl', '.log'):
         return False
-    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'lifecycle', 'pglite', 'archive', 'contrib', 'parallel', 'soak', 'doctor', 'upstream'}) or path.name == 'inputs.json'
+    return bool(set(parts) & {'runs', 'reports', 'ci', 'matrix', 'lifecycle', 'pglite', 'archive', 'logical', 'contrib', 'parallel', 'sdk', 'bundlers', 'soak', 'doctor', 'upstream'}) or path.name == 'inputs.json'
 
 
 def collect(build, output):

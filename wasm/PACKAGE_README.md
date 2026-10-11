@@ -99,6 +99,42 @@ marker and cannot be opened; use a new name for a later attempt. `clone()` also
 closes the source and streams into the new database. External tablespaces and
 symbolic links are not supported by the archive format.
 
+For logical backups, use `dumpLogical(destination, options)` and
+`restoreLogical(source, options)`. The destination is a
+`WritableStream<Uint8Array>`; the source is a `Blob`, `File`, or
+`ReadableStream<Uint8Array>`. Export writes an uncompressed PostgreSQL custom
+archive (`PGDMP`) using the bundled `pg_dump`. Restore uses `pg_restore` and
+always runs in a single transaction, rolling back schema and table changes on
+archive or SQL errors. PostgreSQL sequence changes to preexisting sequences
+are not transactional; use a fresh target for recovery that must leave no
+partial sequence changes on failure.
+
+```ts
+await db.dumpLogical(await fileHandle.createWritable(), {timeoutMs: 60_000});
+const target = await Database.open({storage: {type: 'opfs', name: 'imported'}});
+await target.restoreLogical(await fileHandle.getFile(), {timeoutMs: 60_000});
+```
+
+Logical export keeps the database open and takes a PostgreSQL consistent
+snapshot. The transfer observes stream backpressure and accepts `signal` and
+`timeoutMs`; `db.close()` cancels active logical work and waits for cleanup.
+One logical operation is admitted at a time and consumes one of the four SQL
+sessions. Close an idle connection first if all four slots are occupied.
+Options include `schemaOnly`, `dataOnly`, `noOwner`, `noPrivileges`, and
+`database`/`user` (defaults: `postgres`/`postgamma`). Restore additionally accepts
+`clean: true` to replace archived objects already present in the target.
+The default target should be empty; incompatible existing objects cause failure.
+
+Logical archives do not require the same Wasm asset `buildId`. PostgreSQL
+version and extension compatibility still apply, and extension binaries and
+referenced roles must exist on the destination. This backs up one database's
+schema and data, including sequences, functions and installed extension data;
+it does not dump cluster-wide roles, tablespaces, or temporary objects.
+Only custom-format archives with no compression are supported in this build.
+Use a separately retained checksum if archive integrity verification is required.
+`db.telemetry().allocatorLiveBytes` reports live allocations across the module;
+the Wasm memory size also includes already-freed space kept for reuse.
+
 Four independent connections share the instance. A connection serializes
 `query()` and `exec()` calls; different connections run concurrently. `exec()`
 uses PostgreSQL script transaction semantics and accepts multiple statements;

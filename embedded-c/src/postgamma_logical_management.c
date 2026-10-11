@@ -101,6 +101,7 @@ pgm_instance_logical_dump_async(
 		options->database == NULL || options->database[0] == '\0' ||
 		options->user == NULL || options->user[0] == '\0' ||
 		options->write == NULL ||
+		(options->flags & PGM_LOGICAL_SINGLE_TRANSACTION) != 0 ||
 		(options->flags & ~PGM_LOGICAL_FLAGS_ALL) != 0 ||
 		(options->flags & (PGM_LOGICAL_SCHEMA_ONLY |
 			PGM_LOGICAL_DATA_ONLY)) ==
@@ -176,6 +177,8 @@ pgm_instance_logical_restore_async(
 		options->database == NULL || options->database[0] == '\0' ||
 		options->user == NULL || options->user[0] == '\0' ||
 		options->read == NULL ||
+		(options->flags & (PGM_LOGICAL_SINGLE_TRANSACTION | PGM_LOGICAL_CREATE)) ==
+		(PGM_LOGICAL_SINGLE_TRANSACTION | PGM_LOGICAL_CREATE) ||
 		(options->flags & ~PGM_LOGICAL_FLAGS_ALL) != 0 ||
 		(options->flags & (PGM_LOGICAL_SCHEMA_ONLY |
 			PGM_LOGICAL_DATA_ONLY)) ==

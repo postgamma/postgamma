@@ -33,6 +33,12 @@
       "lifetime": "storage provider"
     },
     {
+      "role": "logical_tool",
+      "count": 1,
+      "stack_bytes": 8388608,
+      "lifetime": "one admitted logical dump or restore; its SQL session uses the existing carrier pool"
+    },
+    {
       "role": "reserve",
       "count": 2,
       "stack_bytes": 8388608,
@@ -186,6 +192,6 @@
       }
     },
     "full_acceptance_command": "make wasm-check-full WASM_MODE=release JOBS=2",
-    "note": "Historical targeted capacity evidence for the 13-slot pool. The current 14-slot pool adds capacity for two parallel workers with OPFS; a fresh full receipt matching this policy is required for release. previous_validation applies only to the earlier limits."
+    "note": "Historical targeted capacity evidence for the 13-slot pool. The current 14-slot pool adds capacity for two parallel workers with OPFS; a fresh full receipt matching this policy is required for release. previous_validation applies only to the earlier limits. The current 15-slot pool also reserves one logical-tool thread; historical evidence is not validation of this policy."
   }
 }

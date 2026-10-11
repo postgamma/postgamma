@@ -259,7 +259,9 @@ typedef int32_t pgm_maintenance_kind;
 #define PGM_LOGICAL_CREATE UINT32_C(0x0008)
 #define PGM_LOGICAL_NO_OWNER UINT32_C(0x0010)
 #define PGM_LOGICAL_NO_PRIVILEGES UINT32_C(0x0020)
-#define PGM_LOGICAL_FLAGS_ALL UINT32_C(0x003f)
+/* Restore only; incompatible with CREATE. */
+#define PGM_LOGICAL_SINGLE_TRANSACTION UINT32_C(0x0040)
+#define PGM_LOGICAL_FLAGS_ALL UINT32_C(0x007f)
 
 typedef struct pgm_setting
 {

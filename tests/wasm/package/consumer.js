@@ -133,8 +133,16 @@ try {
     assert(timings.idle.periodicSamples === 0 && timings.idle.driverWakes / (timings.idle.elapsedMs / 1000) < 100,
       'Default installed package waits for notifications while idle');
     checks.push('idle-notification-wait', 'running-query-cancel');
+    stage('logical');
+    await Promise.all(connections.map(c => c.close()));
+    const logicalChunks = [];
+    await db.dumpLogical(new WritableStream({write(bytes) {logicalChunks.push(bytes);}}));
+    await db.restoreLogical(new Blob(logicalChunks), {clean: true});
+    const restored = await db.connect();
+    assert(scalar(await restored.query('SELECT id FROM package_rows')) === '9223372036854775807', 'Installed logical dump/restore preserves exact values');
+    await restored.close(); checks.push('logical-backup-api');
     stage('close');
-    await Promise.all(connections.map(c => c.close())); metrics.push(await db.close());
+    metrics.push(await db.close());
     const reopen = performance.now();
     stage('reopen');
     const again = await Database.open({create: !persistent, storage,
@@ -158,8 +166,8 @@ try {
       scalar(await copied.query("SELECT to_regclass('package_rows')::text")) === null, 'Installed archive/restore/clone API');
     await copied.close(); metrics.push(await clone.close()); checks.push('archive-api');
     checks.push(persistent ? 'opfs-reopen-relocated-assets' : 'ephemeral-reopen-relocated-assets');
-    assert(metrics.every(m => m.peakThreads <= 14 && m.peakMemory <= 536870912 &&
-      m.returnedWorkers === 14 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');
+    assert(metrics.every(m => m.peakThreads <= 15 && m.peakMemory <= 536870912 &&
+      m.returnedWorkers === 15 && m.runningWorkers === 0 && Object.values(m.resources).every(v => v === 0)), 'Healthy package resource release');
     window.probeResult = {status: 'passed', checks, version, buildId: manifest.buildId, metrics, timings, ticks};
   }
 } catch (error) {window.probeResult = {status: 'failed', checks, error: String(error), stack: error.stack,

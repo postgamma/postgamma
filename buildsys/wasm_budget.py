@@ -13,7 +13,7 @@ def plan(policy: dict) -> dict:
     if policy.get("status") not in ("provisional", "validated") or policy.get("target") != "wasm32-emscripten-pthreads":
         raise WasmError("resource probe requires a reviewed wasm32 policy")
     roles = policy["thread_roles"]
-    if len(roles) != 5 or {r["role"] for r in roles} != {"supervisor", "background", "carrier", "io_owner", "reserve"}:
+    if len(roles) != 6 or {r["role"] for r in roles} != {"supervisor", "background", "carrier", "io_owner", "logical_tool", "reserve"}:
         raise WasmError("resource policy must account for every pthread role")
     if any(type(r["count"]) is not int or not 1 <= r["count"] <= 32 for r in roles):
         raise WasmError("resource probe requires bounded positive integer role counts")

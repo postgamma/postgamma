@@ -30,9 +30,10 @@ enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS,
        RESTORE_OPEN, ARCHIVE_READ, ARCHIVE_WRITE, RESTORE_FINISH,
-       PREPARE, STATEMENT_EXECUTE, STATEMENT_INFO, STATEMENT_CLOSE, STATEMENT_FREE };
-enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING, STATEMENT = 7 };
-#define WIRE_VERSION 8
+       PREPARE, STATEMENT_EXECUTE, STATEMENT_INFO, STATEMENT_CLOSE, STATEMENT_FREE,
+       LOGICAL_DUMP, LOGICAL_RESTORE, LOGICAL_STEP, LOGICAL_CLOSE };
+enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING, STATEMENT = 7, LOGICAL };
+#define WIRE_VERSION 9
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -105,6 +106,12 @@ static void watch_begin(Handle *h)
 }
 static bool ready_now(Handle *h)
 {
+    if (h->kind == LOGICAL) {
+        int fd = -1;
+        if (pgm_operation_waitable(h->pointer, &fd, NULL)) return true;
+        struct pollfd descriptor = {fd, POLLIN, 0};
+        return postgamma_platform_poll(&descriptor, 1, 0) != 0;
+    }
     if (ready_sequence(h) != h->ready_sequence) return true;
     // NEXT may consume only part of already readable input. The producer can
     // have finished before watch_begin, leaving no future notification edge.
@@ -221,6 +228,7 @@ static void progress_again(Handle *h, Writer *payload)
     h->progress_watching = true;
     put(payload, PGM_AVAILABILITY_AGAIN);
 }
+#include "logical.h"
 static void log_record(void *unused, const pgm_log_record *record)
 {
     (void)unused;
@@ -396,19 +404,22 @@ static bool command(void)
     }
 #endif
     if (op != OPEN && op != STOP && op != EVENTS && (op < RESTORE_OPEN || op > RESTORE_FINISH))
-        h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
+        h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ||
+                   op == LOGICAL_DUMP || op == LOGICAL_RESTORE ? INSTANCE :
+                   op == LOGICAL_STEP || op == LOGICAL_CLOSE ? LOGICAL :
                    op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
                    op >= STATEMENT_EXECUTE && op <= STATEMENT_FREE ? STATEMENT :
                    op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
     if (op == OPEN || op == RESTORE_FINISH || op == CONNECT || op == EXECUTE || op == SCRIPT ||
-        op == PREPARE || op == STATEMENT_EXECUTE || op == STATEMENT_CLOSE) {
+        op == PREPARE || op == STATEMENT_EXECUTE || op == STATEMENT_CLOSE ||
+        op == LOGICAL_DUMP || op == LOGICAL_RESTORE) {
         slot = reserve();
         if (!slot) status = PGM_STATUS_BUSY;
     }
     if (r.failed || status) goto done;
     if (h && h->closing && op != DISCONNECT && op != RELEASE && op != COPY_CLOSE &&
-        op != STATEMENT_CLOSE && op != STATEMENT_FREE) {
+        op != STATEMENT_CLOSE && op != STATEMENT_FREE && op != LOGICAL_CLOSE) {
         status = PGM_STATUS_BUSY; bridge_message = "Handle is closing"; goto done;
     }
     if (op == EXECUTE || op == SCRIPT || op == STATEMENT_EXECUTE || op == PREPARE) {
@@ -529,8 +540,8 @@ static bool command(void)
     case CONNECT: {
         unsigned connections = 0, opening = 0;
         for (unsigned i = 0; i < SLOT_COUNT; i++) {
-            if (handles[i].kind == CONNECTION || handles[i].kind == CONNECTING) connections++;
-            if (handles[i].kind == CONNECTING) opening++;
+            if (handles[i].kind == CONNECTION || handles[i].kind == CONNECTING || handles[i].kind == LOGICAL) connections++;
+            if (handles[i].kind == CONNECTING || handles[i].kind == LOGICAL) opening++;
         }
         if (connections >= PGW_MAX_CONNECTIONS) {
             status = PGM_STATUS_BUSY; bridge_message = "Maximum live connections reached"; break;
@@ -718,6 +729,12 @@ static bool command(void)
             if (!status) {retire(h); put(&payload, PGM_AVAILABILITY_END);}
         }
         break;
+    case LOGICAL_DUMP:
+    case LOGICAL_RESTORE:
+    case LOGICAL_STEP:
+    case LOGICAL_CLOSE:
+        status = logical_command(op, h, slot, &r, &payload, &error, &bridge_message);
+        break;
     case CLOSE:
         if (r.offset != r.size) { r.failed = true; break; }
         if (children(h)) { status = PGM_STATUS_BUSY; break; }
@@ -805,7 +822,8 @@ static bool command(void)
         number64(&payload, t.connection_count); number64(&payload, t.active_request_count);
         number64(&payload, t.running_session_count); number64(&payload, t.pinned_session_count);
         number64(&payload, t.runnable_session_count); number64(&payload, t.queued_request_count);
-        number64(&payload, t.execution_token_rejections); break;
+        number64(&payload, t.execution_token_rejections);
+        put(&payload, (unsigned) mallinfo().uordblks); break;
     }
     case EVENTS:
         if (r.offset != r.size) {r.failed = true; break;}

@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import tempfile
+from contextlib import nullcontext
 
 from wasm import serve
 from wasm_sql import startup
@@ -54,6 +55,9 @@ def matrix(config, longjmp, scenario, extensions, engines):
     sources = {name: digest(config.root / name) for name in ('buildsys/wasm_features.py',
         'tests/wasm/browser/run.mjs', 'tests/wasm/browser/diagnostics.mjs', 'tests/wasm/browser/evidence.mjs')}
     if scenario == 'archive': sources['tests/wasm/storage/archive.mjs'] = digest(config.root / 'tests/wasm/storage/archive.mjs')
+    if scenario == 'logical':
+        for name in ('buildsys/wasm_logical.py', 'tests/wasm/sql/logical-interop.sql'):
+            sources[name] = digest(config.root / name)
     report['runner_sources'] = sources
     try:
         receipt = startup(config, longjmp, 'build', scenario, extensions)
@@ -63,7 +67,8 @@ def matrix(config, longjmp, scenario, extensions, engines):
         if scenario == 'archive':
             run([tools['node'], str(config.root / 'tests/wasm/storage/archive.mjs'),
                  str(site / 'src/storage/archive.js')], current / 'framing.log', env, config.root)
-        with serve(site, 'sql.html') as url:
+        from wasm_logical import native_oracle
+        with (native_oracle(config, current, site) if scenario == 'logical' else nullcontext()) as interop, serve(site, 'sql.html') as url:
             for engine in engines:
                 case = current / engine; case.mkdir()
                 timeout = 240 if scenario == 'parallel' else 600
@@ -108,6 +113,18 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'codecs-text-binary-scalars', 'codecs-custom-type-isolation', 'codecs-array-bounds',
                             'copy-resource-release', 'copy-source-timeout', 'copy-sink-timeout'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing browser SDK checks')
+                    if scenario == 'logical':
+                        required = {'logical-native-pg-dump-import', 'logical-native-pg-restore-export',
+                            'logical-custom-format', 'logical-bounded-chunks', 'logical-online-peer-progress',
+                            'logical-session-admission', 'logical-single-tool-admission', 'logical-lock-timeout',
+                            'logical-restore-conflict-rollback', 'logical-truncation-rollback', 'logical-invalid-header',
+                            'logical-source-error', 'logical-source-timeout', 'logical-cancel-rollback', 'logical-sink-error',
+                            'logical-schema-only', 'logical-data-only', 'logical-clean-restore', 'logical-consistent-snapshot',
+                            'logical-exact-values', 'logical-all-row-values', 'logical-large-objects', 'logical-schema-objects', 'logical-extension-data',
+                            'logical-invocation-state', 'logical-allocation-release', 'logical-restore-allocation-release',
+                            'logical-opfs-reopen', 'logical-concurrent-close', 'logical-resource-release'}
+                        if not required <= set(row['probe']['checks']): raise WasmError('Missing logical backup/restore checks')
+                        interop(engine, row)
                     for module in row['probe']['metrics']:
                         if module.get('resources') != dict(locks=0, shmem=0, dsm=0, pipes=0) or module.get('runningWorkers') != 0:
                             raise WasmError('Feature module did not release native resources')
@@ -139,7 +156,7 @@ def main():
     parser.add_argument('--mode', default='debug', choices=('debug', 'release'))
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--longjmp', default='emscripten'); parser.add_argument('--jobs', type=int, default=2)
-    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel', 'statements', 'controls', 'types', 'streams', 'sdk'))
+    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel', 'statements', 'controls', 'types', 'streams', 'sdk', 'logical'))
     parser.add_argument('--extensions', default='standard')
     parser.add_argument('--engines', default='chromium,firefox,webkit')
     args = parser.parse_args()

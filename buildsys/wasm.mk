@@ -153,6 +153,13 @@ wasm-sdk-check:
 	@$(MAKE) wasm-kernel-generate
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario sdk --engines "$(WASM_FEATURE_ENGINES)"
 
+.PHONY: wasm-logical-check
+wasm-logical-check:
+	@$(MAKE) reference-build REFERENCE_BUILD="$(BUILD_DIR)/wasm/oracle/reference"
+	@$(MAKE) -C "$(BUILD_DIR)/wasm/oracle/reference" install DESTDIR="$(BUILD_DIR)/wasm/oracle/reference/tmp_install"
+	@$(MAKE) wasm-kernel-generate
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario logical --engines "$(WASM_FEATURE_ENGINES)"
+
 wasm-bundler-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_bundlers.py" $(POSTGAMMA_WASM_ARGS)
 

@@ -35,6 +35,7 @@ class WasmCITests(unittest.TestCase):
                      'wasm/lifecycle/run/webkit-fatal-opfs-trap/browser.log',
                      'wasm/pglite/run/firefox-opfs/browser.json',
                      'wasm/archive/run/chromium/browser.json',
+                     'wasm/logical/run/webkit/browser.json',
                      'wasm/contrib/run/webkit/browser.json',
                      'wasm/parallel/run/firefox/browser.json',
                      'wasm/soak/run/chromium/browser.events.jsonl',
@@ -63,6 +64,7 @@ class WasmCITests(unittest.TestCase):
         names = [name for name, _ in stages('weekly')]
         self.assertLess(names.index('vector'), names.index('pglite'))
         self.assertLess(names.index('parallel'), names.index('package'))
+        self.assertLess(names.index('logical'), names.index('package'))
         self.assertLess(names.index('pglite'), names.index('storage'))
         self.assertLess(names.index('storage'), names.index('lifecycle'))
         self.assertLess(names.index('lifecycle'), names.index('package'))

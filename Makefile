@@ -1161,6 +1161,7 @@ help:
 	@echo "  wasm-matrix-check     measure the installed package across pinned browsers"
 	@echo "  wasm-package-check             install and validate an independent consumer"
 	@echo "  wasm-sdk-check                 check prepared SQL, codecs, cancellation and COPY in three browsers"
+	@echo "  wasm-logical-check             check streaming pg_dump/restore and native archive interoperability"
 	@echo "  wasm-bundler-check             build and exercise Vite and webpack consumers"
 	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"

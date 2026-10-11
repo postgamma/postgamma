@@ -16,6 +16,7 @@
 #include "postgamma/tool_state_runtime.h"
 
 #include <stdio.h>
+#include "libpq-fe.h"
 
 /*
  * pg_dump normally resolves these public encoding helpers from libpq.  The
@@ -35,13 +36,23 @@ extern int pg_valid_server_encoding_id_private(int encoding);
 extern int pg_utf_mblen_private(const unsigned char *value);
 
 #define fopen postgamma_logical_tool_fopen
+#define fdopen postgamma_logical_tool_fdopen
+#define fclose postgamma_logical_tool_fclose
 extern FILE *postgamma_logical_tool_fopen(
 	const char *path, const char *mode);
+extern FILE *postgamma_logical_tool_fdopen(int descriptor, const char *mode);
+extern int postgamma_logical_tool_fclose(FILE *stream);
 
 /* Frontend diagnostics belong to the operation, never to the host process. */
 #undef stderr
 #define stderr postgamma_logical_tool_stderr()
 extern FILE *postgamma_logical_tool_stderr(void);
+
+/* A fatal archive write can bypass pg_dump's PQfreemem(copybuf). */
+#define PQgetCopyData postgamma_logical_tool_get_copy_data
+#define PQfreemem postgamma_logical_tool_freemem
+extern int postgamma_logical_tool_get_copy_data(PGconn *connection, char **buffer, int async);
+extern void postgamma_logical_tool_freemem(void *pointer);
 
 
 #endif /* POSTGAMMA_PRIVATE_LOGICAL_TOOL_RUNTIME_H */

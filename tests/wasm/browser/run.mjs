@@ -72,6 +72,20 @@ if (values.describe) {
       if (new URL(values.url).searchParams.get('scenario') === 'diagnostics')
         report.diagnosticGate = await diagnosticGate(page, report.initialTimeoutMs);
       const started = performance.now();
+      if (new URL(values.url).searchParams.get('scenario') === 'logical') {
+        report.logicalPhaseTimeoutMs = 90000;
+        for (const phase of ['interop', 'snapshot', 'cancellation', 'repetition', 'restore-errors', 'restore', 'restore-repetition', 'closed']) {
+          report.awaitingPhase = phase;
+          await page.waitForFunction(name => window.probeResult !== null ||
+            (window.probeEvents || []).some(event => event.kind === 'logical-phase' && event.phase === name),
+            phase, {timeout: report.logicalPhaseTimeoutMs});
+          const progress = await page.evaluate(() => ({done: window.probeResult !== null, events: window.probeEvents || []}));
+          report.events = progress.events;
+          writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');
+          console.log('logical phase:', phase, progress.done ? 'finished' : 'passed');
+          if (progress.done) break;
+        }
+      }
       // OPFS creation and the deliberate 90s startup timeout are separate
       // bounded phases. A single 180s wall clock can expire during a valid
       // immediate reopen on a slow filesystem.

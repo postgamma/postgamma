@@ -11,6 +11,7 @@
 #include "postgamma/tool_state_runtime.h"
 
 #include "libpq-fe.h"
+#include "libpq-events.h"
 #include "port.h"
 
 #include <errno.h>
@@ -27,6 +28,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#ifdef __EMSCRIPTEN__
+#define POSTGAMMA_WASM_LOGICAL_ALLOC_IMPLEMENTATION
+#include "wasm/bridge/logical_alloc.h"
+#include "fe_utils/string_utils.h"
+#endif
 
 
 #define POSTGAMMA_LOGICAL_TOOL_CLOSE_TIMEOUT_MS INT64_C(30000)
@@ -52,6 +59,27 @@ struct PostgammaLogicalToolWorker
 };
 
 
+typedef struct PostgammaLogicalResult
+{
+	PGresult *result;
+	struct PostgammaLogicalResult *previous;
+	struct PostgammaLogicalResult *next;
+} PostgammaLogicalResult;
+
+typedef struct PostgammaLogicalResults
+{
+	PostgammaLogicalResult *head;
+	struct PostgammaLogicalResults *next;
+	bool connection_alive;
+	bool cleanup_done;
+} PostgammaLogicalResults;
+
+typedef struct PostgammaLogicalFile
+{
+	FILE	   *stream;
+	struct PostgammaLogicalFile *next;
+} PostgammaLogicalFile;
+
 typedef struct PostgammaLogicalToolContext
 {
 	const PostgammaLogicalToolOptions *options;
@@ -62,9 +90,12 @@ typedef struct PostgammaLogicalToolContext
 	pgm_connection *connection;
 	PostgammaPrivateLibpqConnection *private_connection;
 	PGconn	   *native_connection;
+	PostgammaLogicalResults *results;
+	char	   *copy_buffer;
 	uint64_t	request_generation;
 	mode_t		logical_umask;
 	FILE	   *diagnostic_stream;
+	PostgammaLogicalFile *files;
 	char		diagnostic_data[POSTGAMMA_LOGICAL_TOOL_DIAGNOSTIC_CAPACITY];
 	size_t		diagnostic_size;
 	sigjmp_buf	exit_jump;
@@ -75,10 +106,29 @@ typedef struct PostgammaLogicalToolContext
 	bool		connection_borrowed;
 	bool		archive_opened;
 	bool		unwinding;
+#ifdef __EMSCRIPTEN__
+	PQExpBuffer identifier_buffer;
+#endif
 } PostgammaLogicalToolContext;
 
 
 static _Thread_local PostgammaLogicalToolContext *PostgammaCurrentLogicalTool;
+
+#ifdef __EMSCRIPTEN__
+/* The upstream default caches a process-lifetime pointer. Each invocation
+ * instead owns this scratch buffer, including on pg_fatal/longjmp paths. */
+static PQExpBuffer
+logical_tool_identifier_buffer(void)
+{
+	PostgammaLogicalToolContext *context = PostgammaCurrentLogicalTool;
+
+	if (context->identifier_buffer == NULL)
+		context->identifier_buffer = createPQExpBuffer();
+	else
+		resetPQExpBuffer(context->identifier_buffer);
+	return context->identifier_buffer;
+}
+#endif
 
 
 extern int postgamma_pg19_pg_dump_main(int argc, char **argv);
@@ -120,6 +170,78 @@ static int logical_tool_cookie_close(void *cookie);
 static void *logical_tool_worker_main(void *argument);
 static bool logical_tool_worker_valid(
 	const PostgammaLogicalToolWorker *worker);
+static int logical_tool_result_event(PGEventId event, void *info, void *argument);
+
+int
+postgamma_logical_tool_get_copy_data(PGconn *connection, char **buffer, int async)
+{
+	int result = PQgetCopyData(connection, buffer, async);
+
+	if (result > 0)
+		PostgammaCurrentLogicalTool->copy_buffer = *buffer;
+	return result;
+}
+
+void
+postgamma_logical_tool_freemem(void *pointer)
+{
+	if (PostgammaCurrentLogicalTool->copy_buffer == pointer)
+		PostgammaCurrentLogicalTool->copy_buffer = NULL;
+	PQfreemem(pointer);
+}
+
+/* pg_dump can leave returned PGresults in invocation-local caches, or exit
+ * before PQclear on an error. PQfinish does not own those returned results.
+ * The event owner outlives even a failed connection close, avoiding callbacks
+ * into the tool's stack after its exit boundary has unwound. */
+static int
+logical_tool_result_event(PGEventId event, void *info, void *argument)
+{
+	PostgammaLogicalResults *owner = argument;
+	PGresult *result;
+	PostgammaLogicalResult *entry;
+
+	if (event == PGEVT_RESULTCREATE || event == PGEVT_RESULTCOPY)
+	{
+		if (owner->cleanup_done)
+			return 0;
+		result = event == PGEVT_RESULTCREATE ?
+			((PGEventResultCreate *) info)->result : ((PGEventResultCopy *) info)->dest;
+		entry = calloc(1, sizeof(*entry));
+		if (entry == NULL)
+			return 0;
+		if (!PQresultSetInstanceData(result, logical_tool_result_event, entry))
+		{
+			free(entry);
+			return 0;
+		}
+		entry->result = result;
+		entry->next = owner->head;
+		if (owner->head != NULL)
+			owner->head->previous = entry;
+		owner->head = entry;
+	}
+	else if (event == PGEVT_RESULTDESTROY)
+	{
+		result = ((PGEventResultDestroy *) info)->result;
+		entry = PQresultInstanceData(result, logical_tool_result_event);
+		if (entry != NULL)
+		{
+			if (entry->previous != NULL)
+				entry->previous->next = entry->next;
+			else
+				owner->head = entry->next;
+			if (entry->next != NULL)
+				entry->next->previous = entry->previous;
+			free(entry);
+		}
+	}
+	else if (event == PGEVT_CONNDESTROY)
+		owner->connection_alive = false;
+	if (owner->cleanup_done && !owner->connection_alive && owner->head == NULL)
+		free(owner);
+	return 1;
+}
 
 
 static bool
@@ -131,6 +253,8 @@ logical_tool_options_valid(const PostgammaLogicalToolOptions *options)
 		options->user[0] != '\0' && options->archive_path != NULL &&
 		options->archive_path[0] == '/' &&
 		(options->flags & ~PGM_LOGICAL_FLAGS_ALL) == 0 &&
+		(options->flags & (PGM_LOGICAL_SINGLE_TRANSACTION | PGM_LOGICAL_CREATE)) !=
+		(PGM_LOGICAL_SINGLE_TRANSACTION | PGM_LOGICAL_CREATE) &&
 		(options->flags & (PGM_LOGICAL_SCHEMA_ONLY |
 			PGM_LOGICAL_DATA_ONLY)) !=
 		(PGM_LOGICAL_SCHEMA_ONLY | PGM_LOGICAL_DATA_ONLY) &&
@@ -189,6 +313,80 @@ logical_tool_keyword(
 }
 
 
+static FILE *
+logical_tool_track_file(FILE *stream)
+{
+	PostgammaLogicalToolContext *context = PostgammaCurrentLogicalTool;
+	PostgammaLogicalFile *file;
+
+	if (stream == NULL || context == NULL)
+		return stream;
+	file = malloc(sizeof(*file));
+	if (file == NULL)
+	{
+		(void) fclose(stream);
+		errno = ENOMEM;
+		return NULL;
+	}
+	file->stream = stream;
+	file->next = context->files;
+	context->files = file;
+	return stream;
+}
+
+FILE *
+postgamma_logical_tool_fdopen(int descriptor, const char *mode)
+{
+	PostgammaLogicalToolContext *context = PostgammaCurrentLogicalTool;
+	PostgammaLogicalFile *file;
+	FILE	   *stream;
+
+	if (context == NULL)
+		return fdopen(descriptor, mode);
+	/* fdopen failure must leave the descriptor owned by its caller. */
+	file = malloc(sizeof(*file));
+	if (file == NULL)
+	{
+		errno = ENOMEM;
+		return NULL;
+	}
+	stream = fdopen(descriptor, mode);
+	if (stream == NULL)
+	{
+		free(file);
+		return NULL;
+	}
+	file->stream = stream;
+	file->next = context->files;
+	context->files = file;
+	return stream;
+}
+
+int
+postgamma_logical_tool_fclose(FILE *stream)
+{
+	PostgammaLogicalToolContext *context = PostgammaCurrentLogicalTool;
+	PostgammaLogicalFile **link;
+
+	if (context == NULL)
+		return fclose(stream);
+	link = &context->files;
+
+	while (*link != NULL)
+	{
+		PostgammaLogicalFile *file = *link;
+
+		if (file->stream == stream)
+		{
+			*link = file->next;
+			free(file);
+			break;
+		}
+		link = &file->next;
+	}
+	return fclose(stream);
+}
+
 FILE *
 postgamma_logical_tool_fopen(const char *path, const char *mode)
 {
@@ -199,7 +397,7 @@ postgamma_logical_tool_fopen(const char *path, const char *mode)
 	if (context == NULL || context->options->archive_endpoint == NULL ||
 		path == NULL ||
 		strcmp(path, POSTGAMMA_LOGICAL_TOOL_STREAM_PATH) != 0)
-		return fopen(path, mode);
+		return logical_tool_track_file(fopen(path, mode));
 	if (mode == NULL || context->archive_opened ||
 		(context->kind == POSTGAMMA_LOGICAL_TOOL_DUMP && mode[0] != 'w') ||
 		(context->kind == POSTGAMMA_LOGICAL_TOOL_RESTORE && mode[0] != 'r'))
@@ -224,7 +422,7 @@ postgamma_logical_tool_fopen(const char *path, const char *mode)
 		return NULL;
 	}
 	context->archive_opened = true;
-	return stream;
+	return logical_tool_track_file(stream);
 }
 
 
@@ -424,6 +622,7 @@ PQconnectdbParams(
 {
 	PostgammaLogicalToolContext *context = PostgammaCurrentLogicalTool;
 	pgm_connection_options connection_options = PGM_CONNECTION_OPTIONS_INIT;
+	PostgammaLogicalResults *results;
 	pgm_error  *error = NULL;
 	pgm_status	status;
 	const char *database;
@@ -477,6 +676,20 @@ PQconnectdbParams(
 	}
 	context->native_connection = native_connection;
 	context->connection_borrowed = true;
+	results = calloc(1, sizeof(*results));
+	if (results == NULL)
+		logical_tool_fail(ENOMEM, EXIT_FAILURE);
+	results->connection_alive = true;
+	if (!PQregisterEventProc(context->native_connection, logical_tool_result_event,
+			"postgamma-logical-results", results))
+	{
+		free(results);
+		logical_tool_fail(ENOMEM, EXIT_FAILURE);
+	}
+	/* Native CREATE restores can reconnect. Each connection's event owner
+	 * must survive until all its returned results have also been reclaimed. */
+	results->next = context->results;
+	context->results = results;
 	if (context->worker != NULL)
 	{
 		bool cancel_requested;
@@ -738,12 +951,43 @@ logical_tool_cleanup(PostgammaLogicalToolContext *context)
 		return;
 	context->unwinding = true;
 	(void) logical_tool_close_connection(context);
+	if (context->copy_buffer != NULL)
+	{
+		PQfreemem(context->copy_buffer);
+		context->copy_buffer = NULL;
+	}
+	while (context->results != NULL)
+	{
+		PostgammaLogicalResults *results = context->results;
+
+		context->results = results->next;
+		while (results->head != NULL)
+		{
+			PGresult *result = results->head->result;
+			PQclear(result);
+		}
+		results->cleanup_done = true;
+		if (!results->connection_alive)
+			free(results);
+	}
+	/* pg_dump also owns a fdopen(dup(stdout)) stream. Error exits bypass
+	 * CloseArchive, so reclaim every remaining tool stream, not just the
+	 * custom-format archive cookie. Normal fclose unlinks its own entry. */
+	while (context->files != NULL)
+		(void) postgamma_logical_tool_fclose(context->files->stream);
 	if (context->tool_state_bound)
 	{
 		(void) postgamma_tool_state_unbind(context->tool_state);
 		context->tool_state_bound = false;
 	}
 	postgamma_tool_state_destroy(&context->tool_state);
+#ifdef __EMSCRIPTEN__
+	if (context->identifier_buffer != NULL)
+	{
+		destroyPQExpBuffer(context->identifier_buffer);
+		context->identifier_buffer = NULL;
+	}
+#endif
 	context->unwinding = false;
 }
 
@@ -770,6 +1014,8 @@ logical_tool_run(
 	logical_tool_set_result(result, EINVAL, EXIT_FAILURE, 0,
 		"invalid logical-tool arguments");
 	if (!logical_tool_options_valid(options) ||
+		(kind == POSTGAMMA_LOGICAL_TOOL_DUMP &&
+		 (options->flags & PGM_LOGICAL_SINGLE_TRANSACTION) != 0) ||
 		(kind != POSTGAMMA_LOGICAL_TOOL_DUMP &&
 		 kind != POSTGAMMA_LOGICAL_TOOL_RESTORE) ||
 		snprintf(database_argument, sizeof(database_argument),
@@ -824,10 +1070,17 @@ logical_tool_run(
 			goto done;
 		}
 	}
+#ifdef __EMSCRIPTEN__
+	postgamma_wasm_logical_alloc_begin();
+#endif
 	status = postgamma_tool_state_create(&context.tool_state);
 	if (status != 0)
 		goto done;
 	PostgammaCurrentLogicalTool = &context;
+#ifdef __EMSCRIPTEN__
+	getLocalPQExpBuffer = logical_tool_identifier_buffer;
+	quote_all_identifiers = 0;
+#endif
 	status = logical_tool_open_diagnostic(&context);
 	if (status != 0)
 	{
@@ -854,6 +1107,8 @@ logical_tool_run(
 	{
 		arguments[argument_count++] = "postgamma-pg-restore";
 		arguments[argument_count++] = "--exit-on-error";
+		if ((options->flags & PGM_LOGICAL_SINGLE_TRANSACTION) != 0)
+			arguments[argument_count++] = "--single-transaction";
 		arguments[argument_count++] = "--format=custom";
 		arguments[argument_count++] = "--no-password";
 		arguments[argument_count++] = user_argument;
@@ -893,6 +1148,9 @@ done:
 	context.jump_ready = false;
 	logical_tool_cleanup(&context);
 	logical_tool_capture_result(&context, status);
+#ifdef __EMSCRIPTEN__
+	postgamma_wasm_logical_alloc_end();
+#endif
 	PostgammaCurrentLogicalTool = NULL;
 	(void) postgamma_frontend_tool_execution_unlock();
 	result->status = status;

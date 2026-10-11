@@ -19,6 +19,14 @@ import type {ControlOptions} from './control.js';
 import {SerialQueue} from './queue.js';
 export interface ArchiveOptions {signal?: AbortSignal}
 export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
+export interface LogicalOptions extends ControlOptions {
+  database?: string; user?: string;
+  schemaOnly?: boolean; dataOnly?: boolean; noOwner?: boolean; noPrivileges?: boolean;
+}
+export interface LogicalRestoreOptions extends LogicalOptions {
+  /** Drop archived objects first. Restoration always runs in one transaction. */
+  clean?: boolean;
+}
 const archiveHeader = () => new TextEncoder().encode(JSON.stringify({format: 'postgamma.archive', version: 1, buildId}));
 function openMessage(w: Writer, options: OpenOptions) {
   w.u32(options.create === false ? 0 : 1).u32(options.workers ?? 4).text(options.path ?? '/database')
@@ -242,6 +250,7 @@ export class Database {
   private closeWork: Promise<unknown> | undefined;
   private archiveCancel: (() => Promise<unknown>) | undefined;
   private archiveWork: Promise<ReadableStream<Uint8Array>> | undefined;
+  private logicalWork?: {control: OperationControl; done: Promise<void>};
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
   private static async createTransport(options: OpenOptions): Promise<Transport> {
     const interval = options.diagnostics?.sampleIntervalMs ?? 0;
@@ -312,8 +321,90 @@ export class Database {
     void work.catch(() => {this.archiveWork = undefined;});
     return work;
   }
+  /** Write a PostgreSQL custom-format logical archive with backpressure.
+   * Keeps the database open; reserves one of its four SQL sessions. */
+  dumpLogical(destination: WritableStream<Uint8Array>, options: LogicalOptions = {}): Promise<void> {
+    return this.logicalOperation(false, destination, options);
+  }
+  /** Restore a custom-format archive into an existing database in one transaction.
+   * Required roles and extension binaries must already exist on the target. */
+  restoreLogical(source: Blob | ReadableStream<Uint8Array>, options: LogicalRestoreOptions = {}): Promise<void> {
+    return this.logicalOperation(true, source, options);
+  }
+  private logicalOperation(restore: boolean, stream: Blob | ReadableStream<Uint8Array> | WritableStream<Uint8Array>,
+                           options: LogicalRestoreOptions): Promise<void> {
+    if (this.closing) return Promise.reject(new ClosedError());
+    if (this.logicalWork) return Promise.reject(new Error('A logical operation is already active'));
+    const booleans = ['schemaOnly', 'dataOnly', 'noOwner', 'noPrivileges', ...(restore ? ['clean'] : [])];
+    if (Object.keys(options).some(key => ![...booleans, 'database', 'user', 'signal', 'timeoutMs'].includes(key)) ||
+        booleans.some(key => options[key as keyof LogicalRestoreOptions] !== undefined &&
+          typeof options[key as keyof LogicalRestoreOptions] !== 'boolean') ||
+        (options.schemaOnly && options.dataOnly) || (options.clean && options.dataOnly))
+      return Promise.reject(new TypeError('Invalid logical backup/restore options'));
+    const database = options.database ?? 'postgres', user = options.user ?? 'postgamma';
+    if (![database, user].every(value => typeof value === 'string' && value.length > 0 && !value.includes('\0') && utf8Length(value) <= 63))
+      return Promise.reject(new TypeError('Database and user must be nonempty PostgreSQL identifiers of at most 63 UTF-8 bytes'));
+    let control: OperationControl | undefined;
+    try {control = new OperationControl(options); control.check();}
+    catch (error) {control?.dispose(); return Promise.reject(error);}
+    const owned = control;
+    const flags = (options.schemaOnly ? 1 : 0) | (options.dataOnly ? 2 : 0) | (options.clean ? 4 : 0) |
+      (options.noOwner ? 16 : 0) | (options.noPrivileges ? 32 : 0) | (restore ? 64 : 0);
+    const done = this.runLogical(restore, stream, flags, database, user, owned)
+      .finally(() => {owned.dispose(); this.logicalWork = undefined;});
+    this.logicalWork = {control: owned, done}; return done;
+  }
+  private async runLogical(restore: boolean, stream: Blob | ReadableStream<Uint8Array> | WritableStream<Uint8Array>,
+                           flags: number, database: string, user: string, control: OperationControl): Promise<void> {
+    let handle: Handle | undefined, reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+    const signal = control.signal;
+    try {
+      if (restore) reader = (stream instanceof Blob ? stream.stream() : stream as ReadableStream<Uint8Array>).getReader();
+      else writer = (stream as WritableStream<Uint8Array>).getWriter();
+      const opened = await this.transport.call(restore ? Op.logicalRestore : Op.logicalDump, this.handle,
+        w => w.u32(flags).text(database).text(user));
+      handle = opened.handle(); opened.end(); this.transport.readiness.track(handle);
+      let chunk: Uint8Array = new Uint8Array(), offset = 0, ended = false;
+      for (;;) {
+        control.check();
+        if (reader && offset === chunk.byteLength && !ended) {
+          const part = await abortable(reader.read(), signal); control.check();
+          ended = !!part.done; offset = 0;
+          if (!ended && !(part.value instanceof Uint8Array)) throw new TypeError('Logical archive must contain Uint8Array chunks');
+          chunk = ended ? new Uint8Array() : part.value!;
+          if (!ended && !chunk.byteLength) continue;
+        }
+        const input = chunk.subarray(offset, offset + limits.copyChunkBytes);
+        const version = this.transport.readiness.version(handle);
+        const reply = await this.transport.call(Op.logicalStep, handle, w => w.u32(ended ? 1 : 0).blob(input));
+        const state = reply.u32(), consumed = reply.u32(), output = reply.blob(); reply.end();
+        if (!output || consumed > input.byteLength || (state !== 0 && state !== 1 && state !== 2))
+          throw new Error('Invalid logical operation progress');
+        offset += consumed; control.check();
+        if (output.byteLength) await abortable(writer!.write(output), signal);
+        if (state === 2) break;
+        if (!consumed && !output.byteLength) await this.transport.readiness.wait(handle, version, signal);
+      }
+      control.check();
+      if (writer) await abortable(writer.close(), signal);
+      // pg_restore may finish without requesting EOF (e.g. schema-only).
+      if (reader) void reader.cancel().catch(() => {});
+    } catch (error) {
+      void reader?.cancel(error).catch(() => {});
+      void writer?.abort(error).catch(() => {});
+      control.check(); throw error;
+    } finally {
+      reader?.releaseLock(); writer?.releaseLock();
+      if (handle) {
+        try {await lifecycleStep(this.transport, Op.logicalClose, handle);}
+        catch (error) {await this.transport.discard(new Error('Logical operation cleanup failed', {cause: error})); throw error;}
+        finally {this.transport.readiness.retire(handle);}
+      }
+    }
+  }
   private async createArchive(options: ArchiveOptions): Promise<ReadableStream<Uint8Array>> {
-    if (this.closing || this.starting.size) throw new Error('Archive requires an idle database');
+    if (this.closing || this.starting.size || this.logicalWork) throw new Error('Archive requires an idle database');
     options.signal?.throwIfAborted();
     this.closing = true;
     const frozen: Connection[] = [];
@@ -402,7 +493,7 @@ export class Database {
   async telemetry() {
     const r = await this.transport.call(Op.telemetry, this.handle);
     const t = {workers: r.u32(), connections: r.u64(), requests: r.u64(), running: r.u64(),
-      pinned: r.u64(), runnable: r.u64(), queued: r.u64(), rejections: r.u64()}; r.end(); return t;
+      pinned: r.u64(), runnable: r.u64(), queued: r.u64(), rejections: r.u64(), allocatorLiveBytes: r.u32()}; r.end(); return t;
   }
   close(): Promise<unknown> {
     if (this.archiveCancel) return this.archiveCancel();
@@ -413,6 +504,10 @@ export class Database {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
     this.closeWork = (async () => {
+      if (this.logicalWork) {
+        this.logicalWork.control.abort(new ClosedError());
+        await this.logicalWork.done.catch(() => {});
+      }
       await Promise.allSettled(this.starting);
       await Promise.all([...this.connections].map(connection => connection.close()));
       // An already submitted event drain precedes CLOSE in the Worker queue.

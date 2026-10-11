@@ -271,7 +271,7 @@ class Builder:
                 names.add(fields[0])
         return names
 
-    def namespace_group(self, name, jobs, keep=(), mapping=None):
+    def namespace_group(self, name, jobs, keep=(), mapping=None, imports=None):
         # Clang's asm-name pragma changes linkage names without renaming C tokens,
         # struct members, macros, or the shared ownership identifiers in strings.
         with ThreadPoolExecutor(max_workers=self.config.jobs) as executor:
@@ -282,13 +282,16 @@ class Builder:
                        if not any(n.startswith(prefix) for prefix in keep)}
         if not set(mapping).issubset(definitions):
             raise WasmError("namespace definition is missing for " + name)
+        # Tool-local overrides (connection admission, cancellation, exit) win.
+        # Other libpq calls must reach the memory-transport-patched closure.
+        imported = {old: new for old, new in (imports or {}).items() if old not in definitions}
         header = self.output / (name + "-namespace.h")
         # Command-line renames (notably upstream _PG_init) must not expand the
         # pragma's symbol token and accidentally alias two distinct definitions.
         header.write_text("/* Target linkage names; generated from actual definitions. */\n" +
                           "".join(f'#pragma push_macro("{old}")\n#undef {old}\n'
                                   f'#pragma redefine_extname {old} {new}\n#pragma pop_macro("{old}")\n'
-                                  for old, new in sorted(mapping.items())))
+                                  for old, new in sorted((imported | mapping).items())))
         with ThreadPoolExecutor(max_workers=self.config.jobs) as executor:
             objects = list(executor.map(lambda job: self.compile(job[0], job[1],
                                        [*job[2], "-include", str(header)]), jobs))
@@ -304,7 +307,8 @@ class Builder:
              *(str(p) for p in objects)], self.log, self.env, self.root)
         temporary.replace(archive)
         self.objects.append(archive)
-        self.report.setdefault("namespaces", {})[name] = {"mapping": mapping, "definitions": sorted(after)}
+        self.report.setdefault("namespaces", {})[name] = {
+            "mapping": mapping, "imports": imported, "definitions": sorted(after)}
 
     def frontend_jobs(self, group, include_libpq=True, tool=False):
         selected = {}
@@ -367,6 +371,38 @@ class Builder:
                  (self.root / "runtime/src/tool_state_runtime.c", "initdb/state", flags)]
         print("wasm link: compiling private initdb", flush=True)
         self.namespace_group("initdb", jobs, keep=("postgamma_initdb_create",))
+        self.logical_tools()
+
+    def logical_tools(self):
+        flags = ["-DFRONTEND", "-DPOSTGAMMA_FRONTEND_TOOL", "-DUSE_PRIVATE_ENCODING_FUNCS",
+                 *["-I" + str(self.source / path) for path in
+                   ("src/interfaces/libpq", "src/bin/pg_dump", "src/common", "src/port")]]
+        upstream = [*flags, "-include",
+                    str(self.root / "embedded-c/include/postgamma/private/logical_tool_runtime.h")]
+        jobs = [(source, key, [*extra, *upstream] if source.name == "logging.c" else extra)
+                for source, key, extra in self.frontend_jobs("logical", tool=True)
+                if not source.is_relative_to(self.source / "src/interfaces/libpq")]
+        shared = ("compress_gzip compress_io compress_lz4 compress_none compress_zstd "
+                  "connectdb dumputils filter parallel pg_backup_archiver pg_backup_custom "
+                  "pg_backup_db pg_backup_directory pg_backup_null pg_backup_tar pg_backup_utils "
+                  "common pg_dump_sort").split()
+        for name in ["pg_dump", "pg_restore", *shared]:
+            extra = [*upstream]
+            if name in ("pg_dump", "pg_restore"):
+                extra += ["-Dmain=postgamma_pg19_" + name + "_main"]
+            jobs.append((self.source / "src/bin/pg_dump" / (name + ".c"), "logical/" + name, extra))
+        # Tool-owned strings must follow the invocation arena. Keep the actual
+        # connection and its internal buffers in the separate private libpq.
+        jobs += [(self.source / "src/interfaces/libpq/pqexpbuffer.c", "logical/pqexpbuffer", flags),
+                 (self.root / "runtime/src/tool_state_runtime.c", "logical/state", flags)]
+        alloc_hooks = self.root / "wasm/bridge/logical_alloc.h"
+        jobs = [(source, key, [*extra, "-include", str(alloc_hooks)]) for source, key, extra in jobs]
+        jobs += [(self.root / "embedded-c/src/postgres_logical_tool_host.c", "logical/host", flags),
+                 (self.root / "wasm/bridge/logical_alloc.c", "logical/alloc", flags)]
+        print("wasm link: compiling private pg_dump and pg_restore", flush=True)
+        self.namespace_group("logical", jobs, keep=("postgamma_logical_tool_dump_file",
+            "postgamma_logical_tool_restore_file", "postgamma_logical_tool_start",
+            "postgamma_logical_tool_cancel"), imports=self.report["namespaces"]["libpq"]["mapping"])
 
     def modules(self):
         from bundle_embedded_static_modules import render_facts
@@ -423,7 +459,7 @@ class Builder:
         io_stack = next(role["stack_bytes"] for role in policy["thread_roles"] if role["role"] == "io_owner")
         pool = sum(role["count"] for role in policy["thread_roles"])
         excluded = {"bootstrap_probe.c", "libpq_memory_adapter.c", "postgres_initdb_host.c",
-                    "postgres_logical_tool_host.c", "postgamma_logical_management.c"}
+                    "postgres_logical_tool_host.c"}
         jobs = []
         for source in sorted((self.root / "embedded-c/src").glob("*.c")):
             if source.name in excluded: continue

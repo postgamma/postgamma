@@ -35,16 +35,16 @@ async function sample(event) {
   const owned = worker => /\/src\/worker\/sql\.js(?:[?#]|$)/.test(worker.url()) || metadata(worker.url()).has('postgammaPthread');
   const all = page.workers().filter(worker => /\/src\/worker\/sql\.js(?:[?#]|$)/.test(worker.url()));
   const live = all.filter(worker => ownership.active.includes(metadata(worker.url()).get('soakControl')));
-  assert.equal(ownership.activePthreads.length, 14, 'The API owner retains the complete fixed pthread pool');
+  assert.equal(ownership.activePthreads.length, 15, 'The API owner retains the complete fixed pthread pool');
   const livePthreads = page.workers().filter(worker => ownership.activePthreads.includes(metadata(worker.url()).get('postgammaPthread')));
-  assert.equal(livePthreads.length, 14, 'Every page-owned pthread Worker has a live browser target');
+  assert.equal(livePthreads.length, 15, 'Every page-owned pthread Worker has a live browser target');
   // Chromium can retain a debug target after Worker.terminate(). Track the
   // actual constructor/terminate calls; never evaluate a retired debug target.
   const controls = await controlSnapshots({workers: () => live});
   assert.equal(controls.length, 1, 'Exactly one live control Worker at a quiescent boundary');
   const value = controls[0].snapshot;
   assert(!value.error && value.pending <= 1, 'Control diagnostics are available');
-  assert(value.memoryBytes <= 536870912 && value.threads.length <= 14, 'Native memory/thread limit');
+  assert(value.memoryBytes <= 536870912 && value.threads.length <= 15, 'Native memory/thread limit');
   assert(value.storage?.store && value.storage.store.handles <= 63, 'OPFS owner handle bound');
   const now = performance.now(), retired = page.workers().filter(worker => owned(worker) && !live.includes(worker) && !livePthreads.includes(worker)).map(worker => worker.url());
   for (const url of retired) if (!retiredTargets.has(url)) retiredTargets.set(url, now);

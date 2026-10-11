@@ -19,6 +19,7 @@ import {statements} from './statements.js';
 import {controls} from './controls.js';
 import {types} from './types.js';
 import {streams} from './streams.js';
+import {logical} from './logical.js';
 import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
@@ -73,6 +74,7 @@ try {
   const metrics: unknown[] = [];
   if (scenario === 'storage') await storage(checks, metrics);
   else if (scenario === 'archive') await archive(checks, metrics);
+  else if (scenario === 'logical') await logical(checks, metrics);
   else if (scenario === 'contrib') await contrib(checks, metrics);
   else if (scenario === 'parallel') await parallel(checks, metrics);
   else if (scenario === 'soak') await soak(checks, metrics);

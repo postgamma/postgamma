@@ -40,15 +40,14 @@
   },
   "tool": {
     "definition_prefixes": {
-      "src/bin/pg_dump/": "Logical management tools are outside the initial kernel profile.",
-      "src/common/instr_time.c": "The target has no x86 timestamp counter calibration."
+      "src/common/instr_time.c": "The target has no x86 timestamp counter calibration.",
+      "src/bin/pg_dump/pg_dumpall.c": "Cluster-wide role and tablespace dumping is not included in single-database logical backup."
     },
     "identifiers": {
       "external:X86Features": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
       "external:pg_comp_crc32c": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
       "external:pg_popcount_masked_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
-      "external:pg_popcount_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly.",
-      "external:progname": "The pg_dump utility global is excluded; initdb has its own file-local program name."
+      "external:pg_popcount_optimized": "CPU runtime dispatch is absent in the portable Wasm target; the configured portable implementation is compiled directly."
     }
   }
 }
