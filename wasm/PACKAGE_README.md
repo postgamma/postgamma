@@ -81,6 +81,27 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+Use a named prepared statement to reuse parsing and planning:
+
+```ts
+const statement = await connection.prepare('SELECT $1::int8 AS id, $2::text AS label');
+try {
+  console.log(statement.parameterTypes); // [20, 25], inferred by PostgreSQL
+  const result = await statement.query({parameters: [
+    {typeOid: 20, value: '9007199254740993'}, {typeOid: 25, value: 'example'},
+  ]});
+} finally {await statement.close();}
+```
+
+`prepare(sql, {parameterTypes: [...]})` optionally supplies type OIDs; zero asks
+PostgreSQL to infer that parameter. Up to 64 parameters are supported.
+`statement.columns` describes the result without executing it. `query()` collects
+bounded results and `execute({chunkRows: ...})` returns the ordinary request
+iterator, including binary results and cancellation. Prepare, query and script
+calls share connection ordering. Parse/Describe yields the driver while waiting
+for PostgreSQL; other sessions stay responsive. Closing a connection also closes
+its statements. A statement cannot be reused after close starts.
+
 Parallel queries are opt-in on each connection:
 
 ```ts

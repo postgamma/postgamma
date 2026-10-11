@@ -430,6 +430,111 @@ fail:
 }
 
 
+/* The browser driver must yield while Parse or Describe waits for a lock.
+ * These private entry points reuse normal request cancellation and retirement.
+ * The caller owns the statement even if the returned request later fails. */
+pgm_status
+postgamma_public_statement_prepare_async(
+	pgm_connection *connection, const char *sql, size_t sql_size,
+	const pgm_prepare_options *options, pgm_statement **statement,
+	pgm_request **request, pgm_error **error)
+{
+	pgm_statement *created;
+	pgm_parameter *parameters = NULL;
+	char *query;
+	uint64_t identity;
+	pgm_status status;
+	if (error != NULL) *error = NULL;
+	if (statement == NULL || request == NULL)
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"statement and request outputs are required");
+	*statement = NULL;
+	*request = NULL;
+	if (!connection_is_valid(connection) || options == NULL ||
+		options->struct_size < sizeof(*options) || options->flags != 0 ||
+		options->parameter_count > INT_MAX ||
+		(options->parameter_count && options->parameter_type_oids == NULL))
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"invalid statement preparation arguments");
+	if (!process_is_valid(connection->owner_pid))
+		return return_simple_error(error, PGM_STATUS_FORKED_PROCESS,
+			"connection belongs to a different host process");
+	if (public_instance_reentrant(connection->instance))
+		return return_simple_error(error, PGM_STATUS_REENTRANT_CALL,
+			"callback cannot reenter the same instance");
+	query = duplicate_sql(sql, sql_size);
+	if (query == NULL)
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"SQL must be nonempty and contain no NUL byte");
+	created = calloc(1, sizeof(*created));
+	if (created == NULL) {free(query); return return_simple_error(error,
+		PGM_STATUS_OUT_OF_MEMORY, "could not allocate statement");}
+	created->magic = PGM_STATEMENT_MAGIC;
+	created->owner_pid = connection->owner_pid;
+	created->connection = connection;
+	created->name = malloc(64);
+	if (options->parameter_count)
+		parameters = calloc(options->parameter_count, sizeof(*parameters));
+	if (created->name == NULL || (options->parameter_count && parameters == NULL))
+	{
+		status = return_simple_error(error, PGM_STATUS_OUT_OF_MEMORY,
+			"could not allocate statement preparation");
+		goto fail;
+	}
+	identity = atomic_fetch_add_explicit(&connection->instance->next_statement_id,
+		UINT64_C(1), memory_order_relaxed);
+	if (identity == 0 || identity == UINT64_MAX)
+	{
+		status = return_simple_error(error, PGM_STATUS_INTERNAL_ERROR,
+			"statement identity exhausted");
+		goto fail;
+	}
+	(void) snprintf(created->name, 64, "pgm_%" PRIu64 "_%" PRIu64,
+		(uint64_t) connection->identity, identity);
+	for (size_t i = 0; i < options->parameter_count; i++)
+	{
+		parameters[i] = (pgm_parameter) PGM_PARAMETER_INIT;
+		parameters[i].type_oid = options->parameter_type_oids[i];
+		parameters[i].is_null = true;
+	}
+	status = request_start(connection, POSTGAMMA_PUBLIC_REQUEST_PREPARE, created,
+		query, parameters, options->parameter_count, 0,
+		PGM_DELIVERY_MATERIALIZED, 0, 0, NULL, NULL, request, error);
+	if (status != PGM_STATUS_OK) goto fail;
+	/* The active request already excludes connection close and another owner. */
+	(void) postgamma_mutex_lock(connection->mutex);
+	connection->statement_count++;
+	created->registered_with_connection = true;
+	(void) postgamma_mutex_unlock(connection->mutex);
+	free(parameters);
+	free(query);
+	*statement = created;
+	return PGM_STATUS_OK;
+fail:
+	free(parameters);
+	free(query);
+	free(created->name);
+	free(created);
+	return status;
+}
+
+pgm_status
+postgamma_public_statement_close_async(
+	pgm_statement *statement, pgm_request **request, pgm_error **error)
+{
+	if (error != NULL) *error = NULL;
+	if (request == NULL || !statement_is_valid(statement))
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"invalid prepared statement");
+	*request = NULL;
+	if (statement->remote_closed || statement->connection->failed)
+		return PGM_STATUS_OK;
+	return request_start(statement->connection,
+		POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE, statement, statement->name,
+		NULL, 0, 0, PGM_DELIVERY_MATERIALIZED, 0, 0,
+		NULL, NULL, request, error);
+}
+
 pgm_status
 pgm_statement_execute_async(
 	pgm_statement *statement,
@@ -446,7 +551,8 @@ pgm_statement_execute_async(
 			error, PGM_STATUS_INVALID_ARGUMENT,
 			"request output parameter is required");
 	*request = NULL;
-	if (!statement_is_valid(statement))
+	if (!statement_is_valid(statement) || statement->description == NULL ||
+		statement->remote_closed)
 		return return_simple_error(
 			error, PGM_STATUS_INVALID_ARGUMENT,
 			"invalid prepared statement");
@@ -481,7 +587,7 @@ pgm_statement_describe(
 
 	if (error != NULL)
 		*error = NULL;
-	if (!statement_is_valid(statement) || description == NULL ||
+	if (!statement_is_valid(statement) || statement->description == NULL || description == NULL ||
 		description->struct_size < sizeof(*description))
 		return return_simple_error(
 			error, PGM_STATUS_INVALID_ARGUMENT,
@@ -629,7 +735,7 @@ pgm_statement_close(
 			error, PGM_STATUS_BUSY,
 			"free the active request before closing its statement");
 	}
-	if (!connection->failed)
+	if (!connection->failed && !statement->remote_closed)
 	{
 		status = private_deadline_after(
 			PGM_PROTOCOL_OPERATION_TIMEOUT_NS, &deadline_ns);

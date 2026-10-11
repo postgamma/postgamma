@@ -12,6 +12,10 @@ async function typedConsumer(): Promise<Result[]> {
       if (error instanceof NotificationOverflowError) console.log(error.dropped);
     });
     await c.exec('SELECT 1; SELECT 2', script); stop();
+    const statement = await c.prepare('SELECT $1::int8');
+    const parameterTypes: readonly number[] = statement.parameterTypes;
+    for await (const _ of await statement.execute({parameters: [parameter], chunkRows: 4})) {}
+    await statement.close(); void parameterTypes;
     for await (const _ of await c.executeScript('SELECT 3', script)) {}
     return await c.query('SELECT $1::int8', {parameters: [parameter]});
   }

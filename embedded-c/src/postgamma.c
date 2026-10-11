@@ -1217,10 +1217,10 @@ request_start(
 	*request = NULL;
 	if (!connection_is_valid(connection) || sql == NULL || sql[0] == '\0' ||
 		mode < POSTGAMMA_PUBLIC_REQUEST_EXTENDED ||
-		mode > POSTGAMMA_PUBLIC_REQUEST_PREPARED ||
-		(mode == POSTGAMMA_PUBLIC_REQUEST_PREPARED &&
+		mode > POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE ||
+		(mode >= POSTGAMMA_PUBLIC_REQUEST_PREPARED &&
 		 (!statement_is_valid(statement) || statement->connection != connection)) ||
-		(mode != POSTGAMMA_PUBLIC_REQUEST_PREPARED && statement != NULL) ||
+		(mode < POSTGAMMA_PUBLIC_REQUEST_PREPARED && statement != NULL) ||
 		(mode == POSTGAMMA_PUBLIC_REQUEST_SCRIPT && parameter_count != 0) ||
 		result_format > 1 || parameter_count > INT32_MAX ||
 		(parameter_count != 0 && parameters == NULL) ||
@@ -1330,6 +1330,14 @@ request_start(
 			private_status = postgamma_private_libpq_operation_start_script_ex(
 				connection->private_connection, created->generation,
 				created->sql, &private_policy, &created->operation);
+		else if (mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE ||
+				 mode == POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE)
+			private_status = postgamma_private_libpq_statement_start(
+				connection->private_connection, created->generation,
+				statement->name,
+				mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE ? created->sql : NULL,
+				created->parameters, created->parameter_count,
+				&private_policy, &created->operation);
 		else if (mode == POSTGAMMA_PUBLIC_REQUEST_PREPARED)
 			private_status = postgamma_private_libpq_operation_start_prepared_ex(
 				connection->private_connection, created->generation,
@@ -3231,6 +3239,21 @@ progress_request_locked(pgm_request *request)
 			operation_status, NULL, NULL, NULL,
 			"private libpq request failed: %s",
 			postgamma_private_libpq_status_name(private_status));
+	if (operation_status == PGM_STATUS_OK &&
+		request->mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE)
+	{
+		request->statement->description =
+			postgamma_private_libpq_take_description(request->operation);
+		if (request->statement->description == NULL)
+		{
+			operation_status = PGM_STATUS_INTERNAL_ERROR;
+			request->error = make_error(operation_status, NULL, NULL, NULL,
+				"prepared statement description is missing");
+		}
+	}
+	if (operation_status == PGM_STATUS_OK &&
+		request->mode == POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE)
+		request->statement->remote_closed = true;
 	request->operation_status = operation_status;
 	if (operation_status == PGM_STATUS_OK)
 		request->state = PGM_REQUEST_COMPLETED;

@@ -133,7 +133,7 @@ def main():
     parser.add_argument('--mode', default='debug', choices=('debug', 'release'))
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--longjmp', default='emscripten'); parser.add_argument('--jobs', type=int, default=2)
-    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel'))
+    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel', 'statements'))
     parser.add_argument('--extensions', default='standard')
     parser.add_argument('--engines', default='chromium,firefox,webkit')
     args = parser.parse_args()

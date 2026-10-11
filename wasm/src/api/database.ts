@@ -1,8 +1,8 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {DatabaseError, Op, Reader, VERSION, Writer, response, utf8Length} from '../protocol/wire.js';
 import type {Handle} from '../protocol/wire.js';
-import {result} from '../codecs/results.js';
-import type {Result} from '../codecs/results.js';
+import {result, readColumns} from '../codecs/results.js';
+import type {Result, Column} from '../codecs/results.js';
 export {DatabaseError} from '../protocol/wire.js';
 export type {Result, Column} from '../codecs/results.js';
 import {limits} from '../protocol/limits.js';
@@ -35,6 +35,28 @@ export class ClosedError extends Error {constructor() {super('Database handle is
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
 export interface ScriptOptions {chunkRows?: number}
+export interface PrepareOptions {parameterTypes?: number[]}
+function writeExecute(w: Writer, options: ExecuteOptions) {
+  w.u32(options.binary ? 1 : 0).u32(options.chunkRows ?? 0);
+  const parameters = options.parameters ?? []; w.u32(parameters.length);
+  for (const p of parameters) w.u32(p.typeOid).u32(p.format ?? (p.value instanceof Uint8Array ? 1 : 0))
+    .u32(p.value === null ? 1 : 0).blob(p.value === null ? new Uint8Array() :
+      typeof p.value === 'string' ? new TextEncoder().encode(p.value) : p.value);
+}
+function parameterBytes(options: ExecuteOptions): number {
+  return (options.parameters ?? []).reduce((sum, p) => sum + 16 +
+    (typeof p.value === 'string' ? utf8Length(p.value) : p.value?.byteLength ?? 0), 0);
+}
+async function collectRequest(request: Request): Promise<Result[]> {
+  const results: Result[] = []; let bytes = 0;
+  try {for (;;) {
+    const batch = await request.next(); if (batch === null) return results;
+    if (batch.copy) throw new Error('Use execute() or executeScript() for COPY streams');
+    bytes += batch.byteLength;
+    if (bytes > limits.collectedResultBytes) throw new Error(`Collected results exceed ${limits.collectedResultBytes} bytes; consume an iterator`);
+    results.push(batch);
+  }} finally {await request.close();}
+}
 export interface Notification {channel: string; payload: string; pid: number}
 export class NotificationOverflowError extends Error {
   readonly dropped: bigint;
@@ -419,6 +441,7 @@ export class Connection {
   private transport: Transport;
   private handle: Handle;
   private requests = new Set<Request>();
+  private statements = new Set<Statement>();
   private starting = new Set<Promise<Request>>();
   private closing = false;
   private archiveFrozen = false;
@@ -435,12 +458,31 @@ export class Connection {
     this.transport.readiness.track(handle);
   }
   async execute(sql: string, options: ExecuteOptions = {}): Promise<Request> {
-    return this.start(Op.execute, w => {
-      w.text(sql).u32(options.binary ? 1 : 0).u32(options.chunkRows ?? 0);
-      const parameters = options.parameters ?? []; w.u32(parameters.length);
-      for (const p of parameters) w.u32(p.typeOid).u32(p.format ?? (p.value instanceof Uint8Array ? 1 : 0))
-        .u32(p.value === null ? 1 : 0).blob(p.value === null ? new Uint8Array() :
-          typeof p.value === 'string' ? new TextEncoder().encode(p.value) : p.value);
+    return this.start(Op.execute, w => {w.text(sql); writeExecute(w, options);});
+  }
+  prepare(sql: string, options: PrepareOptions = {}): Promise<Statement> {
+    const types = [...options.parameterTypes ?? []];
+    if (types.length > 64 || types.some(oid => !Number.isInteger(oid) || oid < 0 || oid > 0xffffffff))
+      return Promise.reject(new TypeError('Expected at most 64 uint32 parameter type OIDs'));
+    return this.enqueue(utf8Length(sql) + types.length * 4 + 64, async () => {
+      if (this.closing) throw new ClosedError();
+      let statement!: Statement;
+      const work = this.transport.call(Op.prepare, this.handle, w => {
+        w.text(sql).u32(types.length); for (const oid of types) w.u32(oid);
+      }).then(r => {
+        statement = new Statement(this, this.transport, r.handle(), () => this.statements.delete(statement));
+        this.statements.add(statement);
+        const request = this.ownRequest(r.handle()); r.end(); return request;
+      });
+      this.starting.add(work);
+      let request: Request;
+      try {request = await work;} finally {this.starting.delete(work);}
+      try {await collectRequest(request); await statement.describe(); return statement;}
+      catch (error) {
+        try {await statement.closeOwned();}
+        catch (cleanup) {throw new AggregateError([error, cleanup], 'Statement preparation and cleanup failed');}
+        throw error;
+      }
     });
   }
   /** PostgreSQL simple-query script; all statement and transaction boundaries
@@ -449,15 +491,24 @@ export class Connection {
     if (Object.keys(options).some(key => key !== 'chunkRows')) throw new TypeError('Scripts accept only chunkRows');
     return this.start(Op.script, w => w.text(sql).u32(options.chunkRows ?? 0));
   }
-  private async start(op: number, write: (writer: Writer) => void): Promise<Request> {
+  private async start(op: number, write: (writer: Writer) => void, handle = this.handle,
+    onClosed?: (request: Request) => void): Promise<Request> {
     if (this.closing || this.archiveFrozen) throw new ClosedError();
-    const work = this.transport.call(op, this.handle, write).then(r => {
+    const work = this.transport.call(op, handle, write).then(r => {
       const h = r.handle(); r.end();
-      const request = new Request(this.transport, h, () => this.requests.delete(request));
-      this.requests.add(request); return request;
+      return this.ownRequest(h, onClosed);
     });
     this.starting.add(work);
     try {return await work;} finally {this.starting.delete(work);}
+  }
+  /** @internal */
+  ownRequest(handle: Handle, onClosed?: (request: Request) => void): Request {
+    const request = new Request(this.transport, handle, () => {this.requests.delete(request); onClosed?.(request);});
+    this.requests.add(request); return request;
+  }
+  /** @internal */
+  executeStatement(handle: Handle, options: ExecuteOptions, onClosed: (request: Request) => void): Promise<Request> {
+    return this.start(Op.statementExecute, w => writeExecute(w, options), handle, onClosed);
   }
   private queryTail: Promise<unknown> = Promise.resolve();
   private queuedQueries = 0;
@@ -478,28 +529,19 @@ export class Connection {
     return this.transport.subscribe(this.handle, {notify, error: onError});
   }
   private collect(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
+    return this.enqueue(utf8Length(sql) + 64 + parameterBytes(options), async () =>
+      collectRequest(await (script ? this.executeScript(sql, options) : this.execute(sql, options))));
+  }
+  /** @internal Shared ordering and byte admission for queries and statements. */
+  enqueue<T>(bytes: number, action: () => Promise<T>): Promise<T> {
     if (this.closing || this.archiveFrozen) return Promise.reject(new ClosedError());
     if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
-    let bytes = utf8Length(sql) + 64;
-    for (const p of options.parameters ?? [])
-      bytes += 16 + (typeof p.value === 'string' ? utf8Length(p.value) : p.value?.byteLength ?? 0);
     if (bytes > limits.commandBytes || this.queuedBytes + bytes > limits.connectionQueueBytes)
       return Promise.reject(new Error('Connection query byte queue is full'));
     this.queuedBytes += bytes; this.transport.hostQueuedBytes += bytes;
     this.transport.peakHostQueuedBytes = Math.max(this.transport.peakHostQueuedBytes, this.transport.hostQueuedBytes);
     this.queuedQueries++;
-    const work = this.queryTail.then(async () => {
-      const request = await (script ? this.executeScript(sql, options) : this.execute(sql, options)), results: Result[] = [];
-      let bytes = 0;
-      try {for (;;) {
-        const batch = await request.next(); if (batch === null) return results;
-        if (batch.copy) throw new Error('Use execute() or executeScript() for COPY streams');
-        bytes += batch.byteLength;
-        if (bytes > limits.collectedResultBytes) throw new Error(`Collected results exceed ${limits.collectedResultBytes} bytes; consume an iterator`);
-        results.push(batch);
-      }}
-      finally {await request.close();}
-    });
+    const work = this.queryTail.then(action);
     // Releasing admission is part of completion. An awaiting caller may
     // immediately submit another large query using the same byte allowance.
     const completed = work.finally(() => {this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;});
@@ -519,6 +561,7 @@ export class Connection {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.requests].map(request => request.close()));
       await this.queryTail;
+      for (const statement of [...this.statements]) await statement.closeOwned();
       const signal = new AbortController().signal;
       for (;;) {
         const version = this.transport.readiness.version(this.handle);
@@ -529,6 +572,67 @@ export class Connection {
         await this.transport.readiness.wait(this.handle, version, signal);
       }
       this.transport.readiness.retire(this.handle); this.onClosed();
+    })().catch(error => {this.closeWork = undefined; throw error;});
+    return this.closeWork;
+  }
+}
+export class Statement {
+  private connection: Connection;
+  private transport: Transport;
+  private handle: Handle;
+  private onClosed: () => void;
+  private parameters: readonly number[] = [];
+  private fields: readonly Column[] = [];
+  private requests = new Set<Request>();
+  private starting = new Set<Promise<Request>>();
+  private closing = false;
+  private closed = false;
+  private closeWork?: Promise<void>;
+  private scheduledClose?: Promise<void>;
+  constructor(connection: Connection, transport: Transport, handle: Handle, onClosed: () => void) {
+    this.connection = connection; this.transport = transport; this.handle = handle; this.onClosed = onClosed;
+  }
+  get parameterTypes(): readonly number[] {return this.parameters;}
+  get columns(): readonly Column[] {return this.fields;}
+  /** @internal */
+  async describe() {
+    const r = await this.transport.call(Op.statementInfo, this.handle), count = r.u32();
+    if (count > 64) throw new Error('Prepared statements support at most 64 parameters');
+    this.parameters = Object.freeze(Array.from({length: count}, () => r.u32()));
+    this.fields = Object.freeze(readColumns(r, r.u32()).map(column => Object.freeze(column))); r.end();
+  }
+  async execute(options: ExecuteOptions = {}): Promise<Request> {
+    if (this.closing || this.closed) throw new ClosedError();
+    const work = this.connection.executeStatement(this.handle, options, request => this.requests.delete(request));
+    this.starting.add(work);
+    try {const request = await work; this.requests.add(request); return request;}
+    finally {this.starting.delete(work);}
+  }
+  query(options: ExecuteOptions = {}): Promise<Result[]> {
+    if (this.closing || this.closed) return Promise.reject(new ClosedError());
+    return this.connection.enqueue(64 + parameterBytes(options), async () => collectRequest(await this.execute(options)));
+  }
+  close(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    this.closing = true;
+    return this.scheduledClose ??= this.connection.enqueue(64, () => this.closeOwned())
+      .catch(error => {this.scheduledClose = undefined; throw error;});
+  }
+  /** @internal Connection shutdown also retires unclosed statements. */
+  closeOwned(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.closeWork) return this.closeWork;
+    this.closing = true;
+    this.closeWork = (async () => {
+      await Promise.allSettled(this.starting);
+      for (const request of [...this.requests]) await request.close();
+      const reply = await this.transport.call(Op.statementClose, this.handle);
+      if (reply.u32()) {
+        const request = this.connection.ownRequest(reply.handle()); reply.end();
+        await collectRequest(request);
+      } else reply.end();
+      (await this.transport.call(Op.statementFree, this.handle)).end();
+      this.closed = true; this.onClosed();
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }

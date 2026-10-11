@@ -329,6 +329,15 @@ PostgammaPrivateLibpqStatus postgamma_private_libpq_copy_release(
 	PostgammaPrivateLibpqOperation *operation);
 void postgamma_private_libpq_operation_free(
 	PostgammaPrivateLibpqOperation **operation);
+/* Bounded Parse/Describe and Close operations for hosts with one driver. */
+PostgammaPrivateLibpqStatus postgamma_private_libpq_statement_start(
+	PostgammaPrivateLibpqConnection *connection, uint64_t request_generation,
+	const char *name, const char *query,
+	const PostgammaPrivateParameter *parameters, size_t parameter_count,
+	const PostgammaPrivateResultPolicy *policy,
+	PostgammaPrivateLibpqOperation **operation);
+PostgammaPrivatePreparedDescription *postgamma_private_libpq_take_description(
+	PostgammaPrivateLibpqOperation *operation);
 PostgammaPrivateLibpqStatus postgamma_private_libpq_prepare(
 	PostgammaPrivateLibpqConnection *connection,
 	const char *statement_name,

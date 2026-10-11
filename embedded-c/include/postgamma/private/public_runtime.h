@@ -44,7 +44,9 @@ typedef enum PostgammaPublicRequestMode
 {
 	POSTGAMMA_PUBLIC_REQUEST_EXTENDED = 0,
 	POSTGAMMA_PUBLIC_REQUEST_SCRIPT,
-	POSTGAMMA_PUBLIC_REQUEST_PREPARED
+	POSTGAMMA_PUBLIC_REQUEST_PREPARED,
+	POSTGAMMA_PUBLIC_REQUEST_PREPARE,
+	POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE
 } PostgammaPublicRequestMode;
 
 typedef struct PostgammaPublicResultLease
@@ -221,6 +223,7 @@ struct pgm_statement
 	PostgammaPrivatePreparedDescription *description;
 	struct pgm_request *active_request;
 	bool		registered_with_connection;
+	bool		remote_closed;
 };
 
 struct pgm_request
@@ -303,6 +306,12 @@ pgm_status request_start(
 	pgm_request **request,
 	pgm_error **error);
 pgm_status progress_request_locked(pgm_request *request);
+pgm_status postgamma_public_statement_prepare_async(
+	pgm_connection *connection, const char *sql, size_t sql_size,
+	const pgm_prepare_options *options, pgm_statement **statement,
+	pgm_request **request, pgm_error **error);
+pgm_status postgamma_public_statement_close_async(
+	pgm_statement *statement, pgm_request **request, pgm_error **error);
 pgm_error *error_from_result(
 	pgm_status status, const PostgammaPrivateOwnedResult *result);
 pgm_status result_attach_lease(

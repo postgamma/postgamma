@@ -29,9 +29,10 @@
 enum { OPEN = 1, CONNECT, EXECUTE, NEXT, RELEASE, DISCONNECT, CLOSE,
        CONNECTION_STATUS, CANCEL, TELEMETRY, STOP, COPY_READ, COPY_WRITE,
        COPY_FINISH, COPY_CLOSE, COPY_ABORT, CONNECT_POLL, SCRIPT, EVENTS,
-       RESTORE_OPEN, ARCHIVE_READ, ARCHIVE_WRITE, RESTORE_FINISH };
-enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING };
-#define WIRE_VERSION 7
+       RESTORE_OPEN, ARCHIVE_READ, ARCHIVE_WRITE, RESTORE_FINISH,
+       PREPARE, STATEMENT_EXECUTE, STATEMENT_INFO, STATEMENT_CLOSE, STATEMENT_FREE };
+enum { INSTANCE = 1, CONNECTION, REQUEST, STREAM, CONNECTING, STATEMENT = 7 };
+#define WIRE_VERSION 8
 #define SLOT_COUNT 64
 #define WIRE_LIMIT PGW_COMMAND_BYTES
 typedef struct Handle {
@@ -394,18 +395,37 @@ static bool command(void)
         else if (fault == 2) abort();
     }
 #endif
-    if (op != OPEN && op != STOP && op != EVENTS && op < RESTORE_OPEN)
+    if (op != OPEN && op != STOP && op != EVENTS && (op < RESTORE_OPEN || op > RESTORE_FINISH))
         h = lookup(&r, op == CONNECT || op == CLOSE || op == TELEMETRY ? INSTANCE :
                    op == CONNECT_POLL ? CONNECTING :
                    op == NEXT || op == RELEASE || op == CANCEL ? REQUEST :
+                   op >= STATEMENT_EXECUTE && op <= STATEMENT_FREE ? STATEMENT :
                    op >= COPY_READ && op <= COPY_ABORT ? STREAM : CONNECTION);
-    if (op == OPEN || op == RESTORE_FINISH || op == CONNECT || op == EXECUTE || op == SCRIPT) {
+    if (op == OPEN || op == RESTORE_FINISH || op == CONNECT || op == EXECUTE || op == SCRIPT ||
+        op == PREPARE || op == STATEMENT_EXECUTE || op == STATEMENT_CLOSE) {
         slot = reserve();
         if (!slot) status = PGM_STATUS_BUSY;
     }
     if (r.failed || status) goto done;
-    if (h && h->closing && op != DISCONNECT && op != RELEASE && op != COPY_CLOSE) {
+    if (h && h->closing && op != DISCONNECT && op != RELEASE && op != COPY_CLOSE &&
+        op != STATEMENT_CLOSE && op != STATEMENT_FREE) {
         status = PGM_STATUS_BUSY; bridge_message = "Handle is closing"; goto done;
+    }
+    if (op == EXECUTE || op == SCRIPT || op == STATEMENT_EXECUTE || op == PREPARE) {
+        unsigned opening = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTING) opening++;
+        if (opening) {
+            pgm_connection *connection = op == STATEMENT_EXECUTE ?
+                ((pgm_statement *)h->pointer)->connection : h->pointer;
+            pgm_instance_telemetry capacity = PGM_INSTANCE_TELEMETRY_INIT;
+            pgm_connection_status_snapshot session = PGM_CONNECTION_STATUS_SNAPSHOT_INIT;
+            status = pgm_instance_get_telemetry(connection->instance, &capacity, &error);
+            if (!status) status = pgm_connection_get_status(connection, &session, &error);
+            if (status) goto done;
+            if (!session.carrier_retained && capacity.pinned_session_count + capacity.active_request_count + opening >= capacity.executor_worker_count) {
+                status = PGM_STATUS_BUSY; bridge_message = "Carrier reserved for connection startup"; goto done;
+            }
+        }
     }
     switch (op) {
     case OPEN:
@@ -556,22 +576,76 @@ static bool command(void)
         } else if (!status) progress_again(h, &payload);
         break;
     }
-    case EXECUTE:
-    case SCRIPT: {
-        unsigned opening = 0;
-        for (unsigned i = 0; i < SLOT_COUNT; i++) if (handles[i].kind == CONNECTING) opening++;
-        if (opening) {
-            pgm_connection *connection = h->pointer;
-            pgm_instance_telemetry capacity = PGM_INSTANCE_TELEMETRY_INIT;
-            pgm_connection_status_snapshot session = PGM_CONNECTION_STATUS_SNAPSHOT_INIT;
-            status = pgm_instance_get_telemetry(connection->instance, &capacity, &error);
-            if (!status) status = pgm_connection_get_status(connection, &session, &error);
-            if (status) break;
-            if (!session.carrier_retained && capacity.pinned_session_count + capacity.active_request_count + opening >= capacity.executor_worker_count) {
-                status = PGM_STATUS_BUSY; bridge_message = "Carrier reserved for connection startup"; break;
-            }
-        }
+    case PREPARE: {
+        unsigned free_slots = 0;
+        for (unsigned i = 0; i < SLOT_COUNT; i++)
+            if (!handles[i].kind && handles[i].generation != UINT32_MAX) free_slots++;
+        if (free_slots < 2) {status = PGM_STATUS_BUSY; break;}
         char *sql = string(&r);
+        uint32_t count = get(&r), types[64];
+        if (count > 64) r.failed = true;
+        for (uint32_t i = 0; i < count && !r.failed; i++) types[i] = get(&r);
+        if (!r.failed && r.offset == r.size) {
+            pgm_prepare_options options = PGM_PREPARE_OPTIONS_INIT;
+            pgm_statement *statement = NULL;
+            pgm_request *request = NULL;
+            options.parameter_type_oids = types; options.parameter_count = count;
+            status = postgamma_public_statement_prepare_async(h->pointer, sql, strlen(sql),
+                &options, &statement, &request, &error);
+            if (!status) {
+                publish(&payload, slot, STATEMENT, h, statement);
+                publish(&payload, reserve(), REQUEST, slot, request);
+            }
+        } else r.failed = true;
+        free(sql); break;
+    }
+    case STATEMENT_INFO: {
+        if (r.offset != r.size) {r.failed = true; break;}
+        pgm_statement_description description = PGM_STATEMENT_DESCRIPTION_INIT;
+        status = pgm_statement_describe(h->pointer, &description, &error);
+        if (status) break;
+        put(&payload, description.parameter_count);
+        for (size_t i = 0; !status && i < description.parameter_count; i++) {
+            uint32_t type = 0;
+            status = pgm_statement_parameter_type(h->pointer, i, &type, &error);
+            put(&payload, type);
+        }
+        put(&payload, description.column_count);
+        for (size_t i = 0; !status && i < description.column_count; i++) {
+            pgm_column col = PGM_COLUMN_INIT;
+            status = pgm_statement_column(h->pointer, i, &col, &error);
+            text(&payload, col.name); put(&payload, col.type_oid); put(&payload, col.format);
+            put(&payload, col.table_oid); put(&payload, col.table_column);
+            put(&payload, col.type_size); put(&payload, col.type_modifier);
+        }
+        break;
+    }
+    case STATEMENT_CLOSE: {
+        if (r.offset != r.size) {r.failed = true; break;}
+        if (children(h)) {status = PGM_STATUS_BUSY; break;}
+        pgm_request *request = NULL;
+        status = postgamma_public_statement_close_async(h->pointer, &request, &error);
+        if (!status) {
+            h->closing = true;
+            put(&payload, request != NULL);
+            if (request) publish(&payload, slot, REQUEST, h, request);
+        }
+        break;
+    }
+    case STATEMENT_FREE: {
+        if (r.offset != r.size) {r.failed = true; break;}
+        pgm_statement *statement = h->pointer;
+        if (children(h) || (!statement->remote_closed && !statement->connection->failed)) {
+            status = PGM_STATUS_BUSY; break;
+        }
+        status = pgm_statement_close(statement, &error);
+        if (!status) retire(h);
+        break;
+    }
+    case EXECUTE:
+    case STATEMENT_EXECUTE:
+    case SCRIPT: {
+        char *sql = op == STATEMENT_EXECUTE ? NULL : string(&r);
         pgm_execute_options o = PGM_EXECUTE_OPTIONS_INIT;
         uint32_t format = op == SCRIPT ? 0 : get(&r), chunk_rows = get(&r);
         uint32_t count = op == SCRIPT ? 0 : get(&r);
@@ -601,7 +675,9 @@ static bool command(void)
                 script.target_chunk_rows = chunk_rows;
                 script.result_buffer_limit = o.result_buffer_limit;
                 status = pgm_execute_script_async(h->pointer, sql, strlen(sql), &script, &request, &error);
-            } else status = pgm_execute_async_ex(h->pointer, sql, strlen(sql), &o, &request, &error);
+            } else if (op == STATEMENT_EXECUTE)
+                status = pgm_statement_execute_async(h->pointer, &o, &request, &error);
+            else status = pgm_execute_async_ex(h->pointer, sql, strlen(sql), &o, &request, &error);
             if (!status) publish(&payload, slot, REQUEST, h, request);
         } else r.failed = true;
         free(sql); break;
