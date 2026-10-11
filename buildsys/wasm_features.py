@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise complete archive and extension scenarios in the browser matrix."""
+"""Exercise archive, extension and parallel SQL scenarios in the browser matrix."""
 import argparse
 from pathlib import Path
 import tempfile
@@ -47,9 +47,10 @@ def matrix(config, longjmp, scenario, extensions, engines):
         with serve(site, 'sql.html') as url:
             for engine in engines:
                 case = current / engine; case.mkdir()
+                timeout = 240 if scenario == 'parallel' else 600
                 command = [tools['node'], str(config.root / 'tests/wasm/browser/run.mjs'),
                     '--root', str(config.root), '--url', url + '?scenario=' + scenario,
-                    '--engine', engine, '--output', str(case / 'browser.json'), '--timeout-ms', '600000']
+                    '--engine', engine, '--output', str(case / 'browser.json'), '--timeout-ms', str(timeout * 1000)]
                 launcher = config.deps / 'browser-libs/launch-webkit.sh'
                 if engine == 'webkit' and launcher.is_file(): command += ['--executable', str(launcher)]
                 elif engine == 'chromium' and config.browser_override: command += ['--executable', config.browser_override]
@@ -57,7 +58,7 @@ def matrix(config, longjmp, scenario, extensions, engines):
                 try:
                     with tempfile.TemporaryDirectory(prefix='pgm-feature-') as temporary:
                         run(command + ['--profile', str(Path(temporary) / 'profile')], case / 'browser.log',
-                            dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=660)
+                            dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=timeout + 60)
                     row = read_json(case / 'browser.json')
                     if row['status'] != 'passed' or not row.get('probe', {}).get('checks'):
                         raise WasmError('Feature browser evidence is incomplete')
@@ -74,6 +75,12 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'contrib-hstore-gin', 'contrib-null-unicode', 'contrib-four-session-guc-isolation',
                             'contrib-local-guc-rollback', 'contrib-session-reuse', 'contrib-opfs-reopen', 'contrib-archive-roundtrip'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing contrib checks')
+                    if scenario == 'parallel':
+                        required = {'parallel-scan-values', 'parallel-aggregate-values', 'parallel-hash-join-values',
+                            'parallel-gather-merge-values', 'parallel-guc-isolation', 'parallel-snapshot',
+                            'parallel-cancel', 'parallel-peer-progress', 'parallel-worker-budget-fallback', 'parallel-timeout', 'parallel-worker-error',
+                            'parallel-reuse', 'parallel-ephemeral', 'parallel-opfs', 'parallel-opfs-reopen', 'parallel-resource-release'}
+                        if not required <= set(row['probe']['checks']): raise WasmError('Missing parallel SQL checks')
                     for module in row['probe']['metrics']:
                         if module.get('resources') != dict(locks=0, shmem=0, dsm=0, pipes=0) or module.get('runningWorkers') != 0:
                             raise WasmError('Feature module did not release native resources')
@@ -105,7 +112,7 @@ def main():
     parser.add_argument('--mode', default='debug', choices=('debug', 'release'))
     parser.add_argument('--node', default=''); parser.add_argument('--browser-executable', default='')
     parser.add_argument('--longjmp', default='emscripten'); parser.add_argument('--jobs', type=int, default=2)
-    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib'))
+    parser.add_argument('--scenario', default='archive', choices=('archive', 'contrib', 'parallel'))
     parser.add_argument('--extensions', default='standard')
     parser.add_argument('--engines', default='chromium,firefox,webkit')
     args = parser.parse_args()

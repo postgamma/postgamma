@@ -81,6 +81,19 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+Parallel queries are opt-in on each connection:
+
+```ts
+await connection.exec('SET max_parallel_workers = 1; SET max_parallel_workers_per_gather = 1');
+```
+
+The supported budget is one parallel worker shared by the four sessions, in
+addition to query leaders. Keep `parallel_leader_participation = on` (the
+PostgreSQL default). The optimizer selects suitable parallel plans; an occupied
+worker causes serial fallback. `EXPLAIN ANALYZE` reports `Workers Launched`.
+New connections start with parallel workers disabled. The worker budget is
+also used by parallel index maintenance; larger worker counts are unvalidated.
+
 If connection startup exceeds 90 seconds, the API discards the entire instance
 and rejects callers after its cleanup attempt. Its existing connections become
 unusable. Open a replacement instance before issuing further work; cleanup

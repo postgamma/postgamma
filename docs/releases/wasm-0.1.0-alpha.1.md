@@ -9,6 +9,9 @@ package; the native Python and C SDK have separate acceptance requirements.
 
 - PostgreSQL 19 SQL and transactions in browser Workers, with four independent
   connections sharing one database;
+- opt-in parallel scans, partial aggregation, parallel hash joins and Gather
+  Merge, with one parallel worker shared across the four sessions; see the
+  [parallel query configuration](../getting-started/browser.md#parallel-queries);
 - parameterized queries, bounded result iteration, COPY streams, cancellation,
   SQLSTATE and structured errors;
 - ephemeral databases and OPFS persistence, WAL storage barriers, reopen and

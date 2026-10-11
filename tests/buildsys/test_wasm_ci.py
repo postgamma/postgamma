@@ -36,6 +36,7 @@ class WasmCITests(unittest.TestCase):
                      'wasm/pglite/run/firefox-opfs/browser.json',
                      'wasm/archive/run/chromium/browser.json',
                      'wasm/contrib/run/webkit/browser.json',
+                     'wasm/parallel/run/firefox/browser.json',
                      'wasm/soak/run/chromium/browser.events.jsonl',
                      'wasm/soak/run/chromium/browser.resources.jsonl',
                      'wasm/upstream/run/report.json',
@@ -61,6 +62,7 @@ class WasmCITests(unittest.TestCase):
     def test_release_and_weekly_require_lifecycle_before_package(self):
         names = [name for name, _ in stages('weekly')]
         self.assertLess(names.index('vector'), names.index('pglite'))
+        self.assertLess(names.index('parallel'), names.index('package'))
         self.assertLess(names.index('pglite'), names.index('storage'))
         self.assertLess(names.index('storage'), names.index('lifecycle'))
         self.assertLess(names.index('lifecycle'), names.index('package'))
@@ -74,7 +76,7 @@ class WasmCITests(unittest.TestCase):
             config = SimpleNamespace(root=root, build=root/'build', deps=root/'.deps',
                 profile_path=root/'profile.json', target='wasm32-emscripten-pthreads',
                 mode='release', jobs=1, node_override='', browser_override='', external_sdk=False)
-            for failed in ('generation', 'pglite', 'lifecycle', 'package'):
+            for failed in ('generation', 'pglite', 'parallel', 'lifecycle', 'package'):
                 def execute(command, log, *args, **kwargs):
                     if 'wasm-pglite-check' in command:
                         self.assertIn('WASM_PGLITE_ENGINES=chromium,firefox,webkit', command)
@@ -90,7 +92,7 @@ class WasmCITests(unittest.TestCase):
                 self.assertEqual(report['status'], 'failed')
                 self.assertEqual(rows[failed]['status'], 'failed')
                 self.assertEqual(len(rows), len(stages('weekly')))
-                if failed in ('pglite', 'lifecycle'):
+                if failed in ('pglite', 'parallel', 'lifecycle'):
                     self.assertEqual(rows['package']['status'], 'passed')
                     self.assertEqual(rows['matrix']['status'], 'passed')
                     self.assertEqual(report['not_run'], [])
@@ -99,6 +101,7 @@ class WasmCITests(unittest.TestCase):
                     self.assertIn('matrix', report['not_run'])
                     if failed == 'generation':
                         self.assertEqual(rows['pglite']['status'], 'not-run')
+                        self.assertEqual(rows['parallel']['status'], 'not-run')
                         self.assertEqual(rows['oracle-install']['status'], 'passed')
 
     def test_platform_changes_select_probes_and_full_suite_always_runs_them(self):

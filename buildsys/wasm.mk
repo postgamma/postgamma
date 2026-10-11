@@ -138,13 +138,16 @@ WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
 
-.PHONY: wasm-archive-check wasm-contrib-check
+.PHONY: wasm-archive-check wasm-contrib-check wasm-parallel-check
 WASM_FEATURE_ENGINES ?= chromium,firefox,webkit
 wasm-archive-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario archive --engines "$(WASM_FEATURE_ENGINES)"
 
 wasm-contrib-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario contrib --engines "$(WASM_FEATURE_ENGINES)"
+
+wasm-parallel-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_features.py" $(POSTGAMMA_WASM_ARGS) --scenario parallel --engines "$(WASM_FEATURE_ENGINES)"
 
 .PHONY: wasm-soak-test wasm-soak-check wasm-soak-smoke
 WASM_SOAK_SECONDS ?= 7200

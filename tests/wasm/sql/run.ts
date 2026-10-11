@@ -12,6 +12,7 @@ import {capacity} from './capacity.js';
 import {scripts} from './scripts.js';
 import {notifications} from './notifications.js';
 import {contrib} from './contrib.js';
+import {parallel} from './parallel.js';
 import {soak} from './soak.js';
 import {bindings} from './bindings.js';
 import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
@@ -69,6 +70,7 @@ try {
   if (scenario === 'storage') await storage(checks, metrics);
   else if (scenario === 'archive') await archive(checks, metrics);
   else if (scenario === 'contrib') await contrib(checks, metrics);
+  else if (scenario === 'parallel') await parallel(checks, metrics);
   else if (scenario === 'soak') await soak(checks, metrics);
   else if (scenario === 'durability') await durability(checks, metrics);
   else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
