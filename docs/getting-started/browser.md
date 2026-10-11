@@ -23,8 +23,12 @@ and displayed results; use the SDK for larger workloads and persistent storage.
 For a local checkout, `make docs-serve DOCS_WASM_PACKAGE=/path/to/package.tgz`
 bundles a source-built production package. Later `make docs-serve` invocations
 reuse it. The preview server supplies isolation headers. When it runs remotely,
-forward its port with SSH and open localhost, or use an HTTPS host. Merely
-opening an HTTP server port is insufficient for this browser feature.
+run `make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000` and open
+`https://SERVER_IP:8000/`. Non-loopback binds automatically enable HTTPS and
+generate a reusable self-signed development certificate; confirm the browser's
+certificate prompt on first access. To supply a certificate already trusted by
+your browser, set `DOCS_TLS_CERT=/path/to/fullchain.pem` and
+`DOCS_TLS_KEY=/path/to/key.pem`. The default loopback address uses HTTP.
 
 ## Build and install
 

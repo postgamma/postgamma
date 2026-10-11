@@ -502,9 +502,23 @@ interfaces and open the selected port in the host firewall:
 make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000
 ```
 
-Then visit `http://SERVER_IP:8000/`. The development server is for trusted
-networks only; publish `build/docs/site/` behind a normal static web server for
-public access.
+Then visit **`https://SERVER_IP:8000/`**. `DOCS_HTTPS=auto` is the default:
+loopback uses HTTP, and other bind addresses use HTTPS. OpenSSL generates a
+reusable development certificate under `build/docs/tls/`; confirm the browser's
+self-signed certificate prompt on first access. The development server supplies
+the isolation headers needed by the live Wasm demo and retains live reload.
+
+Use `DOCS_TLS_HOSTS=your.hostname,SERVER_IP` to add certificate names when the
+public address differs from a local interface. To use an existing certificate:
+
+```bash
+make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000 \
+  DOCS_TLS_CERT=/path/to/fullchain.pem DOCS_TLS_KEY=/path/to/key.pem
+```
+
+`DOCS_HTTPS=1` forces HTTPS on loopback too. `DOCS_HTTPS=0` explicitly selects
+HTTP, which only supports the live database on localhost. This is a development
+server; deploy `build/docs/site/` to a static HTTPS host for a published website.
 
 The homepage includes an editable browser SQL demo. Bundle a production browser
 package once, then subsequent documentation builds reuse the verified assets:
@@ -519,30 +533,8 @@ documentation still builds and the demo explains why it is unavailable. Binary
 assets stay under `build/docs/browser/` and are included in the generated site.
 
 For the live database, visit **localhost or HTTPS**. A remote HTTP IP address
-can preview the layout but cannot run the threaded Wasm kernel. `docs-serve`
-adds the required isolation headers. When accessing a remote development host,
-forward the port with `ssh -L 8000:127.0.0.1:8000 USER@HOST`, then visit
-`http://localhost:8000/` in your own browser.
-
-For direct public HTTPS access, serve the built static site and use a
-[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
-After installing `cloudflared`, run these commands in separate terminals:
-
-```bash
-make docs
-pg_docs_preview=$(mktemp -d build/docs/https-preview.XXXXXX)
-cp -a build/docs/site/. "$pg_docs_preview/"
-python3 -m http.server 18765 --bind 127.0.0.1 --directory "$pg_docs_preview"
-```
-
-```bash
-cloudflared tunnel --url http://127.0.0.1:18765
-```
-
-Open the printed `https://…trycloudflare.com` URL on any device. This exercises
-the static hosting path used by GitHub Pages. The copy keeps subsequent builds
-from interrupting the preview. Keep both processes running;
-the temporary hostname changes when the tunnel is recreated.
+can preview the layout but cannot run the threaded Wasm kernel. Use the direct
+HTTPS preview above when `make docs-serve` runs on an SSH host.
 
 On GitHub Pages, clicking Start installs a site-scoped service worker and reloads
 the homepage once to enable cross-origin isolation; the SQL edit survives that
