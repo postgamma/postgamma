@@ -8,23 +8,31 @@ import assert from 'node:assert/strict';
 const {values} = parseArgs({options: {
   root: {type: 'string'}, url: {type: 'string'}, output: {type: 'string'},
   engine: {type: 'string', default: 'chromium'}, executable: {type: 'string'},
-  'static-host': {type: 'boolean'},
+  'static-host': {type: 'boolean'}, 'timeout-ms': {type: 'string', default: '45000'},
 }});
+const timeoutMs = Number(values['timeout-ms']);
+assert(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'timeout-ms must be a positive integer');
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
 const playwright = require('playwright');
-const report = {status: 'failed', engine: values.engine, staticHost: !!values['static-host'], cases: [], errors: []};
+const report = {status: 'failed', url: values.url, timeoutMs, engine: values.engine, staticHost: !!values['static-host'], cases: [], errors: []};
 mkdirSync(dirname(values.output), {recursive: true});
-let browser;
+let browser, page;
+const pendingRequests = new Set();
 try {
   browser = await playwright[values.engine].launch({headless: true, timeout: 20000,
     ...(values.executable ? {executablePath: values.executable} : values.engine === 'chromium' ? {channel: 'chromium'} : {})});
   report.browserVersion = browser.version();
   const context = await browser.newContext({viewport: {width: 1440, height: 1100}});
-  const page = await context.newPage();
-  page.setDefaultTimeout(45000);
+  page = await context.newPage();
+  page.setDefaultTimeout(timeoutMs);
   page.on('pageerror', error => report.errors.push(String(error)));
-  // Keep the smoke independent of external fonts / GitHub API availability.
-  await context.route('https://**/*', route => route.abort());
+  page.on('request', request => pendingRequests.add(request));
+  page.on('requestfinished', request => pendingRequests.delete(request));
+  page.on('requestfailed', request => pendingRequests.delete(request));
+  // Local smoke tests exclude external fonts / GitHub API. A public HTTPS
+  // check uses the real network without intercepting the site's Worker fetches.
+  if (new URL(values.url).protocol === 'http:')
+    await context.route('https://**/*', route => route.abort());
   const assets = [];
   let navigations = 0;
   page.on('request', request => {if (/postgamma\.(wasm|data)/.test(request.url())) assets.push(request.url());});
@@ -56,6 +64,7 @@ try {
   await page.locator('[data-pg-live-sql]').fill("SELECT 'edited before start' AS proof;");
   await run.click(); await completed();
   assert.match(await output.textContent(), /edited before start/);
+  assert.equal(await page.evaluate(() => isSecureContext), true);
   assert.equal(await page.evaluate(() => crossOriginIsolated), true);
   assert.equal(navigations, values['static-host'] ? 2 : 1);
   report.cases.push(values['static-host'] ? 'static-host-one-reload-preserves-sql' : 'native-headers-no-reload');
@@ -150,6 +159,20 @@ try {
   report.cases.push('documentation-search-after-demo');
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
-} catch (error) {report.error = error.stack; process.exitCode = 1;}
+} catch (error) {
+  report.error = error.stack; process.exitCode = 1;
+  report.pendingRequests = [...pendingRequests].map(request => request.url());
+  if (page && !page.isClosed()) {
+    try {
+      report.ui = await page.evaluate(() => ({
+        status: document.querySelector('[data-pg-live-status]')?.textContent,
+        detail: document.querySelector('[data-pg-live-detail]')?.textContent,
+        output: document.querySelector('[data-pg-live-results]')?.textContent,
+        secure: isSecureContext, isolated: crossOriginIsolated,
+      }));
+      await page.screenshot({path: values.output.replace(/\.json$/, '-failure.png')});
+    } catch (_) { /* Preserve the original failure if the page has already gone. */ }
+  }
+}
 finally {await browser?.close(); writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');}
 console.log(JSON.stringify(report));

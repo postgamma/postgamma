@@ -524,6 +524,26 @@ adds the required isolation headers. When accessing a remote development host,
 forward the port with `ssh -L 8000:127.0.0.1:8000 USER@HOST`, then visit
 `http://localhost:8000/` in your own browser.
 
+For direct public HTTPS access, serve the built static site and use a
+[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+After installing `cloudflared`, run these commands in separate terminals:
+
+```bash
+make docs
+pg_docs_preview=$(mktemp -d build/docs/https-preview.XXXXXX)
+cp -a build/docs/site/. "$pg_docs_preview/"
+python3 -m http.server 18765 --bind 127.0.0.1 --directory "$pg_docs_preview"
+```
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:18765
+```
+
+Open the printed `https://…trycloudflare.com` URL on any device. This exercises
+the static hosting path used by GitHub Pages. The copy keeps subsequent builds
+from interrupting the preview. Keep both processes running;
+the temporary hostname changes when the tunnel is recreated.
+
 On GitHub Pages, clicking Start installs a site-scoped service worker and reloads
 the homepage once to enable cross-origin isolation; the SQL edit survives that
 reload. The worker only adds headers to the homepage and bundled assets, never
@@ -533,7 +553,7 @@ uses a disposable memory database, caps displayed results, and never opens OPFS.
 
 Run the real homepage checks with the pinned browser tools installed. Minimal
 Linux images also need `fontconfig`, `fonts-dejavu-core` and `fonts-liberation`
-for browser rendering:
+for browser rendering, and `glib-networking` for WebKit HTTPS support:
 
 ```bash
 make docs-live-check
