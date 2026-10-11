@@ -557,6 +557,49 @@ export class Connection {
     try {scriptOptions(options);} catch (error) {return Promise.reject(error);}
     return this.collect(sql, options, true);
   }
+  /** Stream a File/Blob or fetch response body into PostgreSQL COPY FROM STDIN. */
+  copyFrom(sql: string, source: Blob | ReadableStream<Uint8Array>, options: ControlOptions = {}): Promise<Result[]> {
+    return this.enqueue(utf8Length(sql) + 64, async signal => {
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      const request = await this.executeOwned(sql, {signal});
+      try {
+        const copy = (await request.next())?.copy;
+        if (!copy || copy.direction !== 'in') throw new Error('copyFrom requires COPY FROM STDIN');
+        reader = (source instanceof Blob ? source.stream() : source).getReader();
+        for (;;) {
+          const part = await abortable(reader.read(), signal); signal.throwIfAborted();
+          if (part.done) break;
+          if (!(part.value instanceof Uint8Array)) throw new TypeError('COPY input must contain Uint8Array chunks');
+          await copy.write(part.value);
+        }
+        await copy.finish(); await copy.close(); return await collectRequest(request);
+      } catch (error) {
+        // A user-defined stream cancellation callback may never settle.
+        void reader?.cancel(error).catch(() => {}); signal.throwIfAborted(); throw error;
+      } finally {reader?.releaseLock(); await request.close();}
+    }, options);
+  }
+  /** Stream COPY TO STDOUT into a writable destination with backpressure. */
+  copyTo(sql: string, destination: WritableStream<Uint8Array>, options: ControlOptions = {}): Promise<Result[]> {
+    return this.enqueue(utf8Length(sql) + 64, async signal => {
+      let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+      const request = await this.executeOwned(sql, {signal});
+      try {
+        const copy = (await request.next())?.copy;
+        if (!copy || copy.direction !== 'out') throw new Error('copyTo requires COPY TO STDOUT');
+        writer = destination.getWriter();
+        for (;;) {
+          const bytes = await copy.read(); signal.throwIfAborted(); if (bytes === null) break;
+          await abortable(writer.write(bytes), signal);
+        }
+        await copy.close();
+        const results = await collectRequest(request);
+        await abortable(writer.close(), signal); return results;
+      } catch (error) {
+        void writer?.abort(error).catch(() => {}); signal.throwIfAborted(); throw error;
+      } finally {writer?.releaseLock(); await request.close();}
+    }, options);
+  }
   transaction<T>(action: (transaction: Transaction) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
     const isolation = options.isolation ?? 'read committed';
     if (typeof action !== 'function' || !['read committed', 'repeatable read', 'serializable'].includes(isolation) ||

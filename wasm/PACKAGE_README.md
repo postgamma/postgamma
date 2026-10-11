@@ -153,6 +153,28 @@ The callback handle expires on completion. Cancellation cannot stop arbitrary
 application JavaScript, but it retires that handle and rolls back the database
 work. `readOnly` and the three PostgreSQL isolation levels are supported.
 
+`copyFrom(sql, source, options)` streams a File, Blob or ReadableStream<Uint8Array>
+into `COPY ... FROM STDIN`. `copyTo(sql, destination, options)` streams
+`COPY ... TO STDOUT` into a WritableStream<Uint8Array>, including a file writable
+handle. They honor backpressure and share connection ordering, AbortSignal and
+deadline behavior. Each returns PostgreSQL's terminal COPY result after cleanup;
+copyTo also closes the destination on success and aborts it on failure.
+
+```ts
+await connection.copyFrom('COPY measurements FROM STDIN (FORMAT csv, HEADER)', file);
+const response = await fetch('/data/measurements.csv');
+if (!response.ok || !response.body) throw new Error('Download failed');
+await connection.copyFrom('COPY measurements FROM STDIN (FORMAT csv, HEADER)', response.body);
+await connection.copyTo('COPY measurements TO STDOUT (FORMAT csv, HEADER)', writable);
+```
+
+These helpers use PostgreSQL's COPY formats and do not infer a schema or parse
+Parquet. Use a normal fetch AbortSignal for the network request itself. Source
+and sink exceptions retire the database request before rejection. A deadline
+also interrupts a stalled application stream without waiting forever for its
+custom cancel/abort callback. Application-owned buffers remain outside database
+queue accounting.
+
 Parallel queries are opt-in on each connection:
 
 ```ts
