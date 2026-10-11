@@ -92,10 +92,47 @@ Web Locks and a synchronous file access handle. Browser site-data deletion or
 origin changes make the old database unavailable. Native PostgreSQL cluster
 directories cannot be mounted into this target.
 
+Opening an occupied OPFS database waits up to 5 seconds for the previous owner
+to release it. Set `lockTimeoutMs` to change that bound, or `lock: 'fail'` to
+reject immediately. A zero timeout also makes one immediate attempt. The bound
+applies to acquiring ownership, not the subsequent kernel startup. A waiting
+open creates only the control Worker; it allocates no Wasm memory or pthreads
+until it owns the database. Pass `signal` to cancel an opening operation; after
+`open()` resolves, the signal no longer controls that database.
+
+```typescript
+import {Database, DatabaseLockedError} from '@postgamma/wasm';
+
+try {
+  const db = await Database.open({
+    storage: {type: 'opfs', name: 'documents'},
+    lockTimeoutMs: 5000,
+    signal: new AbortController().signal,
+  });
+  await db.close();
+} catch (error) {
+  if (error instanceof DatabaseLockedError) {
+    console.log(error.databaseName, error.reason); // 'busy' or 'timeout'
+  } else throw error;
+}
+```
+
+Tabs do not share an instance or its SQL sessions. Another tab must wait for
+the current owner to close; it never steals ownership. Close the database
+before application-controlled navigation when possible. Browser shutdown and
+navigation release resources asynchronously, which is why reopening waits by
+default. History caching varies by browser: a page retained in bfcache can keep
+its owner alive. Do not assume that `pagehide` or pressing Back proves ownership
+has been released. The cross-tab gate records whether a real bfcache restore
+occurred; navigation without a cached restore is narrower evidence.
+
 Synchronous COMMIT waits for the browser storage barrier. The Chromium recovery
 suite covers interrupted Workers/browser processes and storage failures; it
 does not establish hardware power-loss durability. Handle quota and I/O errors
 and reopen a discarded instance before further work.
+`make wasm-multitab-check WASM_MODE=release` additionally checks real tabs,
+waiting/cancellation, refresh, navigation, and tab termination during WAL flush
+in Chromium, Firefox and Linux WebKit. It runs as part of `make wasm-test`.
 
 Metadata checkpoints reclaim the history of file creation, deletion and rename.
 The profile supports 16,384 live file/directory entries and keeps its two

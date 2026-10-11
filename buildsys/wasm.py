@@ -68,8 +68,8 @@ class ProbeHandler(SimpleHTTPRequestHandler):
 
 
 @contextmanager
-def serve(directory: Path, page: str = "smoke.html"):
-    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(ProbeHandler, directory=str(directory)))
+def serve(directory: Path, page: str = "smoke.html", *, handler=ProbeHandler):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(handler, directory=str(directory)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

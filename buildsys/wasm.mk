@@ -133,10 +133,13 @@ WASM_LIFECYCLE_REPETITIONS ?= 20
 wasm-lifecycle-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_lifecycle.py" $(POSTGAMMA_WASM_ARGS) --repetitions "$(WASM_LIFECYCLE_REPETITIONS)"
 
-.PHONY: wasm-storage-check
+.PHONY: wasm-storage-check wasm-multitab-check
 WASM_STORAGE_SCENARIO ?= storage-all
 wasm-storage-check:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm_sql.py" check $(POSTGAMMA_WASM_ARGS) --scenario "$(WASM_STORAGE_SCENARIO)" --extensions "$(WASM_EXTENSIONS)"
+
+wasm-multitab-check:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm_multitab.py" $(POSTGAMMA_WASM_ARGS) --engines "$(WASM_FEATURE_ENGINES)"
 
 .PHONY: wasm-archive-check wasm-contrib-check wasm-parallel-check wasm-sdk-check wasm-bundler-check
 WASM_FEATURE_ENGINES ?= chromium,firefox,webkit

@@ -46,7 +46,7 @@ asset placement and a runnable query example.
 
 The initial shared linear memory is 128 MiB and its ceiling is 512 MiB;
 JavaScript heaps, compiled code and browser memory are additional. The pthread
-pool has 14 slots. Collected query results are limited to 32 MiB including
+pool has 15 slots, plus one control Worker. Collected query results are limited to 32 MiB including
 metadata, and native materialized results to 24 MiB; use result iteration for
 larger results. Individual values are limited to 16 MiB.
 
@@ -55,11 +55,20 @@ larger results. Individual values are limited to 16 MiB.
 OPFS data belongs to the origin and database name. One live owner can open that
 database at a time. Site-data deletion removes the database; changing origins
 does not migrate it. A native PostgreSQL data directory cannot be mounted.
+Opening waits up to 5 seconds for an existing owner by default, with explicit
+immediate failure, a configurable timeout and AbortSignal cancellation.
+`DatabaseLockedError` reports the name and whether the owner was busy or the
+wait timed out. Waiting creates no Wasm shared memory or pthread pool.
 
 Successful synchronous COMMIT waits for browser storage barriers. Interruption
 tests do not establish hardware power-loss durability. The full storage-error
 and crash-recovery suite is a Chromium gate; the three-engine package matrix
 also covers persistent reopen.
+The separate cross-tab gate checks WAL-flush interruption by closing a real tab
+in all three engines, as well as ownership, cancellation, refresh and navigation.
+It records actual bfcache restores separately; a navigation pass alone does not
+establish bfcache acceptance. Its two-instance case is a bounded functional
+observation and does not extend the preview's resource acceptance scope.
 
 Storage metadata checkpoints bound namespace history. Opening an older preview
 database can upgrade its metadata, requiring up to 5 MiB of additional space;

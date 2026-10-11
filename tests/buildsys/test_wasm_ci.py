@@ -36,6 +36,7 @@ class WasmCITests(unittest.TestCase):
                      'wasm/pglite/run/firefox-opfs/browser.json',
                      'wasm/archive/run/chromium/browser.json',
                      'wasm/logical/run/webkit/browser.json',
+                     'wasm/multitab/run/webkit/browser.json',
                      'wasm/contrib/run/webkit/browser.json',
                      'wasm/parallel/run/firefox/browser.json',
                      'wasm/soak/run/chromium/browser.events.jsonl',
@@ -67,6 +68,7 @@ class WasmCITests(unittest.TestCase):
         self.assertLess(names.index('logical'), names.index('package'))
         self.assertLess(names.index('pglite'), names.index('storage'))
         self.assertLess(names.index('storage'), names.index('lifecycle'))
+        self.assertLess(names.index('multitab'), names.index('package'))
         self.assertLess(names.index('lifecycle'), names.index('package'))
         self.assertLess(names.index('lifecycle'), names.index('soak-smoke'))
         self.assertLess(names.index('soak-smoke'), names.index('package'))
@@ -78,7 +80,7 @@ class WasmCITests(unittest.TestCase):
             config = SimpleNamespace(root=root, build=root/'build', deps=root/'.deps',
                 profile_path=root/'profile.json', target='wasm32-emscripten-pthreads',
                 mode='release', jobs=1, node_override='', browser_override='', external_sdk=False)
-            for failed in ('generation', 'pglite', 'parallel', 'lifecycle', 'package'):
+            for failed in ('generation', 'pglite', 'parallel', 'multitab', 'lifecycle', 'package'):
                 def execute(command, log, *args, **kwargs):
                     if 'wasm-pglite-check' in command:
                         self.assertIn('WASM_PGLITE_ENGINES=chromium,firefox,webkit', command)
@@ -94,7 +96,7 @@ class WasmCITests(unittest.TestCase):
                 self.assertEqual(report['status'], 'failed')
                 self.assertEqual(rows[failed]['status'], 'failed')
                 self.assertEqual(len(rows), len(stages('weekly')))
-                if failed in ('pglite', 'parallel', 'lifecycle'):
+                if failed in ('pglite', 'parallel', 'multitab', 'lifecycle'):
                     self.assertEqual(rows['package']['status'], 'passed')
                     self.assertEqual(rows['matrix']['status'], 'passed')
                     self.assertEqual(report['not_run'], [])

@@ -99,6 +99,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-alpha-check WASM_MODE=release` | Run the same complete alpha qualification using already installed tools. |
 | `make wasm-lifecycle-check` | Run connection close progress/deadline and OPFS close/startup error recovery in Chromium, Firefox and Linux WebKit, plus 20 consecutive trap and 20 abort/reopen cycles per engine. Use `WASM_LIFECYCLE_REPETITIONS=N` to change the count. |
 | `make wasm-storage-check` | Run all OPFS ownership, file, durability, storage-error and crash-recovery groups in Chromium. |
+| `make wasm-multitab-check WASM_MODE=release` | Check real-tab ownership, cancellation, refresh, navigation, WAL-flush interruption recovery and two independent instances in Chromium, Firefox and Linux WebKit. Included in `wasm-test`; requires setup and matching generation. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage` | Check OPFS file identity, exclusive database ownership, in-flight close and orderly SQL reopen. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=durability` | Check synchronous WAL barriers, storage errors, missing journal handling and the OPFS resource budget. |
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=storage-errors` | Inject WAL and namespace failures, discard the failed module and verify PostgreSQL recovery. |
@@ -851,9 +852,16 @@ const reopened = await Database.open({storage: {type: 'opfs', name: 'example'}, 
 await reopened.close();
 ```
 
-Names contain 1-64 ASCII letters, digits, underscores or hyphens. A second owner
-of the same database is rejected before initialization/recovery. Ownership lasts
-through native shutdown and I/O drain. The provider uses a dedicated 2 MiB-stack
+Names contain 1-64 ASCII letters, digits, underscores or hyphens. Opening an
+occupied database waits up to 5000 ms for ownership by default. Use `lock: 'fail'`
+for immediate rejection, `lockTimeoutMs` for a different deadline (zero makes
+one immediate attempt), and `signal` to cancel opening. The timeout bounds the
+lock wait, not kernel startup. `DatabaseLockedError` carries `code:
+'DATABASE_LOCKED'`, `databaseName` and `reason: 'busy' | 'timeout'`; it retains
+`instanceof DatabaseLockedError` at the public API across the Worker boundary.
+Waiters create one control Worker and allocate no Wasm memory or pthreads before
+ownership is acquired. Ownership lasts through native shutdown and I/O drain.
+The provider uses a dedicated 2 MiB-stack
 I/O thread, at most 63 cached data access handles plus two metadata handles, and
 stable file identities behind a checksummed namespace journal. Checkpoints
 alternate between two 8 MiB slots: the new snapshot is flushed before the old
@@ -866,6 +874,24 @@ authoritative until it is retired. Older clients reject the upgraded format.
 The profile does not provide symlinks
 or external tablespaces. It requires OPFS and Web Locks and never falls back to
 an ephemeral database when persistent storage cannot be opened.
+
+The cross-tab gate uses distinct browser pages and records actual browser
+versions and lifecycle events. It checks two queued waiters with cancellation,
+cancelled kernel loading, repeated refresh, navigation/back, and page termination
+at both sides of a WAL flush. Recovered acknowledged rows must survive and the
+interrupted transaction must remain atomic; its commit outcome may be unknown.
+`bfcacheRestoreExercised: false` means history navigation did not restore a cached
+page and must not be reported as bfcache acceptance. Two simultaneous ephemeral
+instances are a bounded functional observation, not a capacity or memory-soak
+guarantee. Reports are retained under `build/wasm/multitab/`.
+
+Shared access through a main-tab proxy remains a later phase. It requires
+election coordinated with the existing ownership lock, per-client SQL sessions,
+bounded session allocation, client retirement, and epochs for stale requests.
+Failover must reject in-flight work, identify uncertain write/COMMIT outcomes,
+and reestablish LISTEN subscriptions with a notification gap. Physical export
+and clone require exclusive ownership of the source. No `sharing: 'shared'`
+option is implemented or advertised in this phase.
 
 Wasm cluster creation has a 120-second native startup budget because OPFS
 initialization creates and synchronizes more than a thousand files. Opening an

@@ -26,7 +26,7 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
         builder.modules()
         builder.product()
         builder.link(config.root / "wasm/bridge/sql.c",
-                     ("-DPOSTGAMMA_WASM_TESTING",) if action == "check" or scenario == "soak" else ())
+                     ("-DPOSTGAMMA_WASM_TESTING",) if action == "check" or scenario in ("soak", "multitab") else ())
         site = builder.output / "site"
         report["site"] = str(site)
         sources = [(str(p.relative_to(config.root)), "src/" + str(p.relative_to(config.root / "wasm/src").with_suffix(".js")))
@@ -48,15 +48,17 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
                 builder.current / "typescript.log", builder.env, config.root)
         (site / "sql.html").write_bytes((config.root / "tests/wasm/sql/sql.html").read_bytes())
         (site / "recovery.html").write_bytes((config.root / "tests/wasm/storage/recovery.html").read_bytes())
+        (site / "multitab.html").write_bytes((config.root / "tests/wasm/storage/multitab.html").read_bytes())
+        (site / "multitab-empty.html").write_text('<!doctype html><meta charset="utf-8"><title>Navigation destination</title>')
         (site / "vector-search.html").write_bytes((config.root / "examples/wasm/vector-search.html").read_bytes())
         from wasm_assets import generate as asset_manifest
         report["asset_manifest"] = asset_manifest(builder)
         report["harness_sources"].update({name: digest(config.root / name) for name in
-            ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs", "examples/wasm/vector-search.html",
+            ("tests/wasm/storage/recovery.html", "tests/wasm/storage/recovery.mjs", "tests/wasm/storage/multitab.html", "examples/wasm/vector-search.html",
              "tests/wasm/browser/diagnostics.mjs")})
         report["link_report"] = str(builder.current / "report.json")
         report["harness"] = {name: digest(site / name)
-                             for name in (*[target for _, target in sources], "sql.html", "recovery.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
+                             for name in (*[target for _, target in sources], "sql.html", "recovery.html", "multitab.html", "multitab-empty.html", "vector-search.html", "src/protocol/limits.js", "src/loader/identity.js", "postgamma.assets.json")}
         if scenario == "pglite":
             for source, target in (("index.html", "pglite.html"), ("cases.json", "pglite-tests/cases.json")):
                 origin = config.root / "tests/wasm/pglite" / source

@@ -25,6 +25,7 @@ def stages(profile, platform_checks=False):
     result += [('pglite', ['wasm-pglite-check'])]
     if profile == 'weekly':
         result += [('storage', ['wasm-storage-check'])]
+        result += [('multitab', ['wasm-multitab-check'])]
         result += [('archive', ['wasm-archive-check'])]
         result += [('logical', ['wasm-logical-check'])]
         result += [('lifecycle', ['wasm-lifecycle-check'])]
@@ -62,7 +63,7 @@ def run_suite(config, profile, longjmp, candidate=False, platform_checks=False, 
                     'oracle-install': ('oracle-build',), 'sql': ('generation', 'oracle-install'),
                     'vector': ('generation', 'oracle-install'), 'logical': ('generation', 'oracle-install'),
                     'matrix': ('package',), 'bundlers': ('package',)}
-    for name in ('runtime', 'pglite', 'storage', 'archive', 'contrib', 'parallel', 'sdk', 'lifecycle', 'soak-smoke', 'package'): dependencies[name] = ('generation',)
+    for name in ('runtime', 'pglite', 'storage', 'multitab', 'archive', 'contrib', 'parallel', 'sdk', 'lifecycle', 'soak-smoke', 'package'): dependencies[name] = ('generation',)
     for name in ('platform', 'wait', 'recovery'): dependencies[name] = ('tools',)
     try:
         for name, targets in stages(profile, platform_checks):
