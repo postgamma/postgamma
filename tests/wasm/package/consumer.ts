@@ -1,5 +1,5 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
-import {Database, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
+import {Database, Codecs, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
   type ScriptOptions, type Notification, type ArchiveOptions, type RestoreOptions} from '@postgamma/wasm';
 const options: OpenOptions = {storage: {type: 'opfs', name: 'typed-consumer'}};
 const parameter: Parameter = {typeOid: 20, value: '9223372036854775807'};
@@ -20,6 +20,9 @@ async function typedConsumer(): Promise<Result[]> {
       await tx.query('SELECT 1', {timeoutMs: 1000});
       await tx.exec('SAVEPOINT example; RELEASE example');
     }, {isolation: 'serializable', readOnly: true, signal: new AbortController().signal});
+    const codecs = new Codecs();
+    const typed = await c.query('SELECT $1::int8', {parameters: [codecs.parameter(20, 9007199254740993n)]});
+    const values: unknown[][] = codecs.decode(typed[0]).rows; void values;
     for await (const _ of await c.executeScript('SELECT 3', script)) {}
     return await c.query('SELECT $1::int8', {parameters: [parameter]});
   }

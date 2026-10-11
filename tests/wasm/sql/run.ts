@@ -17,6 +17,7 @@ import {soak} from './soak.js';
 import {bindings} from './bindings.js';
 import {statements} from './statements.js';
 import {controls} from './controls.js';
+import {types} from './types.js';
 import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
@@ -94,6 +95,7 @@ try {
   else if (scenario === 'bindings') await bindings(db, checks);
   else if (scenario === 'statements') await statements(db, checks);
   else if (scenario === 'controls') await controls(db, checks);
+  else if (scenario === 'types') await types(db, checks);
   else if (scenario === 'vector-load') await loadVector(db, checks);
   else if (scenario === 'vector-query') await vectorQueries(db, checks);
   else if (scenario === 'concurrency') await concurrency(db, checks);

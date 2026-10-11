@@ -81,6 +81,32 @@ request's async iterator for bounded result batches, `cancel()` for cancellation
 Values preserve exact int64/numeric strings,
 NULL and binary `Uint8Array` data. Errors retain SQLSTATE and diagnostic fields.
 
+`Codecs` optionally decodes those raw values and builds typed parameters:
+
+```ts
+import {Codecs} from '@postgamma/wasm';
+const codecs = new Codecs();
+const raw = await connection.query('SELECT $1::int8', {
+  parameters: [codecs.parameter(20, 9007199254740993n)],
+});
+const decoded = raw.map(result => codecs.decode(result)); // bigint value
+```
+
+Booleans, int2/int4/OID, floats and bytea become boolean, number or Uint8Array;
+int8 becomes bigint. Numeric and temporal values remain exact PostgreSQL text.
+JSON also remains text by default; `new Codecs({json: 'javascript'})` opts into
+JSON.parse and its number precision limits. `parameter()` serializes JSON values
+with JSON.stringify; use a raw `Parameter` to submit already serialized JSON.
+Date parameters are accepted only for timestamptz and use UTC ISO text.
+
+Text arrays decode to `{values, lowerBounds, dimensions}`, retaining SQL NULL,
+quoted strings and multidimensional bounds. `parameter()` accepts ordinary
+rectangular arrays or that object. Common binary scalar types are decoded;
+unsupported binary representations, including arrays, remain Uint8Array.
+Unknown text types remain strings. Each registry can register custom codecs by
+PostgreSQL type OID with `register(oid, {decode, encode})`; registrations are local
+to that object. Raw query results and other registries remain unchanged.
+
 Use a named prepared statement to reuse parsing and planning:
 
 ```ts

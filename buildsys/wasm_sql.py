@@ -110,6 +110,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             report["harness_sources"][queue_test] = digest(config.root / queue_test)
             run([builder.tools["node"], str(config.root / queue_test), str(site / "src/api/queue.js")],
                 builder.current / "queue.log", builder.env, config.root)
+            codecs_test = "tests/wasm/sql/codecs.mjs"
+            report["harness_sources"][codecs_test] = digest(config.root / codecs_test)
+            run([builder.tools["node"], str(config.root / codecs_test), str(site / "src/codecs/types.js")],
+                builder.current / "codecs.log", builder.env, config.root)
             readiness_test = "tests/wasm/sql/readiness.mjs"
             report["harness_sources"][readiness_test] = digest(config.root / readiness_test)
             run([builder.tools["node"], str(config.root / readiness_test), str(site / "src/protocol/readiness.js")],
