@@ -7,6 +7,25 @@ a source-built preview; an npm registry release has not been published.
 See the [browser preview release notes](../releases/wasm-0.1.0-alpha.1.md)
 for the accepted scope, data compatibility and release gates.
 
+## Try it on the homepage
+
+The [homepage](../index.md#live-demo) has an editable SQL demo with aggregation,
+JSONB, transaction rollback and pgvector examples. It downloads and starts the
+kernel only after you click **Start & run**. Data stays in a temporary memory
+database; **Reset** recreates the sample data and **Close** releases the instance.
+The displayed query time excludes the initial download and database setup.
+
+Use HTTPS or localhost to run the demo. GitHub Pages needs one automatic reload
+on first start to enable the browser's isolation requirements; your edited SQL
+is preserved. The preview does not save data to OPFS. It limits execution time
+and displayed results; use the SDK for larger workloads and persistent storage.
+
+For a local checkout, `make docs-serve DOCS_WASM_PACKAGE=/path/to/package.tgz`
+bundles a source-built production package. Later `make docs-serve` invocations
+reuse it. The preview server supplies isolation headers. When it runs remotely,
+forward its port with SSH and open localhost, or use an HTTPS host. Merely
+opening an HTTP server port is insufficient for this browser feature.
+
 ## Build and install
 
 From a source checkout with the native build prerequisites installed:

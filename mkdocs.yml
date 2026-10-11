@@ -89,9 +89,11 @@ markdown_extensions:
 
 extra_css:
   - assets/stylesheets/extra.css
+  - assets/stylesheets/live.css
 
 extra_javascript:
   - assets/javascripts/home.js
+  - assets/javascripts/live.js
 
 nav:
   - Home: index.md

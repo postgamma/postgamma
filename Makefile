@@ -21,6 +21,7 @@ OBJCOPY ?= objcopy
 MKDOCS ?= $(if $(wildcard $(BUILD_DIR)/docs-tools/bin/mkdocs),$(BUILD_DIR)/docs-tools/bin/mkdocs,mkdocs)
 DOXYGEN ?= doxygen
 DOCS_DEV_ADDR ?= 127.0.0.1:8000
+DOCS_WASM_PACKAGE ?=
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 PG_REF ?=
 PG_BRANCH ?= master
@@ -1331,21 +1332,32 @@ docs-api:
 		--root "$(ROOT)" \
 		--output "$(DOCS_GENERATED_DIR)/python-api.md"
 
-docs-check: doctor-docs docs-api portability-check publication-check
-	@$(PYTHON) -m unittest tests.buildsys.test_documentation
+.PHONY: docs-wasm
+docs-wasm:
+	@$(PYTHON) buildsys/docs_wasm.py --build-dir "$(BUILD_DIR)" --package "$(DOCS_WASM_PACKAGE)"
+
+.PHONY: docs-live-check
+DOCS_LIVE_ENGINES ?= chromium,firefox,webkit
+docs-live-check: docs
+	@$(PYTHON) buildsys/docs_live_check.py --root "$(ROOT)" --build-dir "$(BUILD_DIR)" --engines "$(DOCS_LIVE_ENGINES)"
+
+docs-check: doctor-docs docs-api docs-wasm portability-check publication-check
+	@$(PYTHON) -m unittest tests.buildsys.test_documentation tests.buildsys.test_docs_wasm
 	@$(PYTHON) buildsys/check_documentation.py \
 		--root "$(ROOT)" --output "$(DOCS_EVIDENCE)"
 	@NO_MKDOCS_2_WARNING=1 \
 		POSTGAMMA_DOCS_GENERATED_DIR="$(DOCS_GENERATED_DIR)" \
+		POSTGAMMA_DOCS_WASM_DIR="$(DOCS_BUILD_DIR)/browser" \
 		$(MKDOCS) build --strict --config-file "$(ROOT)/mkdocs.yml" \
 		--site-dir "$(DOCS_SITE_DIR)"
 
 docs: docs-check
 
-docs-serve: docs-api
+docs-serve: docs-api docs-wasm
 	@$(PYTHON) buildsys/check_documentation.py --root "$(ROOT)"
 	@NO_MKDOCS_2_WARNING=1 \
 		POSTGAMMA_DOCS_GENERATED_DIR="$(DOCS_GENERATED_DIR)" \
+		POSTGAMMA_DOCS_WASM_DIR="$(DOCS_BUILD_DIR)/browser" \
 		$(MKDOCS) serve --strict --config-file "$(ROOT)/mkdocs.yml" \
 		--dev-addr "$(DOCS_DEV_ADDR)"
 

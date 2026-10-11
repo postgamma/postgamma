@@ -506,6 +506,45 @@ Then visit `http://SERVER_IP:8000/`. The development server is for trusted
 networks only; publish `build/docs/site/` behind a normal static web server for
 public access.
 
+The homepage includes an editable browser SQL demo. Bundle a production browser
+package once, then subsequent documentation builds reuse the verified assets:
+
+```bash
+make docs-serve DOCS_WASM_PACKAGE=/path/to/postgamma-wasm-0.1.0-alpha.1.tgz
+```
+
+After `make wasm-package WASM_MODE=release`, use `DOCS_WASM_PACKAGE=auto` to
+select the latest successful local release package. Without a package, the
+documentation still builds and the demo explains why it is unavailable. Binary
+assets stay under `build/docs/browser/` and are included in the generated site.
+
+For the live database, visit **localhost or HTTPS**. A remote HTTP IP address
+can preview the layout but cannot run the threaded Wasm kernel. `docs-serve`
+adds the required isolation headers. When accessing a remote development host,
+forward the port with `ssh -L 8000:127.0.0.1:8000 USER@HOST`, then visit
+`http://localhost:8000/` in your own browser.
+
+On GitHub Pages, clicking Start installs a site-scoped service worker and reloads
+the homepage once to enable cross-origin isolation; the SQL edit survives that
+reload. The worker only adds headers to the homepage and bundled assets, never
+caches SQL or database data, and is not registered before a visitor starts the
+demo. Hosts with native isolation headers need no worker or reload. The demo
+uses a disposable memory database, caps displayed results, and never opens OPFS.
+
+Run the real homepage checks with the pinned browser tools installed. Minimal
+Linux images also need `fontconfig`, `fonts-dejavu-core` and `fonts-liberation`
+for browser rendering:
+
+```bash
+make docs-live-check
+```
+
+This checks Chromium, Firefox and Linux WebKit on both a host with isolation
+headers and a headerless host under a project URL prefix. Reports and
+screenshots are written to `build/docs/checks/`, with the latest result at
+`build/docs/live-check.json`. The Pages workflow builds its own matching package
+and requires this gate before uploading the site.
+
 ## Supported release target
 
 The initial binary contract is:

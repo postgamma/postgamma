@@ -13,6 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,18 +22,36 @@ jobs:
       - name: Install documentation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y doxygen python3-venv
+          sudo apt-get install -y doxygen python3-venv fontconfig fonts-dejavu-core fonts-liberation
           python3 -m venv build/docs-tools
           build/docs-tools/bin/python -m pip install \
             --requirement docs/requirements.txt
+
+      - uses: ./.github/actions/wasm-setup
+        with:
+          matrix: 'true'
+
+      - name: Build the browser demo package from this revision
+        run: make wasm-package WASM_MODE=release JOBS=2
 
       - name: Build the fail-closed static site
         env:
           POSTGAMMA_RELEASES_URL: ${{ github.server_url }}/${{ github.repository }}/releases
         run: |
           make docs-check \
+            DOCS_WASM_PACKAGE=auto \
             MKDOCS="$PWD/build/docs-tools/bin/mkdocs" \
             DOXYGEN=doxygen
+
+      - name: Test the homepage on isolated and headerless hosts
+        run: python3 buildsys/docs_live_check.py --root .
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homepage-browser-checks
+          path: build/docs/checks/
+          if-no-files-found: ignore
 
       - uses: actions/upload-pages-artifact@v4
         with:

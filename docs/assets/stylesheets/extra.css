@@ -388,7 +388,7 @@ body.pg-home-page .md-main {
 .md-typeset .pg-v3-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(22rem, 34vw, 24rem);
+  grid-template-columns: minmax(0, 1fr) clamp(24rem, 39vw, 29rem);
   gap: clamp(2.25rem, 4vw, 3.5rem);
   align-items: center;
   justify-content: space-between;

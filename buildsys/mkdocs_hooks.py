@@ -18,6 +18,37 @@ RELEASES_URL_MARKER = "{{ POSTGAMMA_RELEASES_URL }}"
 RELEASE_STATE_MARKER = "{{ POSTGAMMA_RELEASE_STATE }}"
 
 
+def on_files(files: Any, config: Any) -> Any:
+    """Copy a verified browser package without checking generated binaries in."""
+    from mkdocs.structure.files import File
+
+    root = Path(config.config_file_path).resolve().parent
+    directory = Path(os.environ.get("POSTGAMMA_DOCS_WASM_DIR", root / "build/docs/browser"))
+    if not (directory / "assets/wasm/demo.json").is_file():
+        raise RuntimeError("browser demo metadata is missing; run make docs-wasm")
+    for path in sorted(directory.rglob("*")):
+        if path.is_file() and path.suffix not in {".md", ".ts"}:
+            files.append(File(path.relative_to(directory).as_posix(), str(directory), config.site_dir, False))
+    return files
+
+
+def on_serve(server: Any, **kwargs: Any) -> Any:
+    """Local preview uses native isolation headers, retaining MkDocs live reload."""
+    app = server.get_app()
+
+    def isolated(environ: Any, start_response: Any) -> Any:
+        def respond(status: str, headers: list, exc_info: Any = None) -> Any:
+            headers = [(k, v) for k, v in headers if k.lower() not in {
+                "cross-origin-opener-policy", "cross-origin-embedder-policy"}]
+            headers.extend([("Cross-Origin-Opener-Policy", "same-origin"),
+                            ("Cross-Origin-Embedder-Policy", "require-corp")])
+            return start_response(status, headers, exc_info)
+        return app(environ, respond)
+
+    server.set_app(isolated)
+    return server
+
+
 def on_page_markdown(
     markdown: str, page: Any, config: Any, files: Any
 ) -> str:

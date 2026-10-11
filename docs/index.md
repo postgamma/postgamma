@@ -30,31 +30,63 @@
 
 <header class="pg-v3-hero" aria-labelledby="pg-v3-heading">
   <div class="pg-v3-hero-copy">
-    <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · embedded runtime</p>
+    <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · native + browser</p>
     <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong>inside your application.</strong></div>
-    <p class="pg-v3-lead">Run PostgreSQL in your application process—with transactions, WAL, crash recovery, and bundled extensions, but no database server to install or supervise.</p>
+    <p class="pg-v3-lead">Bring PostgreSQL into your application. Use the native Python and C SDKs, or run real SQL right here in your browser with our WebAssembly preview.</p>
     <div class="pg-v3-actions">
-      <a class="pg-action pg-action--primary" href="getting-started/">Build your first app <span aria-hidden="true">↗</span></a>
-      <a class="pg-action pg-action--secondary" href="concepts/architecture/">Explore the architecture</a>
+      <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
+      <a class="pg-action pg-action--secondary" href="getting-started/">Build your first app</a>
     </div>
     <ul class="pg-v3-facts" aria-label="Supported platform and license">
-      <li><span aria-hidden="true"></span> Linux x86-64</li>
-      <li><span aria-hidden="true"></span> glibc 2.17+</li>
+      <li><span aria-hidden="true"></span> Python · C · WebAssembly</li>
+      <li><span aria-hidden="true"></span> Browser preview</li>
       <li><span aria-hidden="true"></span> PostGamma · Apache-2.0</li>
     </ul>
   </div>
 
-  <div class="pg-v3-demo" aria-label="PostGamma API quickstart" data-pg-code-switcher>
+  <div id="live-demo" class="pg-v3-demo" aria-label="PostGamma live demo and SDK quickstarts" data-pg-code-switcher>
     <div class="pg-demo-head">
       <div class="pg-demo-dots" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="pg-code-tabs" role="tablist" aria-label="Choose an SDK quickstart" data-pg-code-tabs>
-        <button id="pg-tab-python" type="button" role="tab" aria-selected="true" aria-controls="pg-panel-python" tabindex="0" data-pg-code-tab>Python</button>
+        <button id="pg-tab-browser" type="button" role="tab" aria-selected="true" aria-controls="pg-panel-browser" tabindex="0" data-pg-code-tab>Browser Live</button>
+        <button id="pg-tab-python" type="button" role="tab" aria-selected="false" aria-controls="pg-panel-python" tabindex="-1" data-pg-code-tab>Python</button>
         <button id="pg-tab-static" type="button" role="tab" aria-selected="false" aria-controls="pg-panel-static" tabindex="-1" data-pg-code-tab>Static C</button>
       </div>
-      <span class="pg-demo-file">quickstart</span>
+      <button type="button" class="pg-live-expand" data-pg-live-expand aria-label="Expand demo" title="Expand demo">⤢</button>
     </div>
     <div>
-      <div id="pg-panel-python" class="pg-code-panel" role="tabpanel" aria-labelledby="pg-tab-python" tabindex="0">
+      <div id="pg-panel-browser" class="pg-code-panel pg-live" role="tabpanel" aria-labelledby="pg-tab-browser" data-pg-live>
+        <div class="pg-live-toolbar">
+          <label for="pg-live-example">Explore</label>
+          <select id="pg-live-example" aria-label="SQL example" data-pg-live-example>
+            <option value="sql">SQL &amp; aggregation</option>
+            <option value="json">JSONB documents</option>
+            <option value="transaction">Transactions</option>
+            <option value="vector">Vector search</option>
+          </select>
+          <span class="pg-live-badge">Preview</span>
+        </div>
+        <label class="pg-live-sr" for="pg-live-sql">SQL editor</label>
+        <textarea id="pg-live-sql" data-pg-live-sql spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="pg-live-hint">SELECT category,
+       count(*) AS orders,
+       sum(total) AS revenue
+FROM demo_orders
+GROUP BY category
+ORDER BY revenue DESC;</textarea>
+        <div class="pg-live-actions">
+          <button type="button" class="pg-live-run" data-pg-live-run>Start &amp; run</button>
+          <button type="button" data-pg-live-cancel disabled>Cancel</button>
+          <button type="button" data-pg-live-reset disabled title="Create a fresh in-memory database">Reset</button>
+          <button type="button" data-pg-live-close disabled title="Close the database and release its resources">Close</button>
+          <span id="pg-live-hint">Ctrl / ⌘ ↵</span>
+        </div>
+        <div class="pg-live-results" data-pg-live-results tabindex="0" aria-label="Query results">
+          <div class="pg-live-empty"><span class="pg-live-prompt" aria-hidden="true">&gt;_</span><strong>Your browser. A real PostgreSQL database.</strong><p>Edit the SQL, then start the demo.<br>Sample data stays in memory for this visit.</p></div>
+        </div>
+        <div class="pg-live-footer"><span data-pg-live-status role="status" aria-live="polite" data-state="idle">Not started</span><span data-pg-live-detail>Runs locally in your browser</span></div>
+        <noscript><p>Enable JavaScript to run the browser demo. The Python and C quickstarts are available in the documentation.</p></noscript>
+      </div>
+      <div id="pg-panel-python" class="pg-code-panel" role="tabpanel" aria-labelledby="pg-tab-python" tabindex="0" hidden>
 <pre><code><span class="pg-code-keyword">import</span> postgamma
 
 <span class="pg-code-keyword">with</span> postgamma.connect(<span class="pg-code-string">"agent.pgm"</span>,
@@ -91,12 +123,8 @@
 }</code></pre>
       </div>
     </div>
-    <div class="pg-demo-foot">
-      <span><i aria-hidden="true"></i> Embedded cluster ready</span>
-      <code>no SQL socket</code>
-    </div>
     <div class="pg-runtime-line" aria-label="Your process contains the PostgreSQL engine">
-      <span>Your process</span><i aria-hidden="true"></i><strong>PostgreSQL 19</strong>
+      <span>Native or browser</span><i aria-hidden="true"></i><strong>PostgreSQL 19</strong>
     </div>
   </div>
 </header>
@@ -113,12 +141,19 @@
   <section id="sdks" class="pg-v3-section pg-v3-sdks" aria-labelledby="sdks-heading">
     <div class="pg-v3-section-head pg-v3-section-head--compact">
       <div>
-        <p class="pg-v3-kicker">Python and C</p>
+        <p class="pg-v3-kicker">Python, C and WebAssembly</p>
         <h2 id="sdks-heading">Choose the interface that fits.</h2>
       </div>
-      <p>Both SDKs bundle the same PostgreSQL kernel and version-matched resources. Neither requires an installed PostgreSQL server.</p>
+      <p>Choose a native SDK or the browser preview. Each bundles a PostgreSQL kernel and matching resources, with no PostgreSQL server to install.</p>
     </div>
-    <div class="pg-v3-sdk-grid">
+    <div class="pg-v3-sdk-grid pg-sdk-three">
+      <article class="pg-v3-sdk pg-v3-sdk--browser">
+        <div class="pg-sdk-head"><span>JS</span><div><strong>Browser SDK</strong><small>WebAssembly + Workers</small></div><em>Preview</em></div>
+        <h3>Real PostgreSQL.<br>Right in your browser.</h3>
+        <p>Run SQL, JSONB, transactions and pgvector locally. Start in memory, or explicitly enable OPFS storage. The browser package is currently built from source.</p>
+        <div class="pg-install-line"><pre><code>const db = await Database.open();</code></pre><span aria-hidden="true">&gt;</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live</a><a class="pg-inline-link" href="getting-started/browser/">Browser guide ↗</a></div>
+      </article>
       <article class="pg-v3-sdk pg-v3-sdk--python">
         <div class="pg-sdk-head"><span>PY</span><div><strong>Python SDK</strong><small>Native CPython wheel</small></div><em>3.10–3.14</em></div>
         <h3>Install once.<br>Import normally.</h3>
