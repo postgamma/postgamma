@@ -530,6 +530,8 @@ make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000 \
 
 Renewed certificate files are loaded for new connections without restarting the
 preview server. Configure automatic renewal on the host when using a public CA.
+If this checkout is already served by `postgamma-docs-preview.service`, running
+`make docs-serve` again prints its URL and reuses the running preview.
 
 `DOCS_HTTPS=1` forces HTTPS on loopback too. `DOCS_HTTPS=0` explicitly selects
 HTTP, which only supports the live database on localhost. This is a development

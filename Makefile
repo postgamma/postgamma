@@ -1357,7 +1357,15 @@ docs-check: doctor-docs docs-api docs-wasm portability-check publication-check
 
 docs: docs-check
 
-docs-serve: docs-api docs-wasm
+docs-serve:
+	@docs_probe_status=0; \
+		$(PYTHON) buildsys/docs_serve.py --root "$(ROOT)" --address "$(DOCS_DEV_ADDR)" || docs_probe_status=$$?; \
+		if [[ $$docs_probe_status == 1 ]]; then \
+			$(MAKE) --no-print-directory docs-serve-start; \
+		elif [[ $$docs_probe_status != 0 ]]; then exit $$docs_probe_status; fi
+
+.PHONY: docs-serve-start
+docs-serve-start: docs-api docs-wasm
 	@$(PYTHON) buildsys/check_documentation.py --root "$(ROOT)"
 	@NO_MKDOCS_2_WARNING=1 \
 		POSTGAMMA_DOCS_GENERATED_DIR="$(DOCS_GENERATED_DIR)" \
