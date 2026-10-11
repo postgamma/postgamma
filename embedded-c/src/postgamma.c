@@ -953,6 +953,7 @@ postgamma_public_connection_step(pgm_connection **connection, bool *done, pgm_er
 {
 	pgm_connection *created;
 	pgm_status result;
+	char		failure_detail[256];
 	int status = 0, operation_status = 0;
 	uint64_t now = postgamma_monotonic_now_ns();
 
@@ -1015,6 +1016,21 @@ postgamma_public_connection_step(pgm_connection **connection, bool *done, pgm_er
 		created->connect_error = status;
 	}
 	status = created->connect_error;
+	/* Preserve the server's startup diagnostic before retirement frees libpq.
+	 * Closing may take several steps, so the diagnostic belongs to the pending
+	 * connection until its final close, not to a single poll's stack frame. */
+	if (created->private_connection != NULL &&
+		created->connect_error_detail[0] == '\0')
+	{
+		PostgammaPrivateLibpqTelemetry telemetry;
+
+		if (postgamma_private_libpq_telemetry(
+				created->private_connection, &telemetry) == POSTGAMMA_PRIVATE_LIBPQ_OK)
+			snprintf(created->connect_error_detail,
+				sizeof(created->connect_error_detail), "%s", telemetry.last_error);
+	}
+	snprintf(failure_detail, sizeof(failure_detail), "%s",
+		created->connect_error_detail);
 	(void) postgamma_memory_endpoint_abort(created->backend_monitor,
 		created->instance->generation, POSTGAMMA_MEMORY_ABORT_SHUTDOWN);
 	/* Closing an aborted frontend reports transport failure after freeing it.
@@ -1035,9 +1051,11 @@ postgamma_public_connection_step(pgm_connection **connection, bool *done, pgm_er
 		return result;
 	*connection = NULL;
 	*done = true;
-	return return_simple_error(error,
-		status == ETIMEDOUT ? PGM_STATUS_TIMEOUT : PGM_STATUS_CONNECTION_FAILED,
-		"embedded connection startup failed");
+	result = status == ETIMEDOUT ? PGM_STATUS_TIMEOUT : PGM_STATUS_CONNECTION_FAILED;
+	return_error(error, make_error(result, NULL, NULL,
+		failure_detail[0] ? failure_detail : NULL,
+		"embedded connection startup failed"));
+	return result;
 }
 
 

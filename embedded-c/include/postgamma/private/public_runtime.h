@@ -211,6 +211,7 @@ struct pgm_connection
 	PostgammaKernelConnectRequest connect_payload;
 	uint64_t	connect_deadline_ns;
 	int			connect_error;
+	char		connect_error_detail[256];
 	bool		connect_handshake;
 };
 
