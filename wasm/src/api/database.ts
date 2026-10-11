@@ -14,6 +14,9 @@ import {buildId} from '../loader/identity.js';
 import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
 import {ownPthreads} from '../runtime/pthreads.js';
 import {ownWorkerMailbox} from '../runtime/messages.js';
+import {OperationControl, abortable} from './control.js';
+import type {ControlOptions} from './control.js';
+import {SerialQueue} from './queue.js';
 export interface ArchiveOptions {signal?: AbortSignal}
 export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
 const archiveHeader = () => new TextEncoder().encode(JSON.stringify({format: 'postgamma.archive', version: 1, buildId}));
@@ -33,9 +36,20 @@ export interface OpenOptions {
 }
 export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
-export interface ExecuteOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
-export interface ScriptOptions {chunkRows?: number}
-export interface PrepareOptions {parameterTypes?: number[]}
+export interface ExecuteOptions extends ControlOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
+export interface ScriptOptions extends ControlOptions {chunkRows?: number}
+export interface PrepareOptions extends ControlOptions {parameterTypes?: number[]}
+export interface TransactionOptions extends ControlOptions {
+  isolation?: 'read committed' | 'repeatable read' | 'serializable';
+  readOnly?: boolean;
+}
+export class ConnectionBusyError extends Error {
+  constructor() {super('Connection is owned by another operation; use the transaction callback handle'); this.name = 'ConnectionBusyError';}
+}
+function scriptOptions(options: ScriptOptions) {
+  if (Object.keys(options).some(key => !['chunkRows', 'signal', 'timeoutMs'].includes(key)))
+    throw new TypeError('Scripts accept only chunkRows, signal and timeoutMs');
+}
 function writeExecute(w: Writer, options: ExecuteOptions) {
   w.u32(options.binary ? 1 : 0).u32(options.chunkRows ?? 0);
   const parameters = options.parameters ?? []; w.u32(parameters.length);
@@ -445,6 +459,7 @@ export class Connection {
   private starting = new Set<Promise<Request>>();
   private closing = false;
   private archiveFrozen = false;
+  private transactionOwner?: symbol;
   /** @internal Admission is frozen synchronously before archive status checks. */
   freezeForArchive(frozen: boolean) {
     if (frozen && (this.closing || this.requests.size || this.starting.size || this.queuedQueries))
@@ -458,42 +473,64 @@ export class Connection {
     this.transport.readiness.track(handle);
   }
   async execute(sql: string, options: ExecuteOptions = {}): Promise<Request> {
-    return this.start(Op.execute, w => {w.text(sql); writeExecute(w, options);});
+    return this.executeOwned(sql, options);
   }
   prepare(sql: string, options: PrepareOptions = {}): Promise<Statement> {
     const types = [...options.parameterTypes ?? []];
     if (types.length > 64 || types.some(oid => !Number.isInteger(oid) || oid < 0 || oid > 0xffffffff))
       return Promise.reject(new TypeError('Expected at most 64 uint32 parameter type OIDs'));
-    return this.enqueue(utf8Length(sql) + types.length * 4 + 64, async () => {
+    return this.enqueue(utf8Length(sql) + types.length * 4 + 64, async signal => {
       if (this.closing) throw new ClosedError();
       let statement!: Statement;
+      const control = new OperationControl({signal});
       const work = this.transport.call(Op.prepare, this.handle, w => {
         w.text(sql).u32(types.length); for (const oid of types) w.u32(oid);
       }).then(r => {
         statement = new Statement(this, this.transport, r.handle(), () => this.statements.delete(statement));
         this.statements.add(statement);
-        const request = this.ownRequest(r.handle()); r.end(); return request;
+        const request = this.ownRequest(r.handle()); r.end(); request.control(control); return request;
       });
       this.starting.add(work);
       let request: Request;
-      try {request = await work;} finally {this.starting.delete(work);}
-      try {await collectRequest(request); await statement.describe(); return statement;}
+      try {request = await work;} catch (error) {control.dispose(); throw error;}
+      finally {this.starting.delete(work);}
+      try {await collectRequest(request); await statement.describe(); signal.throwIfAborted(); return statement;}
       catch (error) {
         try {await statement.closeOwned();}
         catch (cleanup) {throw new AggregateError([error, cleanup], 'Statement preparation and cleanup failed');}
         throw error;
       }
-    });
+    }, options);
   }
   /** PostgreSQL simple-query script; all statement and transaction boundaries
    * are parsed by the server. Parameters and binary results use execute(). */
   async executeScript(sql: string, options: ScriptOptions = {}): Promise<Request> {
-    if (Object.keys(options).some(key => key !== 'chunkRows')) throw new TypeError('Scripts accept only chunkRows');
-    return this.start(Op.script, w => w.text(sql).u32(options.chunkRows ?? 0));
+    scriptOptions(options);
+    return this.controlledStart(Op.script, w => w.text(sql).u32(options.chunkRows ?? 0), options);
+  }
+  /** @internal Transaction leases share the same native connection and request ownership. */
+  async executeOwned(sql: string, options: ExecuteOptions = {}, owner?: symbol, script = false): Promise<Request> {
+    if (script) scriptOptions(options);
+    return this.controlledStart(script ? Op.script : Op.execute,
+      w => {w.text(sql); if (script) w.u32(options.chunkRows ?? 0); else writeExecute(w, options);}, options,
+      this.handle, undefined, owner);
+  }
+  private async controlledStart(op: number, write: (w: Writer) => void, options: ControlOptions,
+    handle = this.handle, onClosed?: (request: Request) => void, owner?: symbol): Promise<Request> {
+    const control = new OperationControl(options);
+    let request: Request | undefined;
+    try {
+      control.check(); request = await this.start(op, write, handle, onClosed, owner);
+      request.control(control); control.check(); return request;
+    } catch (error) {
+      if (request) await request.close(); else control.dispose();
+      throw error;
+    }
   }
   private async start(op: number, write: (writer: Writer) => void, handle = this.handle,
-    onClosed?: (request: Request) => void): Promise<Request> {
+    onClosed?: (request: Request) => void, owner?: symbol): Promise<Request> {
     if (this.closing || this.archiveFrozen) throw new ClosedError();
+    if (this.transactionOwner !== undefined && this.transactionOwner !== owner) throw new ConnectionBusyError();
     const work = this.transport.call(op, handle, write).then(r => {
       const h = r.handle(); r.end();
       return this.ownRequest(h, onClosed);
@@ -508,17 +545,47 @@ export class Connection {
   }
   /** @internal */
   executeStatement(handle: Handle, options: ExecuteOptions, onClosed: (request: Request) => void): Promise<Request> {
-    return this.start(Op.statementExecute, w => writeExecute(w, options), handle, onClosed);
+    return this.controlledStart(Op.statementExecute, w => writeExecute(w, options), options, handle, onClosed);
   }
-  private queryTail: Promise<unknown> = Promise.resolve();
+  private queue = new SerialQueue();
   private queuedQueries = 0;
   private queuedBytes = 0;
   query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {
     return this.collect(sql, options, false);
   }
   exec(sql: string, options: ScriptOptions = {}): Promise<Result[]> {
-    if (Object.keys(options).some(key => key !== 'chunkRows')) return Promise.reject(new TypeError('Scripts accept only chunkRows'));
+    try {scriptOptions(options);} catch (error) {return Promise.reject(error);}
     return this.collect(sql, options, true);
+  }
+  transaction<T>(action: (transaction: Transaction) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
+    const isolation = options.isolation ?? 'read committed';
+    if (typeof action !== 'function' || !['read committed', 'repeatable read', 'serializable'].includes(isolation) ||
+      (options.readOnly !== undefined && typeof options.readOnly !== 'boolean'))
+      return Promise.reject(new TypeError('Invalid transaction callback or options'));
+    return this.enqueue(128, async signal => {
+      if (this.requests.size || this.starting.size || this.transactionOwner !== undefined) throw new ConnectionBusyError();
+      const owner = Symbol('transaction'); this.transactionOwner = owner;
+      const transaction = new Transaction(this, owner, signal);
+      let begun = false;
+      try {
+        if ((await this.status()).transaction !== 0) throw new Error('Transaction callback requires an idle transaction');
+        begun = true;
+        await collectRequest(await this.executeOwned(`BEGIN ISOLATION LEVEL ${isolation} ${options.readOnly ? 'READ ONLY' : 'READ WRITE'}`,
+          {signal}, owner));
+        const value = await abortable(Promise.resolve().then(() => action(transaction)), signal);
+        await transaction.finish(); signal.throwIfAborted();
+        if ((await this.status()).transaction !== 2) throw new Error('Transaction was aborted or its boundary was changed inside the callback');
+        await collectRequest(await this.executeOwned('COMMIT', {signal}, owner));
+        begun = false; return value;
+      } catch (error) {
+        await transaction.abort(error);
+        if (begun && !this.closing) {
+          try {await collectRequest(await this.executeOwned('ROLLBACK', {}, owner));}
+          catch (rollback) {throw new AggregateError([error, rollback], 'Transaction and rollback failed');}
+        }
+        throw error;
+      } finally {this.transactionOwner = undefined;}
+    }, options);
   }
   /** Subscribe to notifications from SQL LISTEN on this connection. Removing
    * the callback does not execute UNLISTEN or alter transaction state. */
@@ -529,24 +596,29 @@ export class Connection {
     return this.transport.subscribe(this.handle, {notify, error: onError});
   }
   private collect(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
-    return this.enqueue(utf8Length(sql) + 64 + parameterBytes(options), async () =>
-      collectRequest(await (script ? this.executeScript(sql, options) : this.execute(sql, options))));
+    return this.enqueue(utf8Length(sql) + 64 + parameterBytes(options), async signal =>
+      collectRequest(await this.executeOwned(sql, {...options, signal, timeoutMs: undefined}, undefined, script)), options);
   }
   /** @internal Shared ordering and byte admission for queries and statements. */
-  enqueue<T>(bytes: number, action: () => Promise<T>): Promise<T> {
-    if (this.closing || this.archiveFrozen) return Promise.reject(new ClosedError());
-    if (this.queuedQueries >= limits.maxPendingCommands) return Promise.reject(new Error('Connection query queue is full'));
+  enqueue<T>(bytes: number, action: (signal: AbortSignal) => Promise<T>, options: ControlOptions = {}): Promise<T> {
+    let release: () => void;
+    try {release = this.admit(bytes);} catch (error) {return Promise.reject(error);}
+    return this.queue.run(action, options, release);
+  }
+  /** @internal Transaction jobs share connection admission and telemetry. */
+  admit(bytes: number): () => void {
+    if (this.closing || this.archiveFrozen) throw new ClosedError();
+    if (this.queuedQueries >= limits.maxPendingCommands) throw new Error('Connection query queue is full');
     if (bytes > limits.commandBytes || this.queuedBytes + bytes > limits.connectionQueueBytes)
-      return Promise.reject(new Error('Connection query byte queue is full'));
+      throw new Error('Connection query byte queue is full');
     this.queuedBytes += bytes; this.transport.hostQueuedBytes += bytes;
     this.transport.peakHostQueuedBytes = Math.max(this.transport.peakHostQueuedBytes, this.transport.hostQueuedBytes);
     this.queuedQueries++;
-    const work = this.queryTail.then(action);
     // Releasing admission is part of completion. An awaiting caller may
     // immediately submit another large query using the same byte allowance.
-    const completed = work.finally(() => {this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;});
-    this.queryTail = completed.then(() => {}, () => {});
-    return completed;
+    return () => {
+      this.queuedQueries--; this.queuedBytes -= bytes; this.transport.hostQueuedBytes -= bytes;
+    };
   }
   async status() {
     const r = await this.transport.call(Op.status, this.handle);
@@ -556,11 +628,12 @@ export class Connection {
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
+    this.queue.stop(new ClosedError());
     this.transport.unsubscribe(this.handle);
     this.closeWork = (async () => {
       await Promise.allSettled(this.starting);
       await Promise.all([...this.requests].map(request => request.close()));
-      await this.queryTail;
+      await this.queue.idle();
       for (const statement of [...this.statements]) await statement.closeOwned();
       const signal = new AbortController().signal;
       for (;;) {
@@ -575,6 +648,35 @@ export class Connection {
     })().catch(error => {this.closeWork = undefined; throw error;});
     return this.closeWork;
   }
+}
+/** A callback-scoped transaction lease. Use this handle for every callback query. */
+export class Transaction {
+  private connection: Connection;
+  private owner: symbol;
+  private queue: SerialQueue;
+  private accepting = true;
+  constructor(connection: Connection, owner: symbol, signal: AbortSignal) {
+    this.connection = connection; this.owner = owner; this.queue = new SerialQueue(signal);
+  }
+  query(sql: string, options: ExecuteOptions = {}): Promise<Result[]> {return this.submit(sql, options, false);}
+  exec(sql: string, options: ScriptOptions = {}): Promise<Result[]> {
+    try {scriptOptions(options);} catch (error) {return Promise.reject(error);}
+    return this.submit(sql, options, true);
+  }
+  private submit(sql: string, options: ExecuteOptions, script: boolean): Promise<Result[]> {
+    if (!this.accepting) return Promise.reject(new ClosedError());
+    const bytes = utf8Length(sql) + 64 + parameterBytes(options);
+    let release: () => void;
+    try {release = this.connection.admit(bytes);} catch (error) {return Promise.reject(error);}
+    const work = this.queue.run(async signal => collectRequest(await this.connection.executeOwned(sql,
+      {...options, signal, timeoutMs: undefined}, this.owner, script)), options, release);
+    void work.catch(() => {}); // Callback failure may cancel jobs it has not awaited yet.
+    return work;
+  }
+  /** @internal */
+  async finish() {this.accepting = false; await this.queue.idle();}
+  /** @internal */
+  async abort(reason: unknown) {this.accepting = false; this.queue.stop(reason); await this.queue.idle();}
 }
 export class Statement {
   private connection: Connection;
@@ -610,7 +712,8 @@ export class Statement {
   }
   query(options: ExecuteOptions = {}): Promise<Result[]> {
     if (this.closing || this.closed) return Promise.reject(new ClosedError());
-    return this.connection.enqueue(64 + parameterBytes(options), async () => collectRequest(await this.execute(options)));
+    return this.connection.enqueue(64 + parameterBytes(options), async signal =>
+      collectRequest(await this.execute({...options, signal, timeoutMs: undefined})), options);
   }
   close(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -638,6 +741,8 @@ export class Statement {
   }
 }
 export class Request {
+  private operationControl?: OperationControl;
+  private removeAbort?: () => void;
   private cancelWork?: Promise<void>;
   private reading = false;
   private readDone?: Promise<void>;
@@ -653,18 +758,28 @@ export class Request {
     this.transport = transport; this.handle = handle; this.onClosed = onClosed;
     this.transport.readiness.track(handle);
   }
+  /** @internal An abort retires this exact request, including an unread stream. */
+  control(control: OperationControl) {
+    this.operationControl = control;
+    const abort = () => {void this.close().catch(error => this.transport.discard(error));};
+    control.signal.addEventListener('abort', abort, {once: true});
+    this.removeAbort = () => {control.signal.removeEventListener('abort', abort); control.dispose();};
+    if (control.signal.aborted) abort();
+  }
   async next(): Promise<Result | null> {
     if (this.reading) throw new Error('Only one result consumer is allowed');
     this.reading = true;
     this.readDone = new Promise(resolve => {this.finishRead = resolve;});
     try {
       for (;;) {
+        this.operationControl?.check();
         if (this.closing) throw new ClosedError();
         const version = this.transport.readiness.version(this.handle);
         const r = await this.transport.call(Op.next, this.handle), availability = r.u32();
         if (availability === 1) {
           r.end(); await this.transport.readiness.wait(this.handle, version, this.stopped.signal); continue;
         }
+        this.operationControl?.check();
         const batch = availability === 2 ? null : result(r);
         if (batch && (batch.kind === 2 || batch.kind === 3)) {
           this.copy = new CopyStream(this.transport, r.handle(), batch.kind === 2 ? 'in' : 'out');
@@ -672,7 +787,8 @@ export class Request {
         }
         r.end(); return batch;
       }
-    } finally {this.reading = false; this.finishRead?.();}
+    } catch (error) {this.operationControl?.check(); throw error;}
+    finally {this.reading = false; this.finishRead?.();}
   }
   cancel(): Promise<void> {
     if (this.closing) return Promise.reject(new ClosedError());
@@ -687,7 +803,8 @@ export class Request {
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
-    this.stopped.abort(new ClosedError());
+    this.removeAbort?.(); this.removeAbort = undefined;
+    this.stopped.abort(this.operationControl?.signal.aborted ? this.operationControl.signal.reason : new ClosedError());
     this.closeWork = (async () => {
       await this.readDone;
       await this.cancelWork?.catch(() => {});

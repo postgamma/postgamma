@@ -16,6 +16,10 @@ async function typedConsumer(): Promise<Result[]> {
     const parameterTypes: readonly number[] = statement.parameterTypes;
     for await (const _ of await statement.execute({parameters: [parameter], chunkRows: 4})) {}
     await statement.close(); void parameterTypes;
+    await c.transaction(async tx => {
+      await tx.query('SELECT 1', {timeoutMs: 1000});
+      await tx.exec('SAVEPOINT example; RELEASE example');
+    }, {isolation: 'serializable', readOnly: true, signal: new AbortController().signal});
     for await (const _ of await c.executeScript('SELECT 3', script)) {}
     return await c.query('SELECT $1::int8', {parameters: [parameter]});
   }

@@ -102,6 +102,31 @@ calls share connection ordering. Parse/Describe yields the driver while waiting
 for PostgreSQL; other sessions stay responsive. Closing a connection also closes
 its statements. A statement cannot be reused after close starts.
 
+SQL, scripts and prepared statements accept `{signal, timeoutMs}`. A deadline
+includes time spent waiting in the connection queue; `0` rejects immediately.
+Cancellation removes a pending command without running it. An active command is
+canceled and its native request is retired before collected calls reject with
+the signal's reason, or a `TimeoutError` for a deadline. Streaming requests also
+close automatically on abort; await `request.close()` before reusing the
+connection directly. Cancellation does not undo an already committed operation.
+
+```ts
+await connection.transaction(async tx => {
+  await tx.query('INSERT INTO accounts(id, balance) VALUES (1, 100)');
+  await tx.query('UPDATE accounts SET balance = balance - 10 WHERE id = 1');
+}, {isolation: 'serializable', timeoutMs: 5000});
+```
+
+The callback owns the connection through COMMIT or ROLLBACK. Use `tx.query()` or
+`tx.exec()` inside it; ordinary connection queries wait until it finishes and
+direct `execute()` calls reject with `ConnectionBusyError`. The callback's return
+value is delivered after COMMIT. Exceptions, cancellation and failed transaction
+state trigger ROLLBACK before rejection. SAVEPOINT recovery is supported; do not
+issue BEGIN, COMMIT or ROLLBACK for the outer transaction inside the callback.
+The callback handle expires on completion. Cancellation cannot stop arbitrary
+application JavaScript, but it retires that handle and rolls back the database
+work. `readOnly` and the three PostgreSQL isolation levels are supported.
+
 Parallel queries are opt-in on each connection:
 
 ```ts

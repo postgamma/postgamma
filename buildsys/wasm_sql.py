@@ -106,6 +106,10 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             run([builder.tools["node"], str(config.root / "tests/wasm/sql/protocol.mjs"),
                  str(site / "src/protocol/wire.js")], builder.current / "protocol.log",
                 builder.env, config.root)
+            queue_test = "tests/wasm/sql/queue.mjs"
+            report["harness_sources"][queue_test] = digest(config.root / queue_test)
+            run([builder.tools["node"], str(config.root / queue_test), str(site / "src/api/queue.js")],
+                builder.current / "queue.log", builder.env, config.root)
             readiness_test = "tests/wasm/sql/readiness.mjs"
             report["harness_sources"][readiness_test] = digest(config.root / readiness_test)
             run([builder.tools["node"], str(config.root / readiness_test), str(site / "src/protocol/readiness.js")],
