@@ -197,6 +197,26 @@ try {
   await command('SELECT 76 AS after_output_backpressure;', /\n\s*76\s*\n/, 'terminal_test=# ');
   await promptFits();
   passed('copy-stdin-stdout-literal-rendering-bounded-output-backpressure');
+  await input.focus();
+  await screen.evaluate(el => {
+    window.inputFrames = {count: 0, emptyPrompt: 0};
+    window.inputFrameWatch = el.terminal.onRender(() => {
+      const buffer = el.terminal.buffer.active;
+      const text = buffer.getLine(buffer.baseY + buffer.cursorY).translateToString(true);
+      window.inputFrames.count++;
+      if (!text.startsWith('terminal_test=#')) window.inputFrames.emptyPrompt++;
+    });
+  });
+  await page.keyboard.type('SELECT 987654321 AS smooth;', {delay: 35});
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 987654321 AS smooth;'));
+  await input.press('Home'); await input.press('Delete'); await page.keyboard.type('S'); await input.press('End');
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 987654321 AS smooth;'));
+  report.inputFrames = await page.evaluate(() => {window.inputFrameWatch.dispose(); return window.inputFrames;});
+  assert(report.inputFrames.count > 0, 'observe actual terminal renders during typing and editing');
+  assert.equal(report.inputFrames.emptyPrompt, 0, 'typing must never render an erased input prompt');
+  await input.press('Enter');
+  await page.waitForFunction(() => /\n\s*987654321\s*\n/.test(window.psqlText())); await ready('terminal_test=# ');
+  passed('typing-and-cursor-edits-keep-the-prompt-visible-in-every-rendered-frame');
   await command('\\c terminal_test postgamma example.com', /network connection strings are unavailable.*Previous connection kept/, 'terminal_test=# ');
   await command('\\watch', /could not set timer/, 'terminal_test=# ');
   await command('SELECT 77 AS after_unsupported_command;', /\n\s*77\s*\n/, 'terminal_test=# ');

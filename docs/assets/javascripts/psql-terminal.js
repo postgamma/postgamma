@@ -78,15 +78,16 @@ export class PsqlScreen {
       await this.drain();
     });
   }
-  async erase() {
+  eraseSequence() {
     const buffer = this.term.buffer.active;
     const row = Math.max(buffer.baseY, this.anchor?.line ?? buffer.baseY + buffer.cursorY);
     const up = buffer.baseY + buffer.cursorY - row;
-    await this.write((up > 0 ? '\x1b[' + up + 'A' : '') + '\r\x1b[J');
-    this.anchor?.dispose(); this.anchor = this.term.registerMarker(0);
+    this.anchor?.dispose(); this.anchor = this.term.registerMarker(-up);
+    return (up > 0 ? '\x1b[' + up + 'A' : '') + '\r\x1b[J';
   }
+  erase() {return this.write(this.eraseSequence());}
   async render() {
-    await this.erase();
+    const erase = this.eraseSequence();
     // Keep an editable window around the cursor for lines taller than the
     // viewport. A terminal cannot address old scrollback with cursor escapes.
     // Reserve two cells per code point (eight for tabs); full input is echoed
@@ -98,15 +99,18 @@ export class PsqlScreen {
       if (left) remaining -= cost(this.line[--left]);
       if (right < this.line.length) remaining -= cost(this.line[right++]);
     }
-    await this.write(this.prefix + (left ? '…' : '') + this.line.slice(left, this.cursor).join(''));
-    const marker = this.term.registerMarker(0), column = this.term.buffer.active.cursorX;
-    await this.write(this.line.slice(this.cursor, right).join('') + (right < this.line.length ? '…' : ''));
-    const buffer = this.term.buffer.active, up = buffer.baseY + buffer.cursorY - marker.line;
-    await this.write((up > 0 ? '\x1b[' + up + 'A' : '') + '\x1b[' + (Math.min(column, this.term.cols - 1) + 1) + 'G');
-    marker.dispose(); this.term.scrollToBottom();
+    // Parse the erase, replacement and cursor placement in one write so no
+    // intermediate empty prompt reaches the renderer. xterm's saved cursor
+    // tracks scrollback when the text after the cursor wraps at the bottom.
+    await this.write(erase + this.prefix + (left ? '…' : '') + this.line.slice(left, this.cursor).join('') +
+      '\x1b7' + this.line.slice(this.cursor, right).join('') + (right < this.line.length ? '…' : '') + '\x1b8');
+    this.term.scrollToBottom();
   }
   resize() {
     return this.enqueue(async () => {
+      const size = this.fit.proposeDimensions();
+      if (!size || !Number.isFinite(size.cols) || !Number.isFinite(size.rows) ||
+          (size.cols === this.term.cols && size.rows === this.term.rows)) return;
       if (this.active) await this.erase();
       this.fit.fit();
       if (this.active) {
@@ -128,7 +132,7 @@ export class PsqlScreen {
       const key = match ? match[0] : this.pending[0]; this.pending = this.pending.slice(key.length);
       if (key === '\r') {
         const text = this.line.join('');
-        await this.erase(); await this.write(this.prefix + text + '\r\n');
+        await this.write(this.eraseSequence() + this.prefix + text + '\r\n');
         if (text && this.history.at(-1) !== text) this.history.push(text);
         if (this.history.length > 100) this.history.shift();
         this.position = this.history.length; this.draft = '';
