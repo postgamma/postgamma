@@ -1,15 +1,16 @@
 # PostGamma
 
-> PostGamma embeds PostgreSQL 19 directly inside a Python or native application process. It starts no database server process and opens no network socket.
+> PostGamma offers PostgreSQL 19 through embedded Python/C APIs, a standalone threaded server source build, and a browser WebAssembly preview. Embedded mode runs inside the application process without opening a network socket; server mode accepts PostgreSQL client connections.
 
-The first public release provides a CPython wheel and a static C SDK with bundled pgvector 0.8.6. A persistent database path is a PostgreSQL cluster directory, not a single file. A missing final cluster directory is created by default when its parent exists. Enable vector SQL objects per logical database with CREATE EXTENSION vector.
+The first embedded release is an unreleased alpha candidate for a CPython wheel and a static C SDK with bundled pgvector 0.8.6. A separate server binary package is not yet available. In the embedded APIs, a persistent database path is a PostgreSQL cluster directory, not a single file; a missing final cluster directory is created by default when its parent exists. Enable bundled vector SQL objects per logical database with CREATE EXTENSION vector.
 
 ## Start here
 
 - [Python quickstart](getting-started/): Create, query, close, and reopen a persistent cluster.
 - [When to use PostGamma](getting-started/why-postgamma/): Compare the application boundary with SQLite, DuckDB, PGlite, and a PostgreSQL server.
 - [Static C quickstart](getting-started/c-static/): Link the static SDK and run its validated native example.
-- [Installation](getting-started/installation/): Choose a wheel or static C SDK.
+- [Installation](getting-started/installation/): Native dependencies, source builds, wheels, and the static C SDK.
+- [Browser preview](getting-started/browser/): Run WebAssembly in browser Workers with optional OPFS persistence.
 - [Downloads](downloads/): Release status, binary forms, checksums, and source builds.
 - [Database paths and creation](getting-started/database-paths/): Exact path, open-mode, logical database, and recovery rules.
 
@@ -32,9 +33,16 @@ The first public release provides a CPython wheel and a static C SDK with bundle
 - [Streaming and COPY](c/streaming-and-copy/): Use bounded row and COPY state machines.
 - [Management and logical backup](c/management/): Drive instance operations.
 
+## Threaded server
+
+- [Server overview](server/): Choose a standalone threaded server with PostgreSQL clients.
+- [Server quickstart](server/quickstart/): Build, install, initialize, connect, and stop.
+- [Server operations](server/operations/): Configure, manage, and logically back up a server.
+- [Server validation and compatibility](server/compatibility/): Source-build boundaries and requirements for a future binary package.
+
 ## Concepts and compatibility
 
-- [Architecture](concepts/architecture/): Understand the in-process boundary.
+- [Architecture](concepts/architecture/): Understand embedded, server, and browser runtime boundaries.
 - [Connections and concurrency](concepts/concurrency/): Sessions, workers, pinning, threads, and fork.
 - [Transactions](concepts/transactions/): Autocommit, context managers, rollback, and capacity.
 - [Durability and recovery](concepts/durability/): Understand commit, crash recovery, checkpoints, and maintenance defaults.
@@ -42,7 +50,7 @@ The first public release provides a CPython wheel and a static C SDK with bundle
 - [Security model](concepts/security/): Understand trusted inputs, SQL authority, extensions, and process scope.
 - [PostgreSQL compatibility](compatibility/postgresql/): Preserved behavior and major-version rules.
 - [Platforms and glibc](compatibility/platforms/): Binary and static-archive portability.
-- [Limits](compatibility/limits/): Resource defaults and unsupported capabilities.
+- [Limits](compatibility/limits/): Embedded resource defaults and unsupported capabilities.
 - [Troubleshooting](troubleshooting/): Diagnose package, path, SQL, concurrency, and link failures.
 
 ## Exact reference

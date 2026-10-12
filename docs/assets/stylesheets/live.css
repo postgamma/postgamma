@@ -38,8 +38,9 @@
 .md-typeset .pg-live-footer [data-state="loading"]::before { background: #e9b84c; }
 .md-typeset .pg-live-footer [data-state="error"]::before { background: #ff8680; }
 .md-typeset .pg-sdk-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.md-typeset .pg-sdk-three .pg-sdk-head { flex-wrap: wrap; }
-.md-typeset .pg-sdk-three .pg-sdk-head em { margin-left: 0; }
+.md-typeset .pg-sdk-three .pg-sdk-head { grid-template-columns: auto minmax(0, 1fr); gap: .4rem .65rem; }
+.md-typeset .pg-sdk-three .pg-sdk-head > span { grid-row: span 2; }
+.md-typeset .pg-sdk-three .pg-sdk-head em { display: inline-block; grid-column: 2; justify-self: start; }
 .md-typeset .pg-sdk-three .pg-sdk-links { flex-wrap: wrap; }
 .md-typeset .pg-live-dialog { width: min(56rem, calc(100vw - 2rem)); max-width: none; max-height: calc(100dvh - 2rem); margin: auto; padding: 0; border: 1px solid #39545c; border-radius: .6rem; background: #090d10; color: #aebcc5; overflow: auto; }
 .md-typeset .pg-live-dialog::backdrop { background: rgba(3, 9, 13, .8); backdrop-filter: blur(6px); }

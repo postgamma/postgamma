@@ -3,6 +3,10 @@
 PostgreSQL 19 is the only supported kernel and on-disk cluster major in the
 current release.
 
+The API and ownership rules below apply to the embedded Python and C products.
+See [server compatibility](../server/compatibility.md) and the
+[browser guide](../getting-started/browser.md) for those runtime modes.
+
 ## Preserved behavior
 
 PostGamma reuses PostgreSQL's parser, catalogs, planner, executor, transaction
@@ -12,10 +16,11 @@ ordinary PostgreSQL/libpq execution with the in-process path.
 
 ## Cluster directories
 
-A PostGamma database path is a PostgreSQL cluster directory with additional
-embedded ownership rules. It is not a single-file format. PostGamma does not
-write a signalable host PID into `postmaster.pid`, change the host working
-directory, or permit two owners to open the same directory concurrently.
+An embedded PostGamma database path is a PostgreSQL cluster directory with
+additional embedded ownership rules. It is not a single-file format. The
+embedded runtime does not write a signalable host PID into `postmaster.pid`,
+change the host working directory, or permit two owners to open the same
+directory concurrently.
 
 Do not run `pg_ctl` against a live embedded cluster. Use the PostGamma API for
 lifecycle and management.

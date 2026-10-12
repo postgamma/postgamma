@@ -63,9 +63,26 @@ tar -xzf postgamma-sdk-{{ POSTGAMMA_VERSION }}-linux-x86_64.tar.gz
 [Static C quickstart](getting-started/c-static.md) ·
 [Build and link](c/build-and-link.md)
 
-## Verify a release
+## Threaded server
 
-Every GitHub Release contains:
+**Source build.** Build the standalone threaded PostgreSQL server with
+`make threaded-postgresql-build JOBS=4`. Follow the
+[server quickstart](server/quickstart.md) to install the tools, initialize a
+cluster, and connect with psql.
+
+A separate server binary archive is not yet available. The Python wheel and
+static C SDK do not install a PostgreSQL server. Server packaging and platform
+qualification have their own [acceptance requirements](server/compatibility.md).
+
+## Browser preview
+
+The WebAssembly package is currently built from source. Follow the
+[browser guide](getting-started/browser.md) for build instructions, hosting
+requirements, and persistence options, or try the [live psql demo](index.md#live-demo).
+
+## Verify an embedded release
+
+The Python and static C release includes:
 
 | Asset | Purpose |
 | --- | --- |
@@ -85,7 +102,7 @@ Release assembly uses the hashes produced by the wheel and static-SDK test
 gates. A release is rejected if an asset was rebuilt or changed after those
 tests.
 
-## Supported binary target
+## Native SDK binary target
 
 | Component | Initial target |
 | --- | --- |

@@ -2,7 +2,9 @@
 
 Choose the artifact that matches the application boundary. Python applications
 install one wheel. Native applications link the static C SDK and deploy its
-matching resource pack.
+matching resource pack. For a standalone database service, follow the
+[threaded server quickstart](../server/quickstart.md); for web applications, use
+the [browser preview guide](browser.md).
 
 Binary users do not need the source-build packages below. They are required
 only when compiling PostGamma itself.
@@ -310,6 +312,8 @@ evidence also requires `/proc`, `strace`/ptrace, and, for sanitizer gates,
 permission to disable ASLR with `setarch -R`; restricted containers may need a
 different security policy or a host build.
 
+### Threaded server process limits
+
 The generated threaded server shares one process-wide file-descriptor limit
 across PostgreSQL roles. Complete source validation therefore needs a hard
 `RLIMIT_NOFILE` of at least 300000. Check it with `ulimit -Hn`; when the hard
@@ -317,6 +321,10 @@ limit already permits it, run `ulimit -n 300000` before the tests. For a
 systemd-managed runner, use `LimitNOFILE=1048576`.
 
 ## Threaded PostgreSQL developer build
+
+For an installed server, cluster initialization, and a psql connection, follow
+the [server quickstart](../server/quickstart.md). This section covers building
+and validating the generated tree during development.
 
 Build the transformed PostgreSQL tree without running the complete validation
 suite:

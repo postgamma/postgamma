@@ -10,11 +10,17 @@
 
 </div>
 
-PostGamma embeds PostgreSQL 19 directly inside an application process. Open a
-local cluster directory, execute PostgreSQL SQL, and close it without starting
-a database server or opening a network port.
+PostGamma brings PostgreSQL 19 to applications and agents through embedded
+Python and C APIs, a standalone threaded server, and a browser WebAssembly
+preview.
 
-The first release provides:
+| Mode | How you use it | Availability |
+| --- | --- | --- |
+| Embedded | Open a local cluster through Python or C, inside your application process | [Alpha candidate](docs/downloads.md) |
+| Server | Connect with psql or a PostgreSQL driver to a threaded server | [Source build](docs/server/quickstart.md) |
+| Browser | Run SQL locally through WebAssembly and Workers | [Browser preview](docs/getting-started/browser.md) |
+
+The first embedded release provides:
 
 - a CPython package with synchronous, DB-API 2.0, and caller-driven asyncio
   interfaces;
@@ -25,9 +31,10 @@ The first release provides:
   one host process; and
 - bundled pgvector 0.8.6 for local vector search.
 
-This is an unreleased alpha intended for evaluation and feedback. Read the
-[compatibility limits](docs/compatibility/limits.md) before using it with data
-that cannot be recreated.
+The embedded release is an unreleased alpha intended for evaluation and
+feedback. Read its [compatibility limits](docs/compatibility/limits.md) before
+using it with data that cannot be recreated. The threaded server has a separate
+[source-build and validation boundary](docs/server/compatibility.md).
 
 ## Python quickstart
 
@@ -126,7 +133,7 @@ a fully static glibc executable. Follow the
 [static C quickstart](docs/getting-started/c-static.md) for verification,
 linking, deployment, and lifecycle details.
 
-## Product boundary
+## Embedded product boundary
 
 PostGamma uses PostgreSQL's parser, planner, executor, catalogs, transactions,
 WAL, and recovery code. Its application boundary deliberately differs from a
@@ -151,9 +158,10 @@ separate cluster directory.
 The Python binding has its own API and packaging validation; passing the C ABI
 compatibility gate alone does not validate the Python package.
 
-Use SQLite when a tiny single-file database is the primary requirement, DuckDB
-for analytics-first columnar execution, PGlite for JavaScript/WASM, or a normal
-PostgreSQL server when independent processes must share one live cluster.
+For JavaScript in a web application, see the [browser preview](docs/getting-started/browser.md).
+For independent PostgreSQL clients, see the [threaded server](docs/server/index.md).
+SQLite and DuckDB serve different needs, such as a compact single-file database
+or analytics-first columnar execution.
 
 Read [When to use PostGamma](docs/getting-started/why-postgamma.md) for the
 full comparison.
@@ -234,6 +242,12 @@ The exact package requirements and supported Linux families are listed in the
 [installation guide](docs/getting-started/installation.md).
 
 ### Develop the threaded PostgreSQL core
+
+To install and run it as a standalone server, follow the
+[server quickstart](docs/server/quickstart.md). That guide covers initialization,
+client connections, and shutdown; the [operations guide](docs/server/operations.md)
+covers configuration and logical backup. A separate server binary package is
+not yet available.
 
 Use this path when working on the PostgreSQL source transformation itself:
 

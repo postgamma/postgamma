@@ -9,7 +9,7 @@
   </a>
   <div class="pg-product-links">
     <a href="#architecture">Architecture</a>
-    <a href="#sdks">SDKs</a>
+    <a href="#sdks">Run modes</a>
     <a href="#use-cases">Use cases</a>
     <a href="getting-started/">Documentation</a>
   </div>
@@ -32,14 +32,14 @@
   <div class="pg-v3-hero-copy">
     <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · native + browser</p>
     <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong><span>In your app.</span> <span>In your agent.</span> <span>In your browser.</span></strong></div>
-    <p class="pg-v3-lead">Give your apps and AI agents a local PostgreSQL database. Embed it with Python or C, or run it in your browser with our WebAssembly preview.</p>
+    <p class="pg-v3-lead">Give your apps and AI agents PostgreSQL. Embed it with Python or C, run it as a threaded server, or use it in your browser.</p>
     <div class="pg-v3-actions">
       <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
       <a class="pg-action pg-action--secondary" href="getting-started/">Build your first app</a>
     </div>
     <ul class="pg-v3-facts" aria-label="Supported platform and license">
-      <li><span aria-hidden="true"></span> Python · C · WebAssembly</li>
-      <li><span aria-hidden="true"></span> Browser preview</li>
+      <li><span aria-hidden="true"></span> Embedded · Server · Browser</li>
+      <li><span aria-hidden="true"></span> Server source build · Browser preview</li>
       <li><span aria-hidden="true"></span> PostGamma · Apache-2.0</li>
     </ul>
   </div>
@@ -153,7 +153,7 @@ ORDER BY revenue DESC;</textarea>
 <section class="pg-proof-strip" aria-label="Technical support baseline">
   <div><strong>19</strong><span>PostgreSQL core</span></div>
   <div><strong>3.10–3.14</strong><span>CPython wheels</span></div>
-  <div><strong>2.17+</strong><span>glibc baseline</span></div>
+  <div><strong>2.17+</strong><span>Wheel glibc baseline</span></div>
   <div><strong>C ABI</strong><span>Static SDK</span></div>
   <div><strong>0.8.6</strong><span>Bundled pgvector</span></div>
 </section>
@@ -162,32 +162,32 @@ ORDER BY revenue DESC;</textarea>
   <section id="sdks" class="pg-v3-section pg-v3-sdks" aria-labelledby="sdks-heading">
     <div class="pg-v3-section-head pg-v3-section-head--compact">
       <div>
-        <p class="pg-v3-kicker">Python, C and WebAssembly</p>
-        <h2 id="sdks-heading">Choose the interface that fits.</h2>
+        <p class="pg-v3-kicker">Embedded, Server and Browser</p>
+        <h2 id="sdks-heading">Choose how you run PostgreSQL.</h2>
       </div>
-      <p>Choose a native SDK or the browser preview. Each bundles a PostgreSQL kernel and matching resources, with no PostgreSQL server to install.</p>
+      <p>Own the database inside your app, connect to a threaded server, or run SQL locally in the browser.</p>
     </div>
     <div class="pg-v3-sdk-grid pg-sdk-three">
+      <article class="pg-v3-sdk pg-v3-sdk--embedded">
+        <div class="pg-sdk-head"><span>API</span><div><strong>Embedded</strong><small>Python + Static C</small></div><em>Alpha candidate</em></div>
+        <h3>PostgreSQL inside<br>your application.</h3>
+        <p>Import the Python package or link <code>libpostgamma.a</code>. Your app owns the database lifecycle, with no separate server to manage. See <a href="downloads/">downloads</a> for build and release availability.</p>
+        <div class="pg-install-line"><pre><code>postgamma.connect("agent.pgm")</code></pre><span aria-hidden="true">&gt;</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python guide</a><a class="pg-inline-link" href="getting-started/c-static/">C guide ↗</a></div>
+      </article>
+      <article class="pg-v3-sdk pg-v3-sdk--server">
+        <div class="pg-sdk-head"><span>PG</span><div><strong>Server</strong><small>Threaded PostgreSQL</small></div><em>Source build</em></div>
+        <h3>A familiar server.<br>A threaded engine.</h3>
+        <p>Run PostgreSQL roles as threads in a standalone server. Connect with psql or a PostgreSQL driver. Build from source today; a separate server binary package is not yet available.</p>
+        <div class="pg-install-line"><pre><code>make threaded-postgresql-build</code></pre><span aria-hidden="true">$</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--secondary" href="server/quickstart/">Build from source</a><a class="pg-inline-link" href="server/">Server guide ↗</a></div>
+      </article>
       <article class="pg-v3-sdk pg-v3-sdk--browser">
-        <div class="pg-sdk-head"><span>JS</span><div><strong>Browser SDK</strong><small>WebAssembly + Workers</small></div><em>Preview</em></div>
+        <div class="pg-sdk-head"><span>JS</span><div><strong>Browser</strong><small>WebAssembly + Workers</small></div><em>Preview</em></div>
         <h3>Real PostgreSQL.<br>Right in your browser.</h3>
         <p>Run SQL, JSONB, transactions and pgvector locally. Start in memory, or explicitly enable OPFS storage. The browser package is currently built from source.</p>
         <div class="pg-install-line"><pre><code>const db = await Database.open();</code></pre><span aria-hidden="true">&gt;</span></div>
         <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live</a><a class="pg-inline-link" href="getting-started/browser/">Browser guide ↗</a></div>
-      </article>
-      <article class="pg-v3-sdk pg-v3-sdk--python">
-        <div class="pg-sdk-head"><span>PY</span><div><strong>Python SDK</strong><small>Native CPython wheel</small></div><em>3.10–3.14</em></div>
-        <h3>Install once.<br>Import normally.</h3>
-        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI. The installation command below applies after publication; see <a href="downloads/">downloads</a> for current availability.</p>
-        <div class="pg-install-line"><pre><code>python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"</code></pre><span aria-hidden="true">$</span></div>
-        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python quickstart</a><a class="pg-inline-link" href="python/">API reference ↗</a></div>
-      </article>
-      <article class="pg-v3-sdk pg-v3-sdk--c">
-        <div class="pg-sdk-head"><span>C</span><div><strong>Static C SDK</strong><small>Stable public ABI</small></div><em>Linux x86-64</em></div>
-        <h3>Link PostgreSQL<br>into native software.</h3>
-        <p>Link against <code>libpostgamma.a</code>; its stable public ABI keeps PostgreSQL implementation types private.</p>
-        <div class="pg-install-line"><pre><code>pkg-config --static --libs postgamma</code></pre><span aria-hidden="true">$</span></div>
-        <div class="pg-sdk-links"><a class="pg-action pg-action--secondary" href="getting-started/c-static/">Static C quickstart</a><a class="pg-inline-link" href="c/">C API ↗</a></div>
       </article>
     </div>
   </section>
@@ -196,9 +196,9 @@ ORDER BY revenue DESC;</textarea>
     <div class="pg-v3-section-head">
       <div>
         <p class="pg-v3-kicker">The PostgreSQL core, reframed</p>
-        <h2 id="architecture-heading">Keep the database semantics.<br><em>Lose the service boundary.</em></h2>
+        <h2 id="architecture-heading">Keep the database semantics.<br><em>Choose the runtime boundary.</em></h2>
       </div>
-      <p>PostGamma changes PostgreSQL’s deployment model while preserving its database behavior. Your application owns startup and shutdown; PostgreSQL still owns parsing, planning, catalogs, transactions, WAL, and recovery.</p>
+      <p>The threaded kernel powers each mode. PostgreSQL owns parsing, planning, catalogs, transactions, WAL, and recovery; you choose an embedded API, a server connection, or a browser Worker.</p>
     </div>
 
     <div class="pg-v3-bento">
@@ -217,7 +217,7 @@ ORDER BY revenue DESC;</textarea>
       </article>
 
       <article class="pg-v3-card pg-v3-card--process">
-        <div class="pg-v3-card-index"><span>02</span> In-process</div>
+        <div class="pg-v3-card-index"><span>02</span> Embedded mode</div>
         <h3>One process.<br>One lifecycle.</h3>
         <p>No database server to install, configure, or supervise.</p>
         <div class="pg-process-frame" aria-label="Application and PostgreSQL share one process">
@@ -230,7 +230,7 @@ ORDER BY revenue DESC;</textarea>
       </article>
 
       <article class="pg-v3-card pg-v3-card--lifecycle">
-        <div class="pg-v3-card-index"><span>03</span> Explicit ownership</div>
+        <div class="pg-v3-card-index"><span>03</span> Embedded lifecycle</div>
         <h3>Open, connect, query, and close explicitly.</h3>
         <ol class="pg-mini-flow">
           <li><span>01</span><strong>Open</strong><small>initialize or recover</small></li>
@@ -257,11 +257,11 @@ ORDER BY revenue DESC;</textarea>
 
   <section id="use-cases" class="pg-v3-section pg-v3-fit" aria-labelledby="use-cases-heading">
     <div class="pg-fit-intro">
-      <p class="pg-v3-kicker">Built for local software</p>
+      <p class="pg-v3-kicker">Embedded and browser use cases</p>
       <h2 id="use-cases-heading">Put PostgreSQL where a separate service does not fit.</h2>
       <div class="pg-choice-note">
         <span>Choose deliberately</span>
-        <p>PostGamma is not a universal replacement for a PostgreSQL server. Each cluster directory can be owned by only one live OS process at a time.</p>
+        <p>Use embedded mode when the app owns its database. For independent clients, explore the <a href="server/">threaded server source build</a>. Each native cluster directory still has one owner process.</p>
         <a class="pg-inline-link" href="getting-started/why-postgamma/">Read the selection guide <span aria-hidden="true">↗</span></a>
       </div>
     </div>

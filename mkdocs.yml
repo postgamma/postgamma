@@ -1,5 +1,5 @@
 site_name: postgamma
-site_description: PostgreSQL inside your application
+site_description: PostgreSQL for apps and agents, as a threaded server, and in the browser
 site_url: https://postgamma.com/
 site_author: Shujie Zhang
 docs_dir: docs
@@ -122,6 +122,11 @@ nav:
       - Asynchronous execution: c/async.md
       - Streaming and COPY: c/streaming-and-copy.md
       - Management and backup: c/management.md
+  - Server:
+      - Overview: server/index.md
+      - Build and quickstart: server/quickstart.md
+      - Operations and backup: server/operations.md
+      - Validation and compatibility: server/compatibility.md
   - Concepts:
       - Architecture: concepts/architecture.md
       - Connections and concurrency: concepts/concurrency.md
