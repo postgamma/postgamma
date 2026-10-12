@@ -402,7 +402,9 @@ class Builder:
             if name in ("psqlscanslash", "sql_help", "tab-complete"):
                 source = self.raw / "src/bin/psql" / (name + ".c")
             jobs.append((source, "psql/" + name, [*upstream,
-                         *(["-Dmain=postgamma_psql_main"] if name == "startup" else [])]))
+                         *(["-Dmain=postgamma_psql_main",
+                            "-Dset_pglocale_pgservice=postgamma_psql_set_pglocale_pgservice"]
+                           if name == "startup" else [])]))
         jobs += [(self.capture_source / "src/interfaces/libpq/pqexpbuffer.c", "psql/pqexpbuffer", upstream),
                  (self.root / "wasm/bridge/psql.c", "psql/host", flags),
                  (self.root / "wasm/bridge/logical_alloc.c", "psql/alloc", flags)]

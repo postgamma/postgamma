@@ -194,6 +194,13 @@ PGresult *PQgetResult(PGconn *connection) {
 }
 /* Do not install process signal handlers, mutate process locale/environment,
  * or attempt to launch a shell/editor from a browser frontend. */
+void postgamma_psql_set_pglocale_pgservice(const char *program, const char *domain) {
+    /* psql is linked into this module, not installed as a host executable.
+     * NLS is disabled, locale is fixed, and private memory libpq has no system
+     * service directory. Skip the native executable-prefix probe at startup;
+     * -X separately disables psqlrc discovery. Do not suppress diagnostics. */
+    (void)program; (void)domain;
+}
 void pqsignal(int number, pqsigfunc handler) {(void)number; (void)handler;}
 char *setlocale(int category, const char *locale) {(void)category; (void)locale; return "C";}
 int setenv(const char *name, const char *value, int overwrite) {(void)name; (void)value; (void)overwrite; return 0;}
