@@ -592,11 +592,11 @@ body.pg-home-page .md-main {
   border-color: rgba(72, 230, 206, 0.35);
 }
 
-.md-typeset .pg-v3-facts {
+.md-typeset .pg-home-v3 .pg-v3-facts {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem 1.2rem;
-  margin: 1.05rem 0 0;
+  margin: 1.25rem 0 0;
   padding: 0;
   color: var(--pg-muted);
   font-family: var(--md-code-font-family), monospace;
