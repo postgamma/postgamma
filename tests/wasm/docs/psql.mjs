@@ -112,11 +112,22 @@ try {
   passed('automatic-real-psql-startup-with-inline-terminal', values['static-host'] ? 'pages-project-prefix-service-worker-one-reload' : 'native-headers-no-reload');
   // Drive the terminal's real keyboard and clipboard events, with no separate
   // command input or submit button and no direct calls into the database SDK.
-  await input.focus(); await page.keyboard.type('SELECT 123;');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'startup does not expand');
+  await input.focus(); await input.press('ArrowLeft'); await input.press('Backspace');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'control keys do not expand');
+  await page.keyboard.type('S');
+  await page.waitForSelector('dialog[open]');
+  await page.waitForFunction(() => window.psqlText().endsWith('postgres=# S'));
+  assert(await input.evaluate(el => el === document.activeElement), 'expansion retains keyboard focus');
+  await page.screenshot({path: values.output.replace(/\.json$/, '-first-input.png')});
+  await page.keyboard.type('ELECT 123;');
   await page.waitForFunction(() => window.psqlText().endsWith('postgres=# SELECT 123;'));
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
   await input.press('ArrowLeft'); await input.press('Backspace');
   await page.keyboard.type('4'); await input.press('End'); await input.press('Enter');
   await page.waitForFunction(() => /\n\s*124\s*\n/.test(window.psqlText())); await ready();
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'typing after collapse stays compact');
+  passed('first-character-expands-once-without-losing-input-or-focus');
   await input.press('ArrowUp'); await input.press('Home'); await input.press('Delete');
   await page.keyboard.type('S'); await input.press('Control+e'); await input.press('Enter'); await ready();
   await page.waitForFunction(() => window.psqlText().endsWith('(1 row)\n\npostgres=# '));
@@ -197,11 +208,14 @@ try {
   await command("SELECT datname FROM pg_database WHERE datname = 'terminal_test';", /\(0 rows\)/);
   await page.locator('[data-pg-psql-reset]').click(); await ready();
   await paste('SELECT pg_sleep(30);'); await input.press('Enter');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'database reset does not rearm automatic expansion');
   await page.waitForTimeout(300); await page.locator('[data-pg-psql-close]').click();
   await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
   const count = downloads; await page.reload({waitUntil: 'domcontentloaded'});
   await ready(); assert(downloads > count, 'reload starts a fresh session automatically');
   await command('SELECT 78 AS after_reload;', /\n\s*78\s*\n/);
+  assert.equal(await page.locator('dialog[open]').count(), 1, 'first paste after page reload expands');
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
   await input.press('Control+d');
   await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
   passed('quit-enter-to-restart-reset-close-active-query-reload-autostart-ctrl-d');
@@ -214,7 +228,14 @@ try {
     assert.match(await read(), /has not been bundled/);
     await context.unroute('**/assets/wasm/demo.json');
     await input.press('Enter'); await ready();
+    assert.equal(await page.locator('dialog[open]').count(), 0, 'Enter to retry is not text input');
+    await input.focus(); await page.keyboard.insertText('中');
+    await page.waitForSelector('dialog[open]');
+    await page.waitForFunction(() => window.psqlText().endsWith('postgres=# 中'));
+    await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+    await input.press('Control+u');
     await command('SELECT 79 AS after_startup_retry;', /\n\s*79\s*\n/);
+    assert.equal(await page.locator('dialog[open]').count(), 0, 'input events expand only once');
     await page.locator('[data-pg-psql-close]').click();
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
     passed('automatic-startup-error-visible-and-enter-to-retry');

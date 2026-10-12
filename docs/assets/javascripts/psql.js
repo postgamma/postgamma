@@ -13,6 +13,8 @@
     const status = element("status"), cancel = element("cancel");
     const reset = element("reset"), close = element("close"), screen = element("terminal");
     const loading = element("loading");
+    const widget = document.getElementById("live-demo"), expand = widget.querySelector("[data-pg-live-expand]");
+    let dialog, autoExpandPending = true;
     let session, opening, openingWork, stopping, view, loadingTimer, loadingAt, stageAt, loadingStep = 0;
     function state(text, kind = "idle") {
       if (status.textContent !== text) status.textContent = text;
@@ -169,7 +171,7 @@
     try {
       const {PsqlScreen} = await import(new URL("psql-terminal.js", script));
       view = new PsqlScreen(screen, {line: submit, interrupt, eof: shutdown, restart: open,
-        closed: () => !session && !opening && !stopping, error: failure});
+        closed: () => !session && !opening && !stopping, error: failure, textInput: expandOnFirstInput});
     } catch (error) {
       screen.textContent = "Could not load the terminal: " + error.message; failure(error);
       reset.textContent = "Reload"; reset.addEventListener("click", () => location.reload()); return;
@@ -182,10 +184,13 @@
     document.querySelectorAll("[data-pg-try-live]").forEach(link => link.addEventListener("click", () => {
       document.getElementById("pg-tab-browser").click(); view.focus();
     }));
-    const widget = document.getElementById("live-demo"), expand = widget.querySelector("[data-pg-live-expand]");
-    let dialog;
-    expand.addEventListener("click", () => {
-      if (dialog) {dialog.close(); return;}
+    function expandOnFirstInput() {
+      if (!autoExpandPending || !session || !loading.hidden || stopping) return;
+      autoExpandPending = false;
+      expandTerminal();
+    }
+    function expandTerminal() {
+      if (dialog) return;
       const placeholder = document.createComment("live demo position"); widget.before(placeholder);
       dialog = document.createElement("dialog"); dialog.className = "pg-live-dialog"; dialog.setAttribute("aria-label", "psql terminal");
       placeholder.after(dialog); dialog.append(widget);
@@ -196,6 +201,12 @@
         expand.setAttribute("aria-label", "Expand demo"); view.focus();
       }, {once: true});
       dialog.showModal(); view.focus();
+    }
+    expand.addEventListener("click", () => {
+      // Respect a manual size choice for the rest of this page visit, including
+      // database resets. Automatic expansion never toggles an open dialog shut.
+      autoExpandPending = false;
+      if (dialog) dialog.close(); else expandTerminal();
     });
     let resumed;
     try {resumed = Number(sessionStorage.getItem(resumeKey)); sessionStorage.removeItem(resumeKey);} catch (_) {}

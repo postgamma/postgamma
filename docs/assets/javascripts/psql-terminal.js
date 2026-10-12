@@ -161,6 +161,9 @@ export class PsqlScreen {
           this.pending = ''; await this.write('\x07'); return;
         }
         this.line = this.split(before + after); this.cursor = this.split(before).length;
+        // Report accepted text from typing, paste or committed IME input. Keep
+        // navigation/control keys and native output out of this interaction.
+        if (key !== '\t') this.handlers.textInput?.();
       } else continue;
       await this.render();
     }

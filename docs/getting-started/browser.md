@@ -25,7 +25,10 @@ SELECT * FROM t1;
 
 While it starts, the compact terminal shows a centered loading indicator with an
 estimated percentage and elapsed time. The estimate follows startup stages;
-it is not a download byte counter. Use the expand button for a larger workspace.
+it is not a download byte counter. The first typed or pasted text expands the
+terminal once per page load, preserving your input. After you collapse it, typing
+and database resets keep it compact. You can also use the expand button at any time;
+a manual size choice disables automatic expansion until the page reloads.
 
 psql handles SQL parsing, prompts, backslash commands and result formatting.
 The page provides an xterm.js terminal with inline input and output. Enter sends
