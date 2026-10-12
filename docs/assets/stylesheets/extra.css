@@ -594,9 +594,9 @@ body.pg-home-page .md-main {
 }
 
 .md-typeset .pg-home-v3 .pg-v3-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem 1.2rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
   margin: 1.25rem 0 0;
   padding: 0;
   color: var(--pg-muted);
@@ -613,6 +613,7 @@ body.pg-home-page .md-main {
 }
 
 .md-typeset .pg-v3-facts li span {
+  flex-shrink: 0;
   width: 0.28rem;
   height: 0.28rem;
   background: var(--pg-accent);
@@ -1934,10 +1935,6 @@ body.pg-home-page .md-main {
 
   .md-typeset .pg-v3-actions .pg-action {
     width: 100%;
-  }
-
-  .md-typeset .pg-v3-facts {
-    gap: 0.5rem 0.85rem;
   }
 
   .md-typeset .pg-code-tabs button {
