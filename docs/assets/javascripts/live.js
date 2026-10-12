@@ -30,8 +30,11 @@
   `;
 
   function initialize() {
+    if (new URLSearchParams(location.search).get("client") !== "js") return;
     const panel = document.querySelector("[data-pg-live]");
     if (!panel) return;
+    panel.querySelector("[data-pg-legacy]").hidden = false;
+    panel.querySelector("[data-pg-psql]").hidden = true;
     const element = name => panel.querySelector("[data-pg-live-" + name + "]");
     const editor = element("sql"), example = element("example"), output = element("results");
     const run = element("run"), cancel = element("cancel"), reset = element("reset"), close = element("close");

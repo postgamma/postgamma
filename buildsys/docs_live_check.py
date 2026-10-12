@@ -26,26 +26,36 @@ def main():
     parser.add_argument('--build-dir', type=Path)
     parser.add_argument('--site-dir', type=Path)
     parser.add_argument('--engines', default='chromium,firefox,webkit')
+    parser.add_argument('--clients', default='psql,js', help='psql, js, or both')
     parser.set_defaults(deps_dir=None, profile=None, sdk_dir=None, jobs=1,
                         target='wasm32-emscripten-pthreads', mode='release', node='', browser_executable='')
     args = parser.parse_args()
     config = configuration(args)
     tools, env = sdk_tools(config)
     site = args.site_dir or config.build / 'docs/site'
-    harness = Path(__file__).resolve().parents[1] / 'tests/wasm/docs/homepage.mjs'
+    clients = args.clients.split(',')
+    if not clients or any(client not in {'psql', 'js'} for client in clients):
+        parser.error('clients must be psql, js, or psql,js')
+    harnesses = {client: Path(__file__).resolve().parents[1] / 'tests/wasm/docs' /
+                 ('psql.mjs' if client == 'psql' else 'homepage.mjs') for client in clients}
     assets = ['index.html', 'live-worker.js', 'assets/javascripts/live.js',
+              'assets/javascripts/psql.js', 'assets/javascripts/psql-terminal.js',
+              'assets/vendor/xterm/xterm.mjs', 'assets/vendor/xterm/addon-fit.mjs',
+              'assets/vendor/xterm/xterm.css',
               'assets/stylesheets/live.css', 'assets/stylesheets/extra.css',
               'assets/wasm/postgamma.assets.json']
     identity = {name: digest(site / name) for name in assets}
     current = config.build / 'docs/checks' / run_id()
     current.mkdir(parents=True)
     report = {'status': 'passed', 'results': [], 'site_files': identity,
-              'harness_sha256': digest(harness), 'package': read_json(site / 'assets/wasm/demo.json')}
+              'harnesses': {client: digest(harness) for client, harness in harnesses.items()},
+              'package': read_json(site / 'assets/wasm/demo.json')}
     for engine in args.engines.split(','):
         if engine not in {'chromium', 'firefox', 'webkit'}:
             parser.error('unknown browser engine: ' + engine)
-        for static in (False, True):
-            name = engine + ('-pages' if static else '-headers')
+        for client, static in [(client, static) for client in clients for static in (False, True)]:
+            harness = harnesses[client]
+            name = engine + '-' + client + ('-pages' if static else '-headers')
             output = current / (name + '.json')
             kwargs = {'handler': PagesHandler} if static else {}
             with serve(site, 'project/' if static else '', **kwargs) as url:
@@ -65,7 +75,8 @@ def main():
                     report['status'] = 'failed'
                     report['results'].append({'name': name, 'status': 'failed', 'report': str(output), 'error': str(error)})
             print(name + ': ' + report['results'][-1]['status'], flush=True)
-    if identity != {name: digest(site / name) for name in assets} or report['harness_sha256'] != digest(harness):
+    if (identity != {name: digest(site / name) for name in assets} or
+            report['harnesses'] != {client: digest(harness) for client, harness in harnesses.items()}):
         report['status'] = 'failed'
         report['error'] = 'Homepage or test source changed during validation'
     write_json(current / 'result.json', report)

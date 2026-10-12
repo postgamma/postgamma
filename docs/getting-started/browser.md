@@ -9,16 +9,57 @@ for the accepted scope, data compatibility and release gates.
 
 ## Try it on the homepage
 
-The [homepage](../index.md#live-demo) has an editable SQL demo with aggregation,
-JSONB, transaction rollback and pgvector examples. It downloads and starts the
-kernel only after you click **Start & run**. Data stays in a temporary memory
-database; **Reset** recreates the sample data and **Close** releases the instance.
-The displayed query time excludes the initial download and database setup.
+The [homepage](../index.md#live-demo) starts a real upstream **psql** compiled
+alongside the WebAssembly kernel. It starts automatically when the page loads;
+once `postgres=#` appears, type directly into the terminal and press Enter:
+
+```sql
+CREATE DATABASE test;
+\c test
+CREATE TABLE t1(c1 integer, c2 text);
+INSERT INTO t1 VALUES (100, 'hello');
+SELECT * FROM t1;
+\d t1
+\?
+```
+
+While it starts, the compact terminal shows a centered loading indicator with an
+estimated percentage and elapsed time. The estimate follows startup stages;
+it is not a download byte counter. Use the expand button for a larger workspace.
+
+psql handles SQL parsing, prompts, backslash commands and result formatting.
+The page provides an xterm.js terminal with inline input and output. Enter sends
+a line; psql supplies the continuation prompt for unfinished SQL. The arrow keys
+edit the current line or recall history; Home/End and Ctrl+A/E move within it.
+Paste accepts multiple lines, including `COPY FROM STDIN` data. Ctrl+C interrupts
+a query or clears unfinished input; Ctrl+L clears the screen. `\q` or Ctrl+D
+exits; Enter starts a fresh session after exit. **Close** releases the instance
+and **Reset** creates a fresh memory database. The [SQL editor](../index.md?client=js#live-demo) retains
+the aggregation, JSONB, transaction and pgvector examples.
 
 Use HTTPS or localhost to run the demo. GitHub Pages needs one automatic reload
-on first start to enable the browser's isolation requirements; your edited SQL
-is preserved. The preview does not save data to OPFS. It limits execution time
-and displayed results; use the SDK for larger workloads and persistent storage.
+on first start to enable the browser's isolation requirements. The preview does
+not save data to OPFS. Native terminal input/output queues are bounded to 64 KiB
+each, each input line is at most 16 KiB, pending input is capped at 64 KiB, and
+terminal scrollback is capped at 2,000 lines. Large results continue streaming
+while old displayed output is removed. Terminal assets are bundled with the site;
+no terminal CDN or backend service is needed.
+
+This first psql integration is experimental and owns its database instance.
+It uses the matching private libpq and PostgreSQL wire protocol over the existing
+in-memory transport, all inside browser Workers. There is no remote SQL server,
+WebSocket proxy, WebContainer or external shell. Shell/editor/pager commands and
+network connection strings and signal-timer-based `\watch` are unavailable; readline completion and local file
+upload/download are not implemented. Restarting psql creates a new instance.
+The SDK's SQL connections, logical backup and data-directory archive operations
+cannot run concurrently with a psql terminal in the same instance.
+
+The same static assets can be hosted under a GitHub Pages repository path. The
+service worker supplies isolation headers for the demo page and its assets;
+all Worker/module/asset URLs are relative to that path. The one-command browser
+check is `make docs-live-check DOCS_WASM_PACKAGE=auto`. It exercises real psql
+and the SQL editor in Chromium, Firefox and WebKit on both a header-based host
+and a headerless `/project/` host. This emulates Pages; it does not publish a site.
 
 For a local checkout, `make docs-serve DOCS_WASM_PACKAGE=/path/to/package.tgz`
 bundles a source-built production package. Later `make docs-serve` invocations

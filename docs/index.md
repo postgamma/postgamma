@@ -56,6 +56,30 @@
     </div>
     <div>
       <div id="pg-panel-browser" class="pg-code-panel pg-live" role="tabpanel" aria-labelledby="pg-tab-browser" data-pg-live>
+        <div class="pg-psql" data-pg-psql>
+          <div class="pg-live-toolbar"><strong>psql</strong><span class="pg-live-badge">Live</span><a href="?client=js#live-demo">SQL editor ↗</a></div>
+          <div class="pg-psql-frame">
+            <div class="pg-psql-screen" data-pg-psql-terminal aria-label="Interactive psql terminal" aria-busy="true">Loading PostgreSQL…</div>
+            <div class="pg-psql-loading" data-pg-psql-loading>
+              <div class="pg-psql-loading-title"><span class="pg-psql-spinner" aria-hidden="true"></span><strong data-pg-psql-loading-title>Starting PostgreSQL</strong></div>
+              <div class="pg-psql-percentage" data-pg-psql-loading-percent>~2%</div>
+              <div class="pg-psql-progress" data-pg-psql-progress role="progressbar" aria-label="Estimated startup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><span></span></div>
+              <p data-pg-psql-loading-detail>Preparing your browser</p>
+              <div class="pg-psql-loading-note"><span>Estimated</span><span aria-hidden="true">·</span><span data-pg-psql-loading-time>0s</span></div>
+            </div>
+          </div>
+          <noscript>Enable JavaScript to use the psql terminal.</noscript>
+          <div class="pg-live-footer pg-psql-footer">
+            <span data-pg-psql-status role="status" aria-live="polite" data-state="loading">Loading PostgreSQL…</span>
+            <span class="pg-psql-hint">In-memory · \? for help</span>
+            <div class="pg-psql-controls">
+              <button type="button" data-pg-psql-cancel disabled>Ctrl+C</button>
+              <button type="button" data-pg-psql-reset disabled title="Discard this database and start a new one">Reset</button>
+              <button type="button" data-pg-psql-close disabled>Close</button>
+            </div>
+          </div>
+        </div>
+        <div data-pg-legacy hidden>
         <div class="pg-live-toolbar">
           <label for="pg-live-example">Explore</label>
           <select id="pg-live-example" aria-label="SQL example" data-pg-live-example>
@@ -84,6 +108,7 @@ ORDER BY revenue DESC;</textarea>
           <div class="pg-live-empty"><span class="pg-live-prompt" aria-hidden="true">&gt;_</span><strong>Your browser. A real PostgreSQL database.</strong><p>Edit the SQL, then start the demo.<br>Sample data stays in memory for this visit.</p></div>
         </div>
         <div class="pg-live-footer"><span data-pg-live-status role="status" aria-live="polite" data-state="idle">Not started</span><span data-pg-live-detail>Runs locally in your browser</span></div>
+        </div>
         <noscript><p>Enable JavaScript to run the browser demo. The Python and C quickstarts are available in the documentation.</p></noscript>
       </div>
       <div id="pg-panel-python" class="pg-code-panel" role="tabpanel" aria-labelledby="pg-tab-python" tabindex="0" hidden>

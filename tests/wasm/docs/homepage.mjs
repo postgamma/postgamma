@@ -55,7 +55,8 @@ try {
     await run.click(); await completed();
     return output.textContent();
   }
-  await page.goto(values.url, {waitUntil: 'domcontentloaded'});
+  const legacy = new URL(values.url); legacy.searchParams.set('client', 'js');
+  await page.goto(legacy.href, {waitUntil: 'domcontentloaded'});
   assert.equal(await status.textContent(), 'Not started');
   assert.equal(assets.length, 0);
   assert.equal(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then(r => r.length)), 0);

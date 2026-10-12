@@ -57,3 +57,36 @@
   .md-typeset .pg-live-dialog { width: calc(100vw - .6rem); max-height: calc(100dvh - .6rem); }
   .md-typeset .pg-live-dialog .pg-live textarea { height: 9rem; }
 }
+/* Real psql owns prompts and formatting; the page supplies line editing. */
+.pg-psql[hidden], [data-pg-legacy][hidden] { display: none !important; }
+.pg-psql .pg-live-toolbar a { margin-left: auto; font-size: .55rem; }
+.pg-psql-frame { position: relative; }
+.pg-psql-screen { height: 16rem; overflow: hidden; padding: .8rem; background: #090d10; color: #c4dedc; font: .65rem/1.5 monospace; }
+.pg-psql-screen .xterm { height: 100%; }
+/* Keep SQL editor styling out of xterm's invisible IME/mobile input helper. */
+.md-typeset .pg-psql .xterm-helper-textarea { width: 0; height: 0; min-height: 0; max-height: none; padding: 0; border: 0; outline: none; resize: none; }
+.md-typeset .pg-psql-footer { gap: .5rem; flex-wrap: wrap; }
+.pg-psql-controls { display: flex; gap: .6rem; margin-left: auto; }
+.pg-psql-controls button { cursor: pointer; font: inherit; color: #a5c6cc; }
+.pg-psql-controls button:hover:enabled { color: #83efde; }
+.pg-psql-controls button:disabled { opacity: .35; cursor: default; }
+.pg-psql-hint { opacity: .7; }
+.pg-psql-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .65rem; padding: 1.05rem 1.25rem; text-align: center; background: #090d10; }
+.pg-psql-loading[hidden] { display: none !important; }
+.pg-psql-loading-title { display: flex; align-items: center; gap: .6rem; }
+.pg-psql-loading-title strong { color: #e5f4f2; font: 600 .95rem/1.3 var(--md-text-font-family, sans-serif); }
+.pg-psql-spinner { width: .9rem; height: .9rem; flex: 0 0 auto; border: 2px solid #23453f; border-top-color: #48e6ce; border-radius: 50%; animation: pg-psql-spin 1s linear infinite; }
+.md-typeset .pg-psql-loading > p { margin: 0; color: #a3b9bd; font: .6rem/1.5 var(--md-text-font-family, sans-serif); }
+.pg-psql-percentage { margin-top: .15rem; color: #82e4d5; font: 500 1.75rem/1.2 var(--md-code-font-family), monospace; font-variant-numeric: tabular-nums; }
+.pg-psql-progress { width: min(100%, 12rem); height: .2rem; overflow: hidden; border-radius: 1rem; background: #1b3335; }
+.pg-psql-progress > span { display: block; width: 2%; height: 100%; background: #48e6ce; border-radius: inherit; transition: width .3s ease; }
+.pg-psql-loading-note { display: flex; justify-content: center; gap: .4rem; color: #7f979d; font-size: .47rem; }
+.pg-live-dialog .pg-psql-screen { height: min(68vh, 36rem); }
+@keyframes pg-psql-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pg-psql-spinner { animation: none; } .pg-psql-progress > span { transition: none; } }
+@media (max-width: 600px) {
+  .pg-psql-screen { height: 15rem; padding: .6rem; }
+  .pg-psql-loading { padding: .8rem; gap: .5rem; }
+  .md-typeset .pg-psql-footer { flex-direction: row; align-items: center; }
+  .pg-psql-hint { display: none; }
+}

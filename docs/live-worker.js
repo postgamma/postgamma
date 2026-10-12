@@ -1,6 +1,6 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 // GitHub Pages cannot set COOP/COEP headers. Installed only when the visitor
-// starts the demo. No cache or SQL data is stored by this worker.
+// opens the terminal (or starts the legacy editor). No cache or SQL data is stored.
 "use strict";
 const root = new URL(self.registration.scope);
 self.addEventListener("install", () => self.skipWaiting());
