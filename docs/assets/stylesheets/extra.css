@@ -538,11 +538,6 @@ body.pg-home-page .md-main {
   -webkit-text-fill-color: transparent;
 }
 
-.md-typeset .pg-v3-display strong > span {
-  display: inline-block;
-  white-space: nowrap;
-}
-
 .md-typeset .pg-v3-lead {
   max-width: 36rem;
   margin-bottom: 1.35rem;

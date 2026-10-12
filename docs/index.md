@@ -1,4 +1,4 @@
-# PostgreSQL. In your app. In your agent. In your browser. { #pg-v3-heading .pg-document-title }
+# PostgreSQL in your app, agent, and browser { #pg-v3-heading .pg-document-title }
 
 <div class="pg-home pg-home-v3">
 
@@ -31,7 +31,7 @@
 <header class="pg-v3-hero" aria-labelledby="pg-v3-heading">
   <div class="pg-v3-hero-copy">
     <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · native + browser</p>
-    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong><span>In your app.</span> <span>In your agent.</span> <span>In your browser.</span></strong></div>
+    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong>In your app, agent, and browser</strong></div>
     <p class="pg-v3-lead">Give your apps and AI agents PostgreSQL. Embed it with Python or C, run it as a threaded server, or use it in your browser.</p>
     <div class="pg-v3-actions">
       <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
