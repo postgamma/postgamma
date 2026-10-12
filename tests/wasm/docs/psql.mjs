@@ -55,6 +55,20 @@ try {
     await page.waitForFunction(prompt => document.querySelector('[data-pg-psql-status]')?.textContent === 'Ready' &&
       window.psqlText().endsWith(prompt), prompt);
   }
+  async function promptFits() {
+    // Check the rendered cursor cell against the clipping container and footer,
+    // not just scrollWidth: overflow:hidden can conceal an oversized terminal.
+    assert(await screen.evaluate(el => {
+      const term = el.terminal, buffer = term.buffer.active;
+      const frame = el.getBoundingClientRect(), grid = el.querySelector('.xterm-screen').getBoundingClientRect();
+      const footer = document.querySelector('.pg-psql-footer').getBoundingClientRect();
+      const row = buffer.baseY + buffer.cursorY - buffer.viewportY;
+      const top = grid.top + row * grid.height / term.rows;
+      return buffer.viewportY === buffer.baseY && top >= frame.top - .5 &&
+        top + grid.height / term.rows <= Math.min(frame.bottom, footer.top) + .5 &&
+        grid.right <= frame.right + .5;
+    }), 'the complete input row fits above the status bar after scrollback');
+  }
   async function command(text, expected, prompt = 'postgres=# ') {
     const before = await read();
     await paste(text); await input.press('Enter');
@@ -181,12 +195,15 @@ try {
   await command('SELECT generate_series(1, 30000);', /\(30000 rows\)/, 'terminal_test=# ');
   assert(await screen.evaluate(el => el.terminal.buffer.active.length <= 2000 + el.terminal.rows));
   await command('SELECT 76 AS after_output_backpressure;', /\n\s*76\s*\n/, 'terminal_test=# ');
+  await promptFits();
   passed('copy-stdin-stdout-literal-rendering-bounded-output-backpressure');
   await command('\\c terminal_test postgamma example.com', /network connection strings are unavailable.*Previous connection kept/, 'terminal_test=# ');
   await command('\\watch', /could not set timer/, 'terminal_test=# ');
   await command('SELECT 77 AS after_unsupported_command;', /\n\s*77\s*\n/, 'terminal_test=# ');
   passed('unsupported-host-and-watch-recover-without-network-proxy');
   await page.locator('[data-pg-live-expand]').click(); assert.equal(await page.locator('dialog[open]').count(), 1);
+  await command('SELECT generate_series(1, 120);', /\(120 rows\)/, 'terminal_test=# ');
+  await promptFits();
   await page.keyboard.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
   await page.screenshot({path: values.output.replace(/\.json$/, '-desktop.png'), fullPage: true});
   await page.setViewportSize({width: 390, height: 844});
@@ -200,8 +217,9 @@ try {
   await input.press('Enter');
   await page.waitForFunction(() => window.psqlText().includes('(1 row)') && window.psqlText().endsWith('terminal_test=# '));
   assert.match(await read(), /long_long_long_long_/); await ready('terminal_test=# ');
+  await promptFits();
   await page.screenshot({path: values.output.replace(/\.json$/, '-mobile.png')});
-  passed('expand-collapse-mobile-layout-wrapped-input-resize-and-edit');
+  passed('expand-collapse-mobile-layout-wrapped-input-resize-and-edit', 'scrollback-input-row-visible-in-compact-expanded-and-mobile-terminal');
   await paste('\\q'); await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'psql exited (0)');
   await input.press('Enter'); await ready();
