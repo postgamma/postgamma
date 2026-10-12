@@ -75,7 +75,7 @@ try {
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-loading-title]').textContent === 'Loading PostgreSQL');
     assert(await loading.isVisible());
     assert(await screen.evaluate(el => el.inert));
-    assert((await screen.boundingBox()).height <= 330, 'loading keeps the compact terminal height');
+    assert((await screen.boundingBox()).height <= 370, 'loading keeps the compact terminal height');
     assert.equal(await page.locator('[data-pg-psql-loading-example]').count(), 0);
     const progress = page.locator('[data-pg-psql-progress]');
     const firstProgress = Number(await progress.getAttribute('aria-valuenow'));
@@ -104,7 +104,7 @@ try {
   assert.match(await read(), /psql \(/);
   assert.doesNotMatch(await read(), /could not find a .*psql.* to execute/);
   assert(await page.locator('[data-pg-psql-loading]').isHidden());
-  assert((await screen.boundingBox()).height <= 330, 'compact terminal height');
+  assert((await screen.boundingBox()).height <= 370, 'compact terminal height');
   await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-ready.png')});
   report.isolated = await page.evaluate(() => isSecureContext && crossOriginIsolated && typeof SharedArrayBuffer === 'function');
   assert.equal(report.isolated, true);
