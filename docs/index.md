@@ -147,9 +147,6 @@ ORDER BY revenue DESC;</textarea>
 }</code></pre>
       </div>
     </div>
-    <div class="pg-runtime-line" aria-label="Your process contains the PostgreSQL engine">
-      <span>Native or browser</span><i aria-hidden="true"></i><strong>PostgreSQL 19</strong>
-    </div>
   </div>
 </header>
 

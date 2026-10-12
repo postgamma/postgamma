@@ -793,46 +793,6 @@ body.pg-home-page .md-main {
   font-size: inherit;
 }
 
-.md-typeset .pg-runtime-line {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 1rem 1.3rem;
-  color: #738087;
-  background: linear-gradient(90deg, rgba(113, 134, 255, 0.08), rgba(72, 230, 206, 0.06));
-  border-top: 1px solid rgba(170, 211, 219, 0.12);
-  font-family: var(--md-code-font-family), monospace;
-  font-size: 0.54rem;
-  text-transform: uppercase;
-}
-
-.md-typeset .pg-runtime-line strong {
-  justify-self: end;
-  color: #bdd5d9;
-  font-size: inherit;
-  font-weight: 650;
-}
-
-.md-typeset .pg-runtime-line > i {
-  position: relative;
-  width: 4.5rem;
-  height: 1px;
-  background: linear-gradient(90deg, var(--pg-blue), var(--pg-accent));
-}
-
-.md-typeset .pg-runtime-line > i::after {
-  position: absolute;
-  top: -0.16rem;
-  right: 0;
-  width: 0.34rem;
-  height: 0.34rem;
-  background: var(--pg-accent);
-  border-radius: 50%;
-  box-shadow: 0 0 0.6rem rgba(72, 230, 206, 0.5);
-  content: "";
-}
-
 /* Technical proof bar */
 
 .md-typeset .pg-proof-strip {
@@ -1846,18 +1806,6 @@ body.pg-home-page .md-main {
 
   .md-typeset .pg-demo-foot code {
     display: none;
-  }
-
-  .md-typeset .pg-runtime-line {
-    grid-template-columns: auto 1fr auto;
-    gap: 0.5rem;
-    padding-right: 0.9rem;
-    padding-left: 0.9rem;
-    font-size: 0.46rem;
-  }
-
-  .md-typeset .pg-runtime-line > i {
-    width: auto;
   }
 
   .md-typeset .pg-proof-strip {
