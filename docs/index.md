@@ -1,4 +1,4 @@
-# PostgreSQL inside your application. { #pg-v3-heading .pg-document-title }
+# PostgreSQL. In your app. In your agent. In your browser. { #pg-v3-heading .pg-document-title }
 
 <div class="pg-home pg-home-v3">
 
@@ -31,8 +31,8 @@
 <header class="pg-v3-hero" aria-labelledby="pg-v3-heading">
   <div class="pg-v3-hero-copy">
     <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · native + browser</p>
-    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong>inside your application.</strong></div>
-    <p class="pg-v3-lead">Bring PostgreSQL into your application. Use the native Python and C SDKs, or run real SQL right here in your browser with our WebAssembly preview.</p>
+    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong><span>In your app.</span> <span>In your agent.</span> <span>In your browser.</span></strong></div>
+    <p class="pg-v3-lead">Give your apps and AI agents a local PostgreSQL database. Embed it with Python or C, or run it in your browser with our WebAssembly preview.</p>
     <div class="pg-v3-actions">
       <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
       <a class="pg-action pg-action--secondary" href="getting-started/">Build your first app</a>

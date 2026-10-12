@@ -416,6 +416,7 @@ body.pg-home-page .md-main {
 .md-typeset .pg-v3-demo {
   position: relative;
   z-index: 1;
+  min-width: 0;
 }
 
 .md-typeset .pg-v3-eyebrow,
@@ -535,6 +536,11 @@ body.pg-home-page .md-main {
   text-wrap: balance;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.md-typeset .pg-v3-display strong > span {
+  display: inline-block;
+  white-space: nowrap;
 }
 
 .md-typeset .pg-v3-lead {
