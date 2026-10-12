@@ -449,7 +449,7 @@ body.pg-home-page .md-main {
   max-width: 100%;
   margin: 0 0 1.2rem;
   color: var(--pg-heading);
-  font-size: clamp(2.8rem, 4.25vw, 4.1rem);
+  font-size: clamp(2.5rem, 3.8vw, 3.65rem);
   font-weight: 620;
   letter-spacing: -0.067em;
   line-height: 0.91;
@@ -531,7 +531,8 @@ body.pg-home-page .md-main {
   font-weight: 620;
   letter-spacing: -0.065em;
   line-height: 1.05;
-  white-space: nowrap;
+  white-space: normal;
+  text-wrap: balance;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -1715,7 +1716,7 @@ body.pg-home-page .md-main {
   }
 
   .md-typeset .pg-v3-display {
-    font-size: clamp(2.8rem, 5.2vw, 3.2rem);
+    font-size: clamp(2.5rem, 4.7vw, 2.9rem);
   }
 
   .md-typeset .pg-v3-demo {
