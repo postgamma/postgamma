@@ -57,7 +57,6 @@
     <div>
       <div id="pg-panel-browser" class="pg-code-panel pg-live" role="tabpanel" aria-labelledby="pg-tab-browser" data-pg-live>
         <div class="pg-psql" data-pg-psql>
-          <div class="pg-live-toolbar"><strong>psql</strong><span class="pg-live-badge">Live</span><a href="?client=js#live-demo">SQL editor ↗</a></div>
           <div class="pg-psql-frame">
             <div class="pg-psql-screen" data-pg-psql-terminal aria-label="Interactive psql terminal" aria-busy="true">Loading PostgreSQL…</div>
             <div class="pg-psql-loading" data-pg-psql-loading>

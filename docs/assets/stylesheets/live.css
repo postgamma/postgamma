@@ -59,9 +59,8 @@
 }
 /* Real psql owns prompts and formatting; the page supplies line editing. */
 .pg-psql[hidden], [data-pg-legacy][hidden] { display: none !important; }
-.pg-psql .pg-live-toolbar a { margin-left: auto; font-size: .55rem; }
 .pg-psql-frame { position: relative; }
-.pg-psql-screen { height: 16rem; overflow: hidden; padding: .8rem; background: #090d10; color: #c4dedc; font: .65rem/1.5 monospace; }
+.pg-psql-screen { height: 18rem; overflow: hidden; padding: .8rem; background: #090d10; color: #c4dedc; font: .65rem/1.5 monospace; }
 .pg-psql-screen .xterm { height: 100%; }
 /* Keep SQL editor styling out of xterm's invisible IME/mobile input helper. */
 .md-typeset .pg-psql .xterm-helper-textarea { width: 0; height: 0; min-height: 0; max-height: none; padding: 0; border: 0; outline: none; resize: none; }
@@ -85,7 +84,7 @@
 @keyframes pg-psql-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .pg-psql-spinner { animation: none; } .pg-psql-progress > span { transition: none; } }
 @media (max-width: 600px) {
-  .pg-psql-screen { height: 15rem; padding: .6rem; }
+  .pg-psql-screen { height: 17rem; padding: .6rem; }
   .pg-psql-loading { padding: .8rem; gap: .5rem; }
   .md-typeset .pg-psql-footer { flex-direction: row; align-items: center; }
   .pg-psql-hint { display: none; }
