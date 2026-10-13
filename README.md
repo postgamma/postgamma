@@ -20,6 +20,9 @@ preview.
 | Server | Connect with psql or a PostgreSQL driver to a threaded server | [Source build](docs/server/quickstart.md) |
 | Browser | Run SQL locally through WebAssembly and Workers | [Browser preview](docs/getting-started/browser.md) |
 
+Start with the [project overview and quickstarts](docs/overview/index.md) to understand
+the runtime modes and choose an integration path.
+
 The first embedded release provides:
 
 - a CPython package with synchronous, DB-API 2.0, and caller-driven asyncio

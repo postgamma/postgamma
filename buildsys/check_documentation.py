@@ -32,6 +32,7 @@ REFERENCE_MARKERS = {
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 REQUIRED_DOCUMENTS = (
     "docs/index.md",
+    "docs/overview/index.md",
     "docs/getting-started/index.md",
     "docs/getting-started/why-postgamma.md",
     "docs/getting-started/c-static.md",

@@ -101,6 +101,7 @@ nav:
   - Home: index.md
   - Download: downloads.md
   - Start here:
+      - Project overview: overview/index.md
       - Python quickstart: getting-started/index.md
       - When to use PostGamma: getting-started/why-postgamma.md
       - Static C quickstart: getting-started/c-static.md

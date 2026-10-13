@@ -11,7 +11,7 @@
     <a href="#architecture">Architecture</a>
     <a href="#sdks">Run modes</a>
     <a href="#use-cases">Use cases</a>
-    <a href="getting-started/">Documentation</a>
+    <a href="overview/">Documentation</a>
   </div>
   <div class="pg-product-actions">
     <a class="pg-github-link" href="https://github.com/postgamma/postgamma" target="_blank" rel="noopener noreferrer" aria-label="postgamma on GitHub, 0 stars" title="postgamma on GitHub" data-pg-github-stars data-pg-repository-api="https://api.github.com/repos/postgamma/postgamma">
@@ -24,7 +24,7 @@
       <span class="pg-theme-icon pg-theme-icon--sun" aria-hidden="true"></span>
       <span class="pg-theme-icon pg-theme-icon--moon" aria-hidden="true"></span>
     </button>
-    <a class="pg-nav-cta" href="getting-started/">Quickstart <span aria-hidden="true">↗</span></a>
+    <a class="pg-nav-cta" href="overview/#choose-your-path">Quickstart <span aria-hidden="true">↗</span></a>
   </div>
 </nav>
 
@@ -35,7 +35,7 @@
     <p class="pg-v3-lead">Give your apps and AI agents PostgreSQL. Embed it with Python or C, run it as a threaded server, or use it in your browser.</p>
     <div class="pg-v3-actions">
       <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
-      <a class="pg-action pg-action--secondary" href="getting-started/">Build your first app</a>
+      <a class="pg-action pg-action--secondary" href="overview/#choose-your-path">Build your first app</a>
     </div>
     <ul class="pg-v3-facts" aria-label="Supported platform and license">
       <li><span aria-hidden="true"></span> Embedded · Server · Browser</li>
@@ -275,11 +275,11 @@ ORDER BY revenue DESC;</textarea>
   <section class="pg-v3-final" aria-labelledby="final-heading">
     <div>
       <p class="pg-v3-kicker">Start small. Keep PostgreSQL.</p>
-      <h2 id="final-heading">Give your application<br>a path and ordinary SQL.</h2>
+      <h2 id="final-heading">Choose your runtime.<br>Run your first query.</h2>
     </div>
     <div>
-      <p>The quickstart shows what PostGamma creates, where the cluster lives, and how to reopen it safely.</p>
-      <div class="pg-v3-actions"><a class="pg-action pg-action--primary" href="getting-started/">Build your first app <span aria-hidden="true">↗</span></a><a class="pg-action pg-action--secondary" href="downloads/">Download</a></div>
+      <p>Start with the project overview, then follow the Python, C, server, or browser quickstart for your application.</p>
+      <div class="pg-v3-actions"><a class="pg-action pg-action--primary" href="overview/#choose-your-path">Build your first app <span aria-hidden="true">↗</span></a><a class="pg-action pg-action--secondary" href="downloads/">Download</a></div>
     </div>
   </section>
 </main>
@@ -287,7 +287,7 @@ ORDER BY revenue DESC;</textarea>
 <footer class="pg-product-footer">
   <a class="pg-brand" href="./" aria-label="postgamma home"><span class="pg-brand-mark" aria-hidden="true"></span><span class="pg-brand-wordmark">postgamma</span></a>
   <p class="pg-product-copyright">Copyright &copy; 2026 Shujie Zhang</p>
-  <div><a href="getting-started/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
+  <div><a href="overview/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
 </footer>
 
 </div>

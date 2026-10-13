@@ -6,6 +6,7 @@ The first embedded release is an unreleased alpha candidate for a CPython wheel 
 
 ## Start here
 
+- [Project overview and quickstarts](overview/): What PostGamma builds, how the three runtime modes differ, and where to start with Python, C, server, or browser integration.
 - [Python quickstart](getting-started/): Create, query, close, and reopen a persistent cluster.
 - [When to use PostGamma](getting-started/why-postgamma/): Compare the application boundary with SQLite, DuckDB, PGlite, and a PostgreSQL server.
 - [Static C quickstart](getting-started/c-static/): Link the static SDK and run its validated native example.
