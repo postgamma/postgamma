@@ -91,11 +91,13 @@ extra_css:
   - assets/stylesheets/extra.css
   - assets/vendor/xterm/xterm.css
   - assets/stylesheets/live.css
+  - assets/stylesheets/opfs.css
 
 extra_javascript:
   - assets/javascripts/home.js
   - assets/javascripts/live.js
   - assets/javascripts/psql.js
+  - assets/javascripts/opfs.js
 
 nav:
   - Home: index.md
@@ -106,6 +108,7 @@ nav:
       - When to use PostGamma: getting-started/why-postgamma.md
       - Static C quickstart: getting-started/c-static.md
       - Browser preview: getting-started/browser.md
+      - OPFS persistence check: opfs/index.md
       - Installation: getting-started/installation.md
       - Database paths and creation: getting-started/database-paths.md
   - Python guides:

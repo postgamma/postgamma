@@ -41,12 +41,16 @@ and **Reset** creates a fresh memory database. The [SQL editor](../index.md?clie
 the aggregation, JSONB, transaction and pgvector examples.
 
 Use HTTPS or localhost to run the demo. GitHub Pages needs one automatic reload
-on first start to enable the browser's isolation requirements. The preview does
+on first start to enable the browser's isolation requirements. The homepage preview does
 not save data to OPFS. Native terminal input/output queues are bounded to 64 KiB
 each, each input line is at most 16 KiB, pending input is capped at 64 KiB, and
 terminal scrollback is capped at 2,000 lines. Large results continue streaming
 while old displayed output is removed. Terminal assets are bundled with the site;
 no terminal CDN or backend service is needed.
+
+Use the [OPFS persistence check](../opfs/index.md) to save a test record, restart
+your browser and verify that it survives. It also includes a reload with an
+uncommitted transaction and a copyable browser report.
 
 This first psql integration is experimental and owns its database instance.
 It uses the matching private libpq and PostgreSQL wire protocol over the existing
@@ -60,8 +64,8 @@ cannot run concurrently with a psql terminal in the same instance.
 The same static assets can be hosted under a GitHub Pages repository path. The
 service worker supplies isolation headers for the demo page and its assets;
 all Worker/module/asset URLs are relative to that path. The one-command browser
-check is `make docs-live-check DOCS_WASM_PACKAGE=auto`. It exercises real psql
-and the SQL editor in Chromium, Firefox and WebKit on both a header-based host
+check is `make docs-live-check DOCS_WASM_PACKAGE=auto`. It exercises real psql,
+the SQL editor and the OPFS persistence check in Chromium, Firefox and WebKit on both a header-based host
 and a headerless `/project/` host. This emulates Pages; it does not publish a site.
 
 For a local checkout, `make docs-serve DOCS_WASM_PACKAGE=/path/to/package.tgz`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the built homepage with real Wasm, including a headerless Pages host."""
+"""Exercise the browser demos with real Wasm, including a headerless Pages host."""
 from __future__ import annotations
 import argparse
 from http.server import SimpleHTTPRequestHandler
@@ -26,7 +26,8 @@ def main():
     parser.add_argument('--build-dir', type=Path)
     parser.add_argument('--site-dir', type=Path)
     parser.add_argument('--engines', default='chromium,firefox,webkit')
-    parser.add_argument('--clients', default='psql,js', help='psql, js, or both')
+    parser.add_argument('--clients', default='psql,js,opfs', help='comma-separated psql, js, and/or opfs')
+    parser.add_argument('--hosts', default='headers,pages', help='comma-separated headers and/or pages')
     parser.set_defaults(deps_dir=None, profile=None, sdk_dir=None, jobs=1,
                         target='wasm32-emscripten-pthreads', mode='release', node='', browser_executable='')
     args = parser.parse_args()
@@ -34,16 +35,21 @@ def main():
     tools, env = sdk_tools(config)
     site = args.site_dir or config.build / 'docs/site'
     clients = args.clients.split(',')
-    if not clients or any(client not in {'psql', 'js'} for client in clients):
-        parser.error('clients must be psql, js, or psql,js')
+    if not clients or any(client not in {'psql', 'js', 'opfs'} for client in clients):
+        parser.error('clients must be selected from psql, js, opfs')
+    hosts = args.hosts.split(',')
+    if not hosts or any(host not in {'headers', 'pages'} for host in hosts):
+        parser.error('hosts must be selected from headers, pages')
     harnesses = {client: Path(__file__).resolve().parents[1] / 'tests/wasm/docs' /
-                 ('psql.mjs' if client == 'psql' else 'homepage.mjs') for client in clients}
+                 {'psql': 'psql.mjs', 'js': 'homepage.mjs', 'opfs': 'opfs.mjs'}[client] for client in clients}
     assets = ['index.html', 'live-worker.js', 'assets/javascripts/live.js',
               'assets/javascripts/psql.js', 'assets/javascripts/psql-terminal.js',
               'assets/vendor/xterm/xterm.mjs', 'assets/vendor/xterm/addon-fit.mjs',
               'assets/vendor/xterm/xterm.css',
               'assets/stylesheets/live.css', 'assets/stylesheets/extra.css',
               'assets/wasm/postgamma.assets.json']
+    if 'opfs' in clients:
+        assets += ['opfs/index.html', 'assets/javascripts/opfs.js', 'assets/stylesheets/opfs.css']
     identity = {name: digest(site / name) for name in assets}
     current = config.build / 'docs/checks' / run_id()
     current.mkdir(parents=True)
@@ -53,7 +59,7 @@ def main():
     for engine in args.engines.split(','):
         if engine not in {'chromium', 'firefox', 'webkit'}:
             parser.error('unknown browser engine: ' + engine)
-        for client, static in [(client, static) for client in clients for static in (False, True)]:
+        for client, static in [(client, host == 'pages') for client in clients for host in hosts]:
             harness = harnesses[client]
             name = engine + '-' + client + ('-pages' if static else '-headers')
             output = current / (name + '.json')
@@ -69,7 +75,8 @@ def main():
                 elif engine == 'chromium' and config.browser_override:
                     command += ['--executable', config.browser_override]
                 try:
-                    run(command, current / (name + '.log'), browser_environment(config, env), config.root, timeout=180)
+                    run(command, current / (name + '.log'), browser_environment(config, env), config.root,
+                        timeout=360 if client == 'opfs' else 180)
                     report['results'].append({'name': name, 'status': 'passed', 'report': str(output)})
                 except Exception as error:
                     report['status'] = 'failed'
@@ -78,10 +85,10 @@ def main():
     if (identity != {name: digest(site / name) for name in assets} or
             report['harnesses'] != {client: digest(harness) for client, harness in harnesses.items()}):
         report['status'] = 'failed'
-        report['error'] = 'Homepage or test source changed during validation'
+        report['error'] = 'Demo or test source changed during validation'
     write_json(current / 'result.json', report)
     write_json(config.build / 'docs/live-check.json', {'status': report['status'], 'run_report': str(current / 'result.json')})
-    print('homepage live check: ' + str(current / 'result.json'), flush=True)
+    print('documentation live check: ' + str(current / 'result.json'), flush=True)
     if report['status'] != 'passed':
         raise SystemExit(1)
 

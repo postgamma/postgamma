@@ -1342,8 +1342,9 @@ docs-wasm:
 
 .PHONY: docs-live-check
 DOCS_LIVE_ENGINES ?= chromium,firefox,webkit
+DOCS_LIVE_CLIENTS ?= psql,js,opfs
 docs-live-check: docs
-	@$(PYTHON) buildsys/docs_live_check.py --root "$(ROOT)" --build-dir "$(BUILD_DIR)" --engines "$(DOCS_LIVE_ENGINES)"
+	@$(PYTHON) buildsys/docs_live_check.py --root "$(ROOT)" --build-dir "$(BUILD_DIR)" --engines "$(DOCS_LIVE_ENGINES)" --clients "$(DOCS_LIVE_CLIENTS)"
 
 docs-check: doctor-docs docs-api docs-wasm portability-check publication-check
 	@$(PYTHON) -m unittest tests.buildsys.test_documentation tests.buildsys.test_docs_wasm tests.buildsys.test_docs_tls
