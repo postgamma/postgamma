@@ -204,6 +204,27 @@ class DocumentationTlsTests(unittest.TestCase):
                         self.assertEqual(body, b"wasm" * 10000)
                     finally:
                         client.close()
+                # A gzip stream has no Content-Length; its end is delimited
+                # by TLS close_notify. Do not let Python hide a ragged EOF,
+                # which makes stricter clients reject an otherwise valid 200.
+                for version in (ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3):
+                    closing_context = ssl.create_default_context(cafile=str(cert))
+                    closing_context.minimum_version = closing_context.maximum_version = version
+                    with self.subTest(tls=version.name), socket.create_connection(
+                            ("127.0.0.1", port), timeout=5) as raw:
+                        with closing_context.wrap_socket(raw, server_hostname="127.0.0.1",
+                                                         suppress_ragged_eofs=False) as client:
+                            client.sendall(b"GET /asset.wasm HTTP/1.1\r\nHost: localhost\r\n"
+                                           b"Accept-Encoding: gzip\r\nConnection: close\r\n\r\n")
+                            chunks = []
+                            while chunk := client.recv(65536):
+                                chunks.append(chunk)
+                            headers, body = b"".join(chunks).split(b"\r\n\r\n", 1)
+                            self.assertIn(b"200 OK", headers)
+                            self.assertIn(b"Content-Encoding: gzip", headers)
+                            self.assertNotIn(b"Content-Length:", headers)
+                            self.assertEqual(gzip.decompress(body), b"wasm" * 10000)
+                            client.unwrap()
                 with mock.patch.object(server, "handle_error") as unhandled:
                     client = http.client.HTTPSConnection("127.0.0.1", port, timeout=5)
                     try:

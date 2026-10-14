@@ -243,6 +243,12 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
                     with contexts.current().wrap_socket(request, server_side=True) as secure:
                         secure.settimeout(previous_timeout)
                         finish_request(secure, client_address)
+                        # Streaming gzip has no Content-Length, so clients
+                        # need close_notify to distinguish a complete response
+                        # from truncation. SSLSocket.close() alone omits it.
+                        # Bound the wait for peers that never acknowledge it.
+                        secure.settimeout(5)
+                        secure.unwrap()
                 elif first:
                     finish_request(request, client_address)
             except (ssl.SSLError, ConnectionError, TimeoutError) as error:
