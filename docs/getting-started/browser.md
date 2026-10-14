@@ -80,6 +80,8 @@ warning disables Chromium's HTTP cache and can make Worker startup time out on
 slow connections. To supply a certificate already trusted by your browser,
 set `DOCS_TLS_CERT=/path/to/fullchain.pem` and
 `DOCS_TLS_KEY=/path/to/key.pem`. The default loopback address uses HTTP.
+When HTTPS is enabled, HTTP requests to the same port automatically redirect
+to HTTPS, preserving the page path and query string.
 
 ## Build and install
 

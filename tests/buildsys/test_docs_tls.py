@@ -5,6 +5,7 @@ import http.client
 import gzip
 import os
 from pathlib import Path
+import socket
 import socketserver
 import ssl
 import sys
@@ -118,8 +119,10 @@ class DocumentationTlsTests(unittest.TestCase):
             asset = root / "assets/wasm/worker.mjs"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"original module")
+            app_requests = []
 
             def app(environ, respond):
+                app_requests.append(environ["PATH_INFO"])
                 status = "404 Not Found" if environ["PATH_INFO"] == "/missing" else "200 OK"
                 respond(status, [("Content-Type", "text/plain")])
                 if environ["PATH_INFO"] == "/assets/wasm/worker.mjs":
@@ -138,6 +141,42 @@ class DocumentationTlsTests(unittest.TestCase):
             try:
                 # Trust this exact certificate; do not disable certificate or hostname verification.
                 context = ssl.create_default_context(cafile=str(cert))
+                # HTTP on the HTTPS port must return a useful redirect, never
+                # an empty response or the unisolated application contents.
+                for method in ("GET", "HEAD"):
+                    client = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    try:
+                        client.request(method, "/opfs/?probe=a%20b&client=opfs")
+                        response = client.getresponse()
+                        self.assertEqual(response.status, 307)
+                        self.assertEqual(response.getheader("Location"),
+                                         f"https://127.0.0.1:{port}/opfs/?probe=a%20b&client=opfs")
+                        self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                        self.assertEqual(response.read(), b"")
+                    finally:
+                        client.close()
+                for authority in ("example.com/other", "example.com:65536"):
+                    client = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    try:
+                        client.request("GET", "/opfs/", headers={"Host": authority})
+                        response = client.getresponse()
+                        self.assertEqual(response.status, 400)
+                        self.assertIsNone(response.getheader("Location"))
+                        response.read()
+                    finally:
+                        client.close()
+                self.assertEqual(app_requests, [])
+                # An incomplete TLS handshake must not hold up other clients.
+                with socket.create_connection(("127.0.0.1", port), timeout=5) as idle:
+                    idle.sendall(b"\x16")
+                    client = http.client.HTTPSConnection("127.0.0.1", port, timeout=5, context=context)
+                    try:
+                        client.request("GET", "/opfs/")
+                        response = client.getresponse()
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(response.read(), b"https")
+                    finally:
+                        client.close()
                 for path, expected in (("/", 200), ("/asset.mjs", 200), ("/missing", 404)):
                     client = http.client.HTTPSConnection("127.0.0.1", port, timeout=5, context=context)
                     try:

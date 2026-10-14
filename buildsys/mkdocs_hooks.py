@@ -198,25 +198,57 @@ def on_serve(server: Any, **kwargs: Any) -> Any:
 
         class TLSRequestHandler(server.RequestHandlerClass):
             def handle(self) -> None:
-                previous_timeout = self.connection.gettimeout()
-                try:
-                    self.connection.settimeout(10)
-                    self.connection.context = contexts.current()
-                    self.connection.do_handshake()
-                except (ssl.SSLError, ConnectionError, TimeoutError) as error:
-                    # A browser may reject the development certificate or a
-                    # visitor may still use HTTP. Neither is an app traceback.
-                    logger.debug("TLS connection from %s closed: %s", self.client_address, error)
+                if isinstance(self.connection, ssl.SSLSocket):
+                    super().handle()
                     return
-                finally:
-                    self.connection.settimeout(previous_timeout)
-                super().handle()
+                # A pasted address may arrive over HTTP on this same port.
+                # Redirect before invoking the app, which requires HTTPS.
+                self.raw_requestline = self.rfile.readline(65537)
+                if len(self.raw_requestline) > 65536:
+                    self.requestline = self.request_version = self.command = ""
+                    self.send_error(414)
+                    return
+                if not self.raw_requestline or not self.parse_request():
+                    return
+                authorities = self.headers.get_all("Host", [])
+                if len(authorities) != 1 or not re.fullmatch(
+                        r"(?:\[[0-9a-fA-F:.]+\]|[A-Za-z0-9._-]+)(?::[0-9]{1,5})?", authorities[0]):
+                    self.send_error(400, "A valid Host header is required")
+                    return
+                try:
+                    urlsplit("https://" + authorities[0]).port
+                    target = urlsplit(self.path)
+                except ValueError:
+                    self.send_error(400, "Invalid preview address")
+                    return
+                self.send_response(307)
+                self.send_header("Location", urlunsplit(("https", authorities[0], target.path or "/", target.query, "")))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
 
         server.RequestHandlerClass = TLSRequestHandler
-        # Handshake in the request thread, so an idle connection does not block
-        # acceptance of the other connections used by the browser's Workers.
-        server.socket = contexts.context.wrap_socket(server.socket, server_side=True,
-                                            do_handshake_on_connect=False)
+        finish_request = server.finish_request
+
+        def accept_preview(request: Any, client_address: Any) -> None:
+            # Detect the protocol and handshake in the request thread. An idle
+            # socket must not block other connections used by browser Workers.
+            previous_timeout = request.gettimeout()
+            try:
+                request.settimeout(10)
+                first = request.recv(1, socket.MSG_PEEK)
+                if first == b"\x16":
+                    with contexts.current().wrap_socket(request, server_side=True) as secure:
+                        secure.settimeout(previous_timeout)
+                        finish_request(secure, client_address)
+                elif first:
+                    finish_request(request, client_address)
+            except (ssl.SSLError, ConnectionError, TimeoutError) as error:
+                logger.debug("Preview connection from %s closed: %s", client_address, error)
+
+        server.finish_request = accept_preview
         server.url = urlunsplit(urlsplit(server.url)._replace(scheme="https"))
         if names:
             public_cert = cert.parent.parent / "preview.crt"
