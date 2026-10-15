@@ -195,6 +195,11 @@ class Builder:
 
     def compile(self, source, key, extra=()):
         source = Path(source)
+        if self.config.mode == "release" and key == "backend/src/backend/nodes/outfuncs":
+            # Keep node serializers separate in LLVM. The link step also needs
+            # to preserve them: Binaryen otherwise inlines them back into the
+            # recursive outNode dispatcher (over 120 KiB in the failing build).
+            extra = [*extra, "-fno-inline-functions"]
         if source.name == 'config_info.c':
             source = self.config_info
             extra = [self.public_build_text(arg) if arg.startswith('-DVAL_') else arg for arg in extra]
@@ -597,7 +602,17 @@ class Builder:
                  "pgm_execute", "pgm_result_value", "pgm_result_free", "pgm_error_message", "pgm_error_free")
         self.report["mailbox_notification"] = "postMessage"
         self.report["storage_notification"] = "direct BroadcastChannel"
+        optimizations = self.inputs["profile"]["modes"][self.config.mode]
+        if self.config.mode == "release":
+            # Mark serializers before Binaryen's O2 inliner runs. Its initial
+            # O1 pass does not inline; the following O2 pass still optimizes the
+            # kernel, with only _out* functions excluded from inlining.
+            optimizations = ["-O1" if arg == "-O2" else arg for arg in optimizations]
+            optimizations = [*optimizations, "-sBINARYEN_EXTRA_PASSES=--no-inline=_out*,-O2"]
         command = [self.emxx, "-pthread", "-sSUPPORT_LONGJMP=" + self.longjmp,
+                   # Retaining intermediate names is required by --no-inline.
+                   # Keep the final map in the build report, outside the package.
+                   "--emit-symbol-map",
                    "--js-library", str(self.root / "runtime/platform/emscripten/mailbox.js"),
                    *(["--extern-pre-js", str(self.root / "wasm/bridge/worker-messages.js")]
                      if bridge_source == self.root / "wasm/bridge/sql.c" else []),
@@ -606,7 +621,7 @@ class Builder:
                    "-Wl,--fatal-warnings", "-Wl,-Map=" + str(self.current / "link.map"),
                    *("-Wl,--export=" + name for name in ("__tls_size", "__tls_align", "__data_end", "__heap_base")),
                    *("-Wl,--undefined=" + name for name in roots),
-                   *self.inputs["profile"]["modes"][self.config.mode],
+                   *optimizations,
                    *(["-Wl,--wrap=postgamma_supervisor_ticket_wait"] if "-DPOSTGAMMA_WASM_TESTING" in bridge_flags else []),
                    "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
                    '-sINCOMING_MODULE_JS_API=["print","printErr","onAbort","locateFile","getPreloadedPackage","wasmBinary","noExitRuntime","instantiateWasm","wasmMemory"]',
@@ -620,9 +635,14 @@ class Builder:
         response = self.current / "link.rsp"
         response.write_text(shlex.join(command[1:]) + "\n")
         run([command[0], "@" + str(response)], self.log, self.env, site)
+        symbols = self.current / "symbols.map"
+        shutil.move(site / "postgamma.mjs.symbols", symbols)
+        self.report["symbols"] = {"path": str(symbols), "sha256": digest(symbols)}
         audit = self.current / "imports.json"
         run([sys.executable, str(self.root / "buildsys/wasm_link_audit.py"),
              "--sdk", str(self.config.sdk), "--wasm", str(site / "postgamma.wasm"),
+             # This bound guards release inlining, not unoptimized O0 code.
+             *(["--symbols", str(symbols)] if self.config.mode == "release" else []),
              "--output", str(audit)], self.log, self.env, self.root)
         self.report["audit"] = read_json(audit)
         measured = self.report["audit"]["layout"]

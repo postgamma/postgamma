@@ -50,9 +50,10 @@ def provider(name: str) -> str:
     raise WasmError("unreviewed linked Wasm import: " + name)
 
 
-def inspect(sdk: Path, wasm: Path) -> dict:
+def inspect(sdk: Path, wasm: Path, symbols: Path | None = None) -> dict:
     sys.path.insert(0, str(sdk / "upstream/emscripten"))
     from tools.webassembly import ExternType, Module, OpCode
+    recursive_functions = {}
     with Module(str(wasm)) as module:
         required = {"pgm_instance_open", "pgm_instance_close", "pgm_connection_open",
                     "pgm_connection_close", "pgm_execute", "pgm_result_value", "pgm_result_free",
@@ -76,8 +77,26 @@ def inspect(sdk: Path, wasm: Path) -> dict:
                 measured[entry.name] = value.init[0][1][0]
         if set(measured) != {"__tls_size", "__tls_align", "__data_end", "__heap_base"}:
             raise WasmError("linked layout evidence is incomplete")
+        if symbols is not None:
+            matches = [line.partition(":")[0] for line in symbols.read_text().splitlines()
+                       if line.partition(":")[2] == "outNode"]
+            if len(matches) != 1 or not matches[0].isdigit():
+                raise WasmError("symbol map must identify exactly one outNode function")
+            index = int(matches[0])
+            try:
+                # Function indices include imports; the SDK reader handles the
+                # offset rather than relying on a fixed import count.
+                body = module.get_function(index)
+            except (AssertionError, IndexError) as error:
+                raise WasmError("outNode symbol is outside the defined function section") from error
+            recursive_functions["outNode"] = {"index": index, "body_bytes": body.size,
+                                               "maximum_body_bytes": 16384}
+            if body.size > 16384:
+                raise WasmError(f"recursive outNode grew to {body.size} bytes; keep node serializers separate")
     return {"kind": "postgamma.wasm-link-audit", "status": "passed",
             "module_sha256": digest(wasm), "imports": imports, "layout": measured,
+            "symbols_sha256": digest(symbols) if symbols is not None else None,
+            "recursive_functions": recursive_functions,
             "kernel_exports": sorted(required),
             "reader_sha256": digest(sdk / "upstream/emscripten/tools/webassembly.py"),
             "native_network_supported": False, "native_processes_supported": False,
@@ -88,9 +107,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", required=True, type=Path)
     parser.add_argument("--wasm", required=True, type=Path)
+    parser.add_argument("--symbols", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    write_json(args.output, inspect(args.sdk, args.wasm))
+    write_json(args.output, inspect(args.sdk, args.wasm, args.symbols))
 
 
 if __name__ == "__main__":
