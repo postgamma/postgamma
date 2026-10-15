@@ -10,6 +10,12 @@ import sys
 from wasm_toolchain import WasmError, digest, write_json
 
 
+# Regression bounds for the linked dispatchers, not browser stack limits.
+# parseNodeString retains a larger generated token-matching dispatch table.
+NODE_RECURSION_LIMITS = {"outNode": 16384, "nodeRead": 8192, "parseNodeString": 24576,
+                         "copyObjectImpl": 8192, "equal": 8192, "_jumbleNode": 8192}
+
+
 PROVIDERS = {
     "sql-readiness": "postgamma_bridge_event",
     "opfs-owner": "postgamma_storage_dispatch postgamma_storage_listen postgamma_storage_notify "
@@ -78,21 +84,22 @@ def inspect(sdk: Path, wasm: Path, symbols: Path | None = None) -> dict:
         if set(measured) != {"__tls_size", "__tls_align", "__data_end", "__heap_base"}:
             raise WasmError("linked layout evidence is incomplete")
         if symbols is not None:
-            matches = [line.partition(":")[0] for line in symbols.read_text().splitlines()
-                       if line.partition(":")[2] == "outNode"]
-            if len(matches) != 1 or not matches[0].isdigit():
-                raise WasmError("symbol map must identify exactly one outNode function")
-            index = int(matches[0])
-            try:
-                # Function indices include imports; the SDK reader handles the
-                # offset rather than relying on a fixed import count.
-                body = module.get_function(index)
-            except (AssertionError, IndexError) as error:
-                raise WasmError("outNode symbol is outside the defined function section") from error
-            recursive_functions["outNode"] = {"index": index, "body_bytes": body.size,
-                                               "maximum_body_bytes": 16384}
-            if body.size > 16384:
-                raise WasmError(f"recursive outNode grew to {body.size} bytes; keep node serializers separate")
+            entries = [line.partition(":") for line in symbols.read_text().splitlines()]
+            for name, maximum in NODE_RECURSION_LIMITS.items():
+                matches = [index for index, _, symbol in entries if symbol == name]
+                if len(matches) != 1 or not matches[0].isdigit():
+                    raise WasmError(f"symbol map must identify exactly one {name} function")
+                index = int(matches[0])
+                try:
+                    # Function indices include imports; the SDK reader handles
+                    # the offset rather than relying on a fixed import count.
+                    body = module.get_function(index)
+                except (AssertionError, IndexError) as error:
+                    raise WasmError(f"{name} symbol is outside the defined function section") from error
+                recursive_functions[name] = {"index": index, "body_bytes": body.size,
+                                              "maximum_body_bytes": maximum}
+                if body.size > maximum:
+                    raise WasmError(f"recursive {name} grew to {body.size} bytes; keep node helpers separate")
     return {"kind": "postgamma.wasm-link-audit", "status": "passed",
             "module_sha256": digest(wasm), "imports": imports, "layout": measured,
             "symbols_sha256": digest(symbols) if symbols is not None else None,

@@ -20,6 +20,7 @@ import {controls} from './controls.js';
 import {types} from './types.js';
 import {streams} from './streams.js';
 import {logical} from './logical.js';
+import {nodeRecursion} from './nodes.js';
 import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
 import {storage} from '../storage-tests/run.js';
 import {durability} from '../storage-tests/durability.js';
@@ -68,6 +69,7 @@ async function abi(db: Database) {
   assert(staleRejected && scalar([await fresh.next() as Result]) === '9', 'Stale generation rejected without touching fresh request');
   await fresh.next(); await fresh.close();
   await c.close();
+  await nodeRecursion(db, checks);
   checks.push('parameters-exact-null-unicode', 'binary-copy', 'column-metadata', 'sqlstate-diagnostics', 'stale-generation');
 }
 try {

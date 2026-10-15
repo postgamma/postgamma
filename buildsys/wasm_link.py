@@ -19,6 +19,11 @@ from wasm_toolchain import (WasmError, configuration, digest, fingerprint, read_
                             run, run_id, write_json, capture)
 
 
+NODE_RECURSION_UNITS = ("outfuncs", "read", "readfuncs", "copyfuncs", "equalfuncs", "queryjumblefuncs")
+NODE_RECURSION_NOINLINE = ("_out*", "_read*", "_copy*", "_equal*", "_jumble*",
+                         "outNode", "nodeRead", "parseNodeString", "copyObjectImpl", "equal")
+
+
 def target_static_modules(document, selected, major, candidate=False):
     from bundle_embedded_static_modules import validate_manifest
     manifest = copy.deepcopy(document)
@@ -195,10 +200,11 @@ class Builder:
 
     def compile(self, source, key, extra=()):
         source = Path(source)
-        if self.config.mode == "release" and key == "backend/src/backend/nodes/outfuncs":
-            # Keep node serializers separate in LLVM. The link step also needs
-            # to preserve them: Binaryen otherwise inlines them back into the
-            # recursive outNode dispatcher (over 120 KiB in the failing build).
+        if self.config.mode == "release" and key in (
+                "backend/src/backend/nodes/" + unit for unit in NODE_RECURSION_UNITS):
+            # Keep recursive node operations separate in LLVM. Binaryen must
+            # preserve these boundaries too: Safari 16.6 overflowed in outNode,
+            # then nodeRead, when their helpers formed giant recursive bodies.
             extra = [*extra, "-fno-inline-functions"]
         if source.name == 'config_info.c':
             source = self.config_info
@@ -604,11 +610,12 @@ class Builder:
         self.report["storage_notification"] = "direct BroadcastChannel"
         optimizations = self.inputs["profile"]["modes"][self.config.mode]
         if self.config.mode == "release":
-            # Mark serializers before Binaryen's O2 inliner runs. Its initial
+            # Mark node operations before Binaryen's O2 inliner runs. Its initial
             # O1 pass does not inline; the following O2 pass still optimizes the
-            # kernel, with only _out* functions excluded from inlining.
+            # kernel, with the recursive node helpers excluded from inlining.
             optimizations = ["-O1" if arg == "-O2" else arg for arg in optimizations]
-            optimizations = [*optimizations, "-sBINARYEN_EXTRA_PASSES=--no-inline=_out*,-O2"]
+            passes = [*("--no-inline=" + pattern for pattern in NODE_RECURSION_NOINLINE), "-O2"]
+            optimizations = [*optimizations, "-sBINARYEN_EXTRA_PASSES=" + ",".join(passes)]
         command = [self.emxx, "-pthread", "-sSUPPORT_LONGJMP=" + self.longjmp,
                    # Retaining intermediate names is required by --no-inline.
                    # Keep the final map in the build report, outside the package.
