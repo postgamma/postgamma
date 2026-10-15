@@ -108,7 +108,10 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-loading-mobile.png')});
     await page.setViewportSize({width: 1440, height: 1000});
-    releaseStartup(); await context.unroute('**/assets/wasm/demo.json');
+    releaseStartup();
+    // Keep this now-open gate installed: removing it while route.continue()
+    // resumes can double-handle the request. Other routes, including the
+    // offline HTTPS guard, must remain in place too.
     passed('centered-estimated-progress-elapsed-no-tips-and-compact-mobile-layout');
   }
   await ready();
