@@ -172,14 +172,15 @@ async function fail(error: unknown, faultingWorker?: Worker) {
   await tick();
   try {await release?.();}
   catch (cause) {failure += '; ownership release failed: ' + String(cause);}
-  postMessage({fatal: failure, output, metrics: {peakMemory, peakThreads, peakPending,
+  postMessage({fatal: failure, fatalStack: error instanceof Error ? error.stack?.slice(0, 16384) : undefined,
+    output, metrics: {peakMemory, peakThreads, peakPending,
     peakQueuedBytes, samples, droppedLogs, interruptedWorkers, terminationRequested: true,
     ioStackBytes, storageQuiesced, storageReleased, closedStorageHandles, crashedWorkerRetired,
     runningWorkers: loaded ? Object.keys(loaded.PThread.pthreads).length : null}});
   // The transport terminates this control Worker after consuming the cleanup
   // receipt. Keep one owner for termination, as on the orderly shutdown path.
 }
-self.addEventListener('error', event => {event.preventDefault(); fail(event.message);});
+self.addEventListener('error', event => {event.preventDefault(); fail(event.error ?? event.message);});
 self.addEventListener('unhandledrejection', event => {event.preventDefault(); fail(event.reason);});
 let kernel: Promise<SqlModule> | undefined;
 let compiledModule: WebAssembly.Module | undefined;

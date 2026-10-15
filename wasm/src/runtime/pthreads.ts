@@ -62,7 +62,9 @@ export function ownPthreads(control: Worker, moduleURL: URL, failed: (error: Err
       worker.onmessage = event => send({event: 'message', data: event.data, ports: event.ports}, [...event.ports]);
       worker.onerror = event => {
         event.preventDefault();
-        send({event: 'error', message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno});
+        send({event: 'error', message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno,
+          errorName: event.error?.name, errorMessage: event.error?.message,
+          errorStack: typeof event.error?.stack === 'string' ? event.error.stack.slice(0, 16384) : undefined});
       };
       worker.onmessageerror = () => send({event: 'messageerror'});
       void ready.catch(cause => {
@@ -129,8 +131,13 @@ export function installPthreadBroker(broker: MessagePort): void {
           const event = new MessageEvent('message', {data: data.data, ports: data.ports});
           this.dispatchEvent(event); this.onmessage?.call(this as unknown as Worker, event);
         } else if (data.event === 'error') {
+          let error: Error | undefined;
+          if (typeof data.errorStack === 'string') {
+            error = new Error(data.errorMessage); error.name = data.errorName;
+            error.stack = data.errorStack.slice(0, 16384);
+          }
           const event = new ErrorEvent('error', {cancelable: true, message: data.message,
-            filename: data.filename, lineno: data.lineno, colno: data.colno});
+            filename: data.filename, lineno: data.lineno, colno: data.colno, error});
           this.dispatchEvent(event); this.onerror?.call(this as unknown as Worker, event);
         } else {
           const event = new MessageEvent('messageerror');

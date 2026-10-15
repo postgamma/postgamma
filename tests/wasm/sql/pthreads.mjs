@@ -6,7 +6,7 @@ import {WorkerFixture} from './worker-fixture.mjs';
 const {ownPthreads, installPthreadBroker} = await import(pathToFileURL(resolve(process.argv[2], 'runtime/pthreads.js')));
 const {pthreadPoolSize} = await import(pathToFileURL(resolve(process.argv[2], 'protocol/limits.js')));
 globalThis.ErrorEvent ??= class extends Event {
-  constructor(type, init) {super(type, init); for (const key of ['message', 'filename', 'lineno', 'colno']) this[key] = init[key];}
+  constructor(type, init) {super(type, init); for (const key of ['message', 'filename', 'lineno', 'colno', 'error']) this[key] = init[key];}
 };
 const native = [], failures = [];
 let automaticMailbox = true;
@@ -64,6 +64,14 @@ try {
   await wait(() => error);
   assert(prevented && error.defaultPrevented);
   assert.equal(error.message, 'native trap'); assert.equal(error.lineno, 12);
+  error = undefined;
+  const nativeError = new RangeError('Maximum call stack size exceeded.');
+  nativeError.stack = 'RangeError: Maximum call stack size exceeded.\n    at nativeStartup (postgamma.mjs:12:3)';
+  native[0].onerror({message: nativeError.message, error: nativeError, filename: 'postgamma.mjs', lineno: 12, colno: 3,
+    preventDefault() {}});
+  await wait(() => error);
+  assert.equal(error.error.name, 'RangeError');
+  assert.equal(error.error.stack, nativeError.stack, 'The pthread broker retains the originating stack');
   worker.terminate(); worker.terminate();
   await wait(() => native[0].terminated === 1);
   assert.deepEqual(failures, []);

@@ -124,7 +124,11 @@ class Transport {
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
-      if (data.fatal) {this.retire(new Error(data.fatal)); return;}
+      if (data.fatal) {
+        const error = new Error(data.fatal);
+        if (typeof data.fatalStack === 'string') error.stack = data.fatalStack.slice(0, 16384);
+        this.retire(error); return;
+      }
       if (this.failure) return;
       if (data.notificationsReady) {
         if (this.eventsEnabled) {this.eventsPending = true; void this.events();}

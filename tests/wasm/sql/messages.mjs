@@ -7,6 +7,9 @@ import {runInNewContext} from 'node:vm';
 import {WorkerFixture, waitFor} from './worker-fixture.mjs';
 const source = resolve(process.argv[2], 'runtime/messages.js');
 const {ownWorkerMailbox} = await import(pathToFileURL(source));
+globalThis.ErrorEvent ??= class extends Event {
+  constructor(type, init) {super(type, init); for (const key of ['message', 'filename', 'lineno', 'colno', 'error']) this[key] = init[key];}
+};
 const workers = [], channels = [];
 try {
   const worker = new WorkerFixture(); workers.push(worker);
@@ -60,7 +63,7 @@ try {
     static [Symbol.hasInstance](value) {return value?.DedicatedWorkerGlobalScope === this;}
   }
   const scope = new DedicatedWorkerGlobalScope(); let bootstraps = 0, childData;
-  Object.assign(scope, {DedicatedWorkerGlobalScope,
+  Object.assign(scope, {DedicatedWorkerGlobalScope, name: 'em-pthread-0',
     MessageChannel: class extends MessageChannel {constructor() {super(); channels.push(this);}},
     MessageEvent, setTimeout, clearTimeout});
   const childOwner = new WorkerFixture(false); workers.push(childOwner);
@@ -82,6 +85,23 @@ try {
   await waitFor(() => childReply);
   assert.deepEqual(childData, {command: 42}); assert.deepEqual(childReply, {childReply: {command: 42}});
   assert.equal(childOwner.nativePosts, 0);
+  const original = new RangeError('Maximum call stack size exceeded.');
+  original.stack = 'RangeError: Maximum call stack size exceeded.\n    at nativeStartup (postgamma.mjs:12:3)';
+  let childError;
+  childOwner.onerror = event => {event.preventDefault(); childError = event;};
+  const exception = new ErrorEvent('error', {cancelable: true, message: original.message, error: original,
+    filename: 'postgamma.mjs', lineno: 12, colno: 3});
+  scope.dispatchEvent(exception);
+  await waitFor(() => childError);
+  assert(exception.defaultPrevented, 'A forwarded exception does not also propagate as a browser error');
+  assert.equal(childError.error.name, 'RangeError');
+  assert.equal(childError.error.stack, original.stack, 'The original pthread stack survives its Worker boundary');
+  assert.equal(childError.filename, 'postgamma.mjs');
+  assert.equal(childError.lineno, 12);
+  assert.deepEqual(childReply, {childReply: {command: 42}}, 'Error diagnostics do not reach the SDK command listener');
+  const noStack = new ErrorEvent('error', {cancelable: true, message: 'Module import failed'});
+  scope.dispatchEvent(noStack);
+  assert(!noStack.defaultPrevented, 'Unavailable stack leaves native error propagation intact');
   // Worker scope destruction owns the child endpoint. Close it explicitly in
   // this in-process fixture to give Node the same scope lifetime.
   scope.postMessage = () => {};

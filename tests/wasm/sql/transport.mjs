@@ -46,10 +46,12 @@ try {
   assert.equal(settled, 0, 'Pending and new operations do not expose failure before cleanup');
   assert.deepEqual(worker.commands, [Op.open, Op.telemetry], 'Stop admitting native commands during retirement');
   const cleanupReply = worker.onmessage;
-  cleanupReply({data: {fatal: 'Worker cleanup finished', metrics: {storageReleased: true}}});
+  const workerStack = 'RangeError: Maximum call stack size exceeded.\n    at kernelStartup (worker.js:20:7)';
+  cleanupReply({data: {fatal: 'Worker cleanup finished', fatalStack: workerStack, metrics: {storageReleased: true}}});
   const outcomes = await Promise.all([original, later]);
   assert(outcomes.every(error => error instanceof Error));
   assert.equal(outcomes[0].cause.message, 'Worker cleanup finished', 'Retain cleanup diagnostics alongside the initiating error');
+  assert.equal(outcomes[0].cause.stack, workerStack, 'Keep the Worker stack in cleanup diagnostics');
   assert.equal(settled, 2);
   assert.equal(worker.terminated, 1);
   assert.equal(db.diagnostics().storageReleased, true);
@@ -57,5 +59,12 @@ try {
   assert.equal(worker.onmessage, null, 'Retirement releases the Worker callback and transport cycle');
   cleanupReply({data: {fatal: 'duplicate'}});
   assert.equal(worker.terminated, 1, 'Retirement is idempotent');
+  const crashed = await Database.open();
+  const pending = crashed.telemetry().catch(error => error);
+  worker.emit({fatal: 'RangeError: Maximum call stack size exceeded.', fatalStack: workerStack});
+  const failure = await pending;
+  assert.equal(failure.message, 'RangeError: Maximum call stack size exceeded.');
+  assert.equal(failure.stack, workerStack, 'A native failure retains its original Worker frames');
+  assert.equal(worker.terminated, 1);
   console.log('Transport retirement: admission stops immediately; rejection waits for storage cleanup');
 } finally {await rm(directory, {recursive: true, force: true});}

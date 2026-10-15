@@ -16,6 +16,19 @@ export function installWorkerMailbox(): void {
   // leaking main-thread gesture forwarder. The owner sends nothing beforehand.
   scope.postMessage({postgammaWorkerMailbox: true}, [channel.port2]);
   scope.postMessage = channel.port1.postMessage.bind(channel.port1);
+  // Browsers omit ErrorEvent.error when a pthread exception crosses its Worker
+  // boundary. Capture its stack in the originating scope, before it is lost.
+  // The control Worker already reports its errors after storage cleanup.
+  if (scope.name?.startsWith('em-pthread-')) scope.addEventListener('error', event => {
+    if (typeof event.error?.stack !== 'string') return;
+    try {
+      channel.port1.postMessage({postgammaWorkerError: true, message: event.message,
+        filename: event.filename, lineno: event.lineno, colno: event.colno,
+        errorName: event.error.name, errorMessage: event.error.message,
+        errorStack: event.error.stack.slice(0, 16384)});
+      event.preventDefault();
+    } catch { /* Retain the browser's normal error event if forwarding fails. */ }
+  });
 }
 
 export function ownWorkerMailbox(worker: Worker): Promise<void> {
@@ -50,6 +63,14 @@ export function ownWorkerMailbox(worker: Worker): Promise<void> {
       port = event.ports[0];
       port.onmessage = event => {
         if (closed) {for (const item of event.ports) item.close(); return;}
+        if (event.data?.postgammaWorkerError === true) {
+          const data = event.data, error = new Error(data.errorMessage);
+          error.name = data.errorName;
+          error.stack = data.errorStack;
+          worker.dispatchEvent(new ErrorEvent('error', {cancelable: true, error,
+            message: data.message, filename: data.filename, lineno: data.lineno, colno: data.colno}));
+          return;
+        }
         worker.dispatchEvent(new MessageEvent('message', {data: event.data, ports: [...event.ports]}));
       };
       port.onmessageerror = () => {if (!closed) worker.dispatchEvent(new MessageEvent('messageerror'));};

@@ -17,15 +17,17 @@
     const el = name => panel.querySelector("[data-opfs-" + name + "]");
     const status = el("status"), instruction = el("instruction"), errorBox = el("error");
     let database, connection, operation, receipt, metadata, reloading = false;
-    const report = {database: databaseName, origin: location.origin, userAgent: navigator.userAgent,
+    const report = {diagnosticsVersion: 2, phase: "idle", elapsedMs: 0,
+      database: databaseName, origin: location.origin, userAgent: navigator.userAgent,
       package: null, checks: {}, expected: null, actual: null, error: null};
 
     function refreshReport() {
-      report.environment = {secure: isSecureContext, isolated: crossOriginIsolated,
+      report.environment = {secure: isSecureContext, isolated: globalThis.crossOriginIsolated === true,
         sharedMemory: typeof SharedArrayBuffer === "function", opfs: !!navigator.storage?.getDirectory,
         webLocks: !!navigator.locks};
       el("report").textContent = JSON.stringify(report, null, 2);
     }
+    function phase(name) {report.phase = name; refreshReport();}
     function state(text, kind, detail) {
       status.textContent = text;
       status.parentElement.dataset.opfsState = kind;
@@ -61,7 +63,7 @@
       sessionStorage.setItem(resumeKey, JSON.stringify({action, note: el("note").value, at: Date.now()}));
     }
     async function isolate(action, signal, resumed) {
-      if (crossOriginIsolated) return true;
+      if (globalThis.crossOriginIsolated === true) return true;
       if (!isSecureContext) throw new Error("Open this page over HTTPS or localhost.");
       if (resumed) throw new Error("Browser isolation was not enabled after reloading. Use a host with COOP/COEP headers.");
       if (!navigator.serviceWorker) throw new Error("This host needs a service worker or cross-origin isolation headers.");
@@ -104,6 +106,7 @@
         throw new Error("This browser does not expose the OPFS, Web Locks and BroadcastChannel APIs required by this build.");
       state("Starting PostgreSQL…", "loading", "The first start downloads the browser package. You can cancel while it loads.");
       if (!metadata) {
+        phase("download-metadata");
         const response = await fetch(new URL("demo.json", assetBase), {signal, cache: "no-cache"});
         const info = response.ok ? await response.json() : null;
         if (!info?.available)
@@ -111,11 +114,15 @@
         metadata = info;
         report.package = metadata;
       }
+      phase("import-sdk");
       const {Database} = await import(new URL("src/index.js", assetBase));
       signal.throwIfAborted();
+      phase(create ? "open-or-create-database" : "reopen-database");
       database = await Database.open({assetBase, create, storage: {type: "opfs", name: databaseName},
         lockTimeoutMs: 8000, signal});
+      phase("connect-session");
       connection = await database.connect("opfs-browser-check");
+      phase("check-durability-settings");
       await connection.exec("SET statement_timeout = '15s'; SET synchronous_commit = on;", {signal, timeoutMs: 20000});
       const settings = (await connection.query("SELECT current_setting('fsync'), current_setting('synchronous_commit')",
         {signal, timeoutMs: 20000}))[0].rows[0];
@@ -152,6 +159,8 @@
       if (operation) return;
       const controller = new AbortController(); operation = controller;
       const signal = controller.signal, started = Date.now();
+      report.elapsedMs = 0;
+      phase(action);
       const elapsed = setInterval(() => {el("elapsed").textContent = Math.floor((Date.now() - started) / 1000) + "s";}, 500);
       const deadline = setTimeout(() => controller.abort(new Error("The test exceeded two minutes. Cancelled to avoid an indefinite wait.")), 120000);
       errorBox.hidden = true; report.error = null;
@@ -170,12 +179,15 @@
           if (!receipt) throw new Error("There is no saved verification receipt. Write a test record first.");
           report.expected = receipt; el("expected").textContent = receipt.marker;
         }
+        phase("prepare-browser");
         if (!await isolate(action, signal, resumed)) return;
+        phase("close-previous-database");
         await release();
         report.actual = null; report.checks.reopen = "not run";
         el("actual").textContent = "Not read in this page visit"; el("message").textContent = "—";
         await open(action === "write", signal);
         if (action === "write") {
+          phase("write-record");
           state("Writing test record…", "loading");
           await connection.exec("CREATE TABLE IF NOT EXISTS public.postgamma_opfs_check (" +
             "slot integer PRIMARY KEY CHECK (slot = 1), marker text NOT NULL, note text NOT NULL, saved_at timestamptz NOT NULL)",
@@ -188,11 +200,14 @@
           saveReceipt({version: 1, database: databaseName, marker: rows[0][0], note: rows[0][1], savedAt: rows[0][2], pending: null});
           report.checks.write = "passed";
           state("Reopening OPFS database…", "loading");
+          phase("close-written-database");
           await release();
           await open(false, signal);
         }
+        phase("verify-record");
         await verify(signal);
         if (action === "interrupt") {
+          phase("interrupt-transaction");
           state("Preparing interrupted write…", "loading");
           const pending = crypto.randomUUID();
           // Leave this transaction open. Navigation deliberately skips close()
@@ -210,13 +225,18 @@
       } catch (error) {
         try {sessionStorage.removeItem(resumeKey);} catch (_) {}
         const cause = signal.aborted ? signal.reason : error;
-        report.error = {message: cause.message || String(cause), sqlstate: error.sqlstate, code: error.code};
+        report.error = {name: cause.name, message: cause.message || String(cause),
+          stack: typeof cause.stack === "string" ? cause.stack.slice(0, 16384) : undefined,
+          cause: cause.cause ? String(cause.cause) : undefined,
+          causeStack: typeof cause.cause?.stack === "string" ? cause.cause.stack.slice(0, 16384) : undefined,
+          sqlstate: error.sqlstate, code: error.code};
         state(signal.aborted ? "Test cancelled" : "Check failed", "error",
           "The test has not passed. The report below includes the error and browser details.");
         errorBox.textContent = report.error.message; errorBox.hidden = false;
         try {await release();} catch (cleanup) {report.cleanupError = String(cleanup);}
       } finally {
         clearInterval(elapsed); clearTimeout(deadline);
+        report.elapsedMs = Date.now() - started;
         el("elapsed").textContent = ((Date.now() - started) / 1000).toFixed(1) + "s";
         operation = null; refreshReport(); controls();
         if (reloading) for (const button of panel.querySelectorAll("button")) button.disabled = true;
