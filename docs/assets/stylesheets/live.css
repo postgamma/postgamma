@@ -61,7 +61,7 @@
 /* Real psql owns prompts and formatting; the page supplies line editing. */
 .pg-psql[hidden], [data-pg-legacy][hidden] { display: none !important; }
 .pg-psql-frame { position: relative; }
-.pg-psql-screen { height: 18rem; overflow: hidden; background: #090d10; color: #c4dedc; font: .65rem/1.5 monospace; }
+.pg-psql-screen { isolation: isolate; height: 18rem; overflow: hidden; background: #090d10; color: #c4dedc; font: .65rem/1.5 monospace; }
 /* FitAddon subtracts padding on xterm itself from its parent's dimensions. */
 .pg-psql-screen .xterm { height: 100%; padding: .8rem; box-sizing: border-box; }
 .pg-psql-screen .xterm-viewport { background: #090d10; }
@@ -73,6 +73,19 @@
 .pg-psql-controls button:hover:enabled { color: #83efde; }
 .pg-psql-controls button:disabled { opacity: .35; cursor: default; }
 .pg-psql-hint { opacity: .7; }
+.pg-psql-controls [data-error="true"] { color: #ffaaa4; }
+.pg-psql-report { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: .5rem; padding: .8rem; background: #090d10; color: #b9cdd1; font-size: .55rem; }
+.pg-psql-report[hidden] { display: none !important; }
+.pg-psql-report-head, .pg-psql-report-actions { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+.pg-psql-report-head { justify-content: space-between; }
+.pg-psql-report-head strong { color: #e5f4f2; font-size: .7rem; }
+.pg-psql-report button { border: 1px solid #314148; border-radius: .25rem; padding: .3rem .5rem; cursor: pointer; font: inherit; color: #b9cdd1; }
+.pg-psql-report button:hover { background: #1a2a30; }
+.pg-psql-report [data-pg-psql-report-copy] { margin-left: auto; color: #83efde; border-color: #3f766d; }
+.pg-psql-report-option { display: flex; align-items: center; gap: .4rem; }
+.pg-psql-report-option input { margin: 0; accent-color: #48e6ce; }
+.md-typeset .pg-psql-report textarea { flex: 1; height: auto; min-height: 0; max-height: none; resize: none; padding: .55rem; border: 1px solid #26383d; border-radius: .25rem; color: #c4dedc; font: .55rem/1.55 var(--md-code-font-family), monospace; }
+.md-typeset .pg-psql-report > p { margin: 0; color: #8fa9b0; font-size: .5rem; line-height: 1.4; }
 .pg-psql-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .65rem; padding: 1.05rem 1.25rem; text-align: center; background: #090d10; }
 .pg-psql-loading[hidden] { display: none !important; }
 .pg-psql-loading-title { display: flex; align-items: center; gap: .6rem; }

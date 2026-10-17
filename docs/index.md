@@ -66,12 +66,20 @@
               <p data-pg-psql-loading-detail>Preparing your browser</p>
               <div class="pg-psql-loading-note"><span>Estimated</span><span aria-hidden="true">·</span><span data-pg-psql-loading-time>0s</span></div>
             </div>
+            <section id="pg-live-report" class="pg-psql-report" data-pg-psql-report aria-label="Diagnostic report" hidden>
+              <div class="pg-psql-report-head"><strong>Diagnostic report</strong><button type="button" data-pg-psql-report-back>Back to terminal</button></div>
+              <label class="pg-psql-report-option"><input type="checkbox" data-pg-psql-report-terminal> Include recent SQL and terminal output</label>
+              <textarea data-pg-psql-report-text readonly spellcheck="false" wrap="off" aria-label="Diagnostic report text"></textarea>
+              <div class="pg-psql-report-actions"><button type="button" data-pg-psql-report-refresh>Refresh</button><button type="button" data-pg-psql-report-copy>Copy report</button></div>
+              <p data-pg-psql-report-notice role="status" aria-live="polite">Created locally. Review before sharing.</p>
+            </section>
           </div>
           <noscript>Enable JavaScript to use the psql terminal.</noscript>
           <div class="pg-live-footer pg-psql-footer">
             <span data-pg-psql-status role="status" aria-live="polite" data-state="loading">Loading PostgreSQL…</span>
             <span class="pg-psql-hint">In-memory · \? for help</span>
             <div class="pg-psql-controls">
+              <button type="button" data-pg-psql-report-open aria-controls="pg-live-report" aria-expanded="false" title="Generate a diagnostic report">Report</button>
               <button type="button" data-pg-psql-cancel disabled>Ctrl+C</button>
               <button type="button" data-pg-psql-reset disabled title="Discard this database and start a new one">Reset</button>
               <button type="button" data-pg-psql-close disabled>Close</button>

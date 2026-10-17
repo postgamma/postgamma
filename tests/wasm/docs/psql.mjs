@@ -41,6 +41,16 @@ try {
   });
   const screen = page.locator('[data-pg-psql-terminal]'), input = screen.locator('textarea');
   const read = () => page.evaluate(() => window.psqlText());
+  const diagnosticText = page.locator('[data-pg-psql-report-text]');
+  async function openReport() {
+    await page.locator('[data-pg-psql-report-open]').click();
+    assert(await page.locator('[data-pg-psql-report]').isVisible());
+    return JSON.parse(await diagnosticText.inputValue());
+  }
+  async function closeReport() {
+    await page.locator('[data-pg-psql-report-back]').click();
+    assert(await page.locator('[data-pg-psql-report]').isHidden());
+  }
   async function paste(text) {
     await input.focus();
     await input.evaluate((element, text) => {
@@ -87,6 +97,13 @@ try {
   if (releaseStartup) {
     const loading = page.locator('[data-pg-psql-loading]');
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-loading-title]').textContent === 'Loading PostgreSQL');
+    const diagnostic = await openReport();
+    assert.equal(diagnostic.phase, 'fetching-package-metadata');
+    assert.equal(diagnostic.runtime.opening, true);
+    assert.equal(diagnostic.package, null);
+    assert.equal(diagnostic.terminal.included, false);
+    assert.equal(diagnostic.environment.isolated, true);
+    await closeReport();
     assert(await loading.isVisible());
     assert(await screen.evaluate(el => el.inert));
     assert((await screen.boundingBox()).height <= 370, 'loading keeps the compact terminal height');
@@ -113,6 +130,7 @@ try {
     // resumes can double-handle the request. Other routes, including the
     // offline HTTPS guard, must remain in place too.
     passed('centered-estimated-progress-elapsed-no-tips-and-compact-mobile-layout');
+    passed('diagnostic-report-works-while-startup-is-blocked');
   }
   await ready();
   assert(downloads >= 2, 'Wasm and database assets download automatically');
@@ -172,6 +190,56 @@ try {
   await command('\\l', /List of databases.*terminal_test/, 'terminal_test=# ');
   passed('help-create-database-connect-ddl-insert-select-describe-list-unicode');
   await command('SELECT * FROM missing_table;', /ERROR:.*does not exist/, 'terminal_test=# ');
+  await paste('SELECT 81 AS pending_report;');
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 81 AS pending_report;'));
+  const beforeReport = await read(), reportFrame = await screen.boundingBox();
+  const diagnostic = await openReport();
+  assert.equal(diagnostic.kind, 'postgamma.live-diagnostics');
+  assert.equal(diagnostic.diagnosticsVersion, 1);
+  assert.equal(diagnostic.phase, 'ready');
+  assert.equal(diagnostic.runtime.storage, 'memory');
+  assert.equal(diagnostic.runtime.active, true);
+  assert.match(diagnostic.package.buildId, /^[a-f0-9]+$/);
+  assert.equal(diagnostic.terminal.included, false);
+  assert(!Object.hasOwn(diagnostic.terminal, 'text'));
+  assert(!(await diagnosticText.inputValue()).includes('missing_table'), 'SQL and terminal output are opt-in');
+  await page.locator('[data-pg-psql-report-terminal]').check();
+  const withTerminal = JSON.parse(await diagnosticText.inputValue());
+  assert.match(withTerminal.terminal.text, /missing_table/);
+  assert.match(withTerminal.terminal.text, /ERROR:.*does not exist/);
+  // Exercise both clipboard paths without depending on OS clipboard permissions.
+  await page.evaluate(() => {
+    window.reportClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    window.reportExecCommand = document.execCommand;
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
+      writeText: async text => {window.copiedReport = text;}
+    }});
+  });
+  await page.locator('[data-pg-psql-report-copy]').click();
+  assert.equal(await page.evaluate(() => window.copiedReport), await diagnosticText.inputValue());
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async () => {throw new Error('Clipboard blocked for test');};
+    document.execCommand = () => false;
+  });
+  await page.locator('[data-pg-psql-report-copy]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-report-notice]').textContent.startsWith('Text selected'));
+  assert(await diagnosticText.evaluate(el => el.selectionStart === 0 && el.selectionEnd === el.value.length));
+  await page.evaluate(() => {
+    if (window.reportClipboardDescriptor) Object.defineProperty(navigator, 'clipboard', window.reportClipboardDescriptor);
+    else delete navigator.clipboard;
+    document.execCommand = window.reportExecCommand;
+  });
+  await page.setViewportSize({width: 320, height: 740});
+  assert(await page.locator('[data-pg-psql-report]').evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1));
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-report-mobile.png')});
+  await page.setViewportSize({width: 1440, height: 1000});
+  assert(Math.abs((await screen.boundingBox()).height - reportFrame.height) < .5, 'report does not enlarge the compact terminal');
+  await page.locator('[data-pg-psql-report-terminal]').uncheck();
+  await closeReport(); assert.equal(await read(), beforeReport, 'report preserves terminal contents and input');
+  await input.press('Enter'); await ready('terminal_test=# ');
+  assert.match(await read(), /\n\s*81\s*\n/);
+  passed('diagnostic-report-build-environment-opt-in-sql-copy-fallback-and-mobile-layout');
   await command('\\c missing_database', /does not exist.*Previous connection kept/, 'terminal_test=# ');
   await command('SELECT 42 AS recovered;', /\n\s*42\s*\n/, 'terminal_test=# ');
   await command('BEGIN; INSERT INTO t1 VALUES(200, \'rolled back\'); ROLLBACK;', /BEGIN.*INSERT 0 1.*ROLLBACK/, 'terminal_test=# ');
@@ -185,6 +253,10 @@ try {
   await paste('SELECT pg_sleep(30);'); await input.press('Enter');
   // A query-side acknowledgement prevents cancellation from racing submission.
   await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Running…');
+  const busyReport = await openReport();
+  assert.equal(busyReport.phase, 'executing');
+  assert.equal(busyReport.runtime.active, true);
+  await closeReport();
   await page.waitForTimeout(300);
   await page.locator('[data-pg-psql-cancel]').click();
   await page.waitForFunction(() => window.psqlText().includes('canceling statement'));
@@ -267,6 +339,12 @@ try {
     await page.reload({waitUntil: 'domcontentloaded'});
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Could not start');
     assert.match(await read(), /has not been bundled/);
+    const failedReport = await openReport();
+    assert.equal(failedReport.phase, 'failed');
+    assert.equal(failedReport.errors.at(-1).phase, 'fetching-package-metadata');
+    assert.match(failedReport.errors.at(-1).message, /has not been bundled/);
+    assert(failedReport.errors.at(-1).stack.length > 0, 'original error stack survives startup cleanup');
+    await closeReport();
     await context.unroute('**/assets/wasm/demo.json');
     await input.press('Enter'); await ready();
     assert.equal(await page.locator('dialog[open]').count(), 0, 'Enter to retry is not text input');
@@ -276,10 +354,23 @@ try {
     await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
     await input.press('Control+u');
     await command('SELECT 79 AS after_startup_retry;', /\n\s*79\s*\n/);
+    const retryReport = await openReport();
+    assert.equal(retryReport.runtime.attempts, 2);
+    assert.match(retryReport.errors.at(-1).message, /has not been bundled/, 'retry retains the original error');
+    await closeReport();
     assert.equal(await page.locator('dialog[open]').count(), 0, 'input events expand only once');
     await page.locator('[data-pg-psql-close]').click();
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
     passed('automatic-startup-error-visible-and-enter-to-retry');
+    await context.route('**/assets/javascripts/psql-terminal.js', route => route.fulfill({contentType: 'text/javascript', body: 'throw new Error("terminal module failed for test");'}));
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent.includes('terminal module failed'));
+    const terminalReport = await openReport();
+    assert.equal(terminalReport.errors.at(-1).phase, 'loading-terminal');
+    assert.match(terminalReport.errors.at(-1).message, /terminal module failed/);
+    assert.equal(terminalReport.runtime.active, false);
+    await closeReport();
+    passed('diagnostic-report-survives-startup-retry-and-terminal-module-failure');
   }
   assert.deepEqual(report.errors, []);
   assert.deepEqual(report.requestsFailed, []);

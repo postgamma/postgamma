@@ -48,6 +48,17 @@ terminal scrollback is capped at 2,000 lines. Large results continue streaming
 while old displayed output is removed. Terminal assets are bundled with the site;
 no terminal CDN or backend service is needed.
 
+If something fails, click **Report** in the terminal footer, then **Copy report**.
+The report opens inside the same window and includes the package build, browser
+capabilities, startup phase and timings, cached runtime counters, and original
+error stacks. It remains available during startup and when the engine or terminal
+module fails to load; collecting it does not send a request to the database.
+Select **Include recent SQL and terminal output** when the problem needs query
+context (up to 200 terminal rows and 16,000 characters). This is off by default.
+Reports are generated locally and are never uploaded automatically. Review the
+text before sharing; if clipboard access is blocked, it can be selected and copied
+manually. **Back to terminal** preserves the session and unfinished input.
+
 Use the [OPFS persistence check](../opfs/index.md) to save a test record, restart
 your browser and verify that it survives. It also includes a reload with an
 uncommitted transaction and a copyable browser report.

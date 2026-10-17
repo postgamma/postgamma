@@ -16,12 +16,36 @@
     const widget = document.getElementById("live-demo"), expand = widget.querySelector("[data-pg-live-expand]");
     let dialog, autoExpandPending = true;
     let session, opening, openingWork, stopping, view, loadingTimer, loadingAt, stageAt, loadingStep = 0;
+    let attempts = 0, submittedLines = 0, lastOutputAt = null, lastSample = null, lastMetrics = null;
+    const diagnostics = globalThis.PostGammaLiveReport ? new PostGammaLiveReport(panel, {
+      screen, assetBase, scriptBase: new URL("./", script), workerURL, visibility: screenVisibility,
+      snapshot: () => {
+        rememberRuntime(session?.database);
+        return {storage: "memory", attempts, submittedLines, lastOutputAt,
+          status: status.textContent, state: status.dataset.state, opening: !!opening, closing: !!stopping,
+          active: !!session?.active, inputReady: !!view?.active,
+          estimatedStartupPercent: loading.hidden ? null : Number(element("progress").getAttribute("aria-valuenow")),
+          sample: lastSample, metrics: lastMetrics, sampling: "Last observed values; no database request is made."};
+      }
+    }) : null;
+    if (!diagnostics) {element("report-open").disabled = true; element("report-open").title = "Report script could not be loaded";}
+    function rememberRuntime(database) {
+      if (!database) return;
+      lastSample = database.sample() ?? lastSample;
+      lastMetrics = database.diagnostics() ?? lastMetrics;
+    }
+    function screenVisibility() {
+      const blocked = !loading.hidden || !element("report").hidden;
+      screen.inert = blocked;
+      if (blocked) screen.setAttribute("aria-hidden", "true"); else screen.removeAttribute("aria-hidden");
+      if (!element("report").hidden) loading.setAttribute("aria-hidden", "true"); else loading.removeAttribute("aria-hidden");
+    }
     function state(text, kind = "idle") {
       if (status.textContent !== text) status.textContent = text;
       if (status.dataset.state !== kind) status.dataset.state = kind;
     }
     function startLoading() {
-      loading.hidden = false; screen.inert = true; screen.setAttribute("aria-hidden", "true");
+      loading.hidden = false; screenVisibility();
       if (loadingTimer) return;
       loadingAt = stageAt = performance.now(); loadingStep = 0;
       renderLoading(); loadingTimer = setInterval(renderLoading, 250);
@@ -43,10 +67,10 @@
     }
     function stopLoading() {
       clearInterval(loadingTimer); loadingTimer = undefined;
-      loading.hidden = true; screen.inert = false; screen.removeAttribute("aria-hidden");
+      loading.hidden = true; screenVisibility();
     }
     function focusWhenReady() {
-      if ((document.activeElement === document.body || panel.contains(document.activeElement)) &&
+      if (!diagnostics?.visible && (document.activeElement === document.body || panel.contains(document.activeElement)) &&
           !matchMedia("(pointer: coarse)").matches) view.focus();
     }
     function controls() {
@@ -56,8 +80,12 @@
       close.disabled = (!session && !opening) || !!stopping;
       screen.setAttribute("aria-busy", String(!!opening));
     }
-    function failure(error) {stopLoading(); state(error.message, "error"); controls();}
+    function failure(error) {
+      diagnostics?.failure(error); diagnostics?.phase("failed");
+      stopLoading(); state(error.message, "error"); controls();
+    }
     async function isolate(signal) {
+      diagnostics?.phase("preparing-browser");
       if (crossOriginIsolated) return true;
       if (!isSecureContext) throw new Error("Open this page over HTTPS or localhost to run psql.");
       if (!("serviceWorker" in navigator)) throw new Error("This browser needs a host with cross-origin isolation headers.");
@@ -86,12 +114,17 @@
     }
     async function release() {
       if (stopping) return stopping;
+      diagnostics?.phase("closing-database");
       opening?.abort(new DOMException("Startup canceled", "AbortError"));
       const previous = session; session = undefined;
+      rememberRuntime(previous?.database);
       if (previous) previous.active = false;
       stopLoading();
       view.pending = "";
-      stopping = (async () => {await openingWork; await previous?.database.close();})();
+      stopping = (async () => {
+        await openingWork;
+        try {await previous?.database.close();} finally {rememberRuntime(previous?.database);}
+      })();
       controls();
       try {await stopping; await view.enqueue(() => view.forget());}
       finally {stopping = undefined; controls();}
@@ -102,26 +135,32 @@
         while (owned.active) {
           const revision = owned.revision, batch = await owned.terminal.read();
           if (!owned.active) return;
+          if (batch.data.length) lastOutputAt = new Date().toISOString();
           await view.output(decoder.decode(batch.data, {stream: batch.state !== "exited"}),
             () => batch.state === "input" && owned.active && revision === owned.revision);
           if (!owned.active) return;
           if (view.active && !loading.hidden) {stopLoading(); focusWhenReady();}
           if (batch.state === "exited") {
             await release(); state("psql exited (" + batch.exitCode + ")", batch.exitCode ? "error" : "idle");
+            diagnostics?.phase("psql-exited");
             await view.message("\r\nPress Enter to start a fresh session.\r\n"); return;
           }
           state(view.active ? "Ready" : "Running…", view.active ? "ready" : "loading");
+          diagnostics?.phase(view.active ? "ready" : "executing");
           await new Promise(resolve => setTimeout(resolve, batch.data.length ? 0 : 30));
         }
       } catch (error) {
         if (!owned.active) return;
+        diagnostics?.failure(error, "psql-read");
         await view.message("\r\n" + error.message + "\r\n");
         try {await release();} catch (cleanup) {failure(cleanup);}
         state("Terminal failed — press Enter to retry", "error");
+        diagnostics?.phase("failed");
       }
     }
     function open() {
       if (opening || session || stopping) return;
+      attempts++;
       opening = new AbortController(); const signal = opening.signal;
       startLoading(); loadingStage(0, "Starting PostgreSQL", "Preparing your browser");
       controls(); state("Loading PostgreSQL…", "loading");
@@ -131,17 +170,28 @@
           await view.clear(); await view.message("Loading PostgreSQL…\r\n");
           if (!await isolate(signal)) return;
           loadingStage(1, "Loading PostgreSQL", "Downloading and starting the engine");
+          diagnostics?.phase("fetching-package-metadata");
           const response = await fetch(new URL("demo.json", assetBase), {signal, cache: "no-cache"});
-          if (!response.ok || !(await response.json()).available) throw new Error("The browser package has not been bundled for this preview.");
+          if (!response.ok) throw new Error("Browser package metadata request failed (HTTP " + response.status + ").");
+          const metadata = await response.json();
+          if (diagnostics) diagnostics.metadata = metadata;
+          if (!metadata.available) throw new Error("The browser package has not been bundled for this preview.");
+          diagnostics?.phase("importing-sdk");
           const {Database} = await import(new URL("src/index.js", assetBase));
           signal.throwIfAborted();
+          diagnostics?.phase("opening-database");
           database = await Database.open({assetBase, signal});
+          rememberRuntime(database);
           loadingStage(2, "Opening psql", "Connecting to your database");
+          diagnostics?.phase("starting-psql");
           const terminal = await database.psql(); signal.throwIfAborted();
           await view.clear();
           session = {database, terminal, active: true, revision: 0}; database = undefined;
+          diagnostics?.phase("waiting-for-prompt");
           void pump(session);
         } catch (error) {
+          if (!signal.aborted) diagnostics?.failure(error);
+          diagnostics?.phase(signal.aborted ? "canceled" : "failed");
           stopLoading();
           await view.message("\r\n" + error.message + "\r\nPress Enter to retry.\r\n");
           state(signal.aborted ? "Canceled" : "Could not start", signal.aborted ? "idle" : "error");
@@ -153,6 +203,7 @@
     async function submit(text) {
       const owned = session;
       if (!owned || stopping) return;
+      submittedLines++; diagnostics?.phase("executing");
       owned.revision++; state("Running…", "loading");
       await owned.terminal.write(text);
     }
@@ -164,10 +215,11 @@
     }
     async function shutdown() {
       state("Closing…", "loading");
-      try {await release(); state("Database closed"); await view.message("\r\nSession closed. Press Enter to restart.\r\n");}
+      try {await release(); state("Database closed"); diagnostics?.phase("closed"); await view.message("\r\nSession closed. Press Enter to restart.\r\n");}
       catch (error) {failure(error);}
     }
     startLoading();
+    diagnostics?.phase("loading-terminal");
     try {
       const {PsqlScreen} = await import(new URL("psql-terminal.js", script));
       view = new PsqlScreen(screen, {line: submit, interrupt, eof: shutdown, restart: open,
@@ -198,9 +250,12 @@
       expand.setAttribute("aria-label", "Collapse demo");
       dialog.addEventListener("close", () => {
         placeholder.replaceWith(widget); dialog.remove(); dialog = undefined; document.body.style.overflow = overflow;
-        expand.setAttribute("aria-label", "Expand demo"); view.focus();
+        expand.setAttribute("aria-label", "Expand demo"); focusCurrentView();
       }, {once: true});
-      dialog.showModal(); view.focus();
+      dialog.showModal(); focusCurrentView();
+    }
+    function focusCurrentView() {
+      if (diagnostics?.visible) element("report-text").focus({preventScroll: true}); else view.focus();
     }
     expand.addEventListener("click", () => {
       // Respect a manual size choice for the rest of this page visit, including

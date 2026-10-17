@@ -96,6 +96,7 @@ extra_css:
 extra_javascript:
   - assets/javascripts/home.js
   - assets/javascripts/live.js
+  - assets/javascripts/live-report.js
   - assets/javascripts/psql.js
   - assets/javascripts/opfs.js
 
