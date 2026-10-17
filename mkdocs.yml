@@ -17,9 +17,7 @@ theme:
   language: en
   logo: assets/images/postgamma-mark.svg
   favicon: assets/images/postgamma-favicon-optical.svg
-  font:
-    text: Space Grotesk
-    code: IBM Plex Mono
+  font: false
   features:
     - content.code.copy
     - content.tabs.link
@@ -88,6 +86,7 @@ markdown_extensions:
       alternate_style: true
 
 extra_css:
+  - assets/vendor/fonts/fonts.css
   - assets/stylesheets/extra.css
   - assets/vendor/xterm/xterm.css
   - assets/stylesheets/live.css

@@ -17,6 +17,7 @@
     constructor(panel, options) {
       this.options = options;
       this.started = performance.now(); this.startedAt = new Date().toISOString();
+      this.firstPromptAt = null;
       this.currentPhase = "initializing-page"; this.phaseAt = this.started;
       this.history = []; this.errors = []; this.metadata = null;
       const el = name => panel.querySelector("[data-pg-psql-" + name + "]");
@@ -40,6 +41,7 @@
     phase(name) {
       if (name === this.currentPhase) return;
       this.currentPhase = name; this.phaseAt = performance.now();
+      if (name === "ready" && this.firstPromptAt === null) this.firstPromptAt = Math.round(this.phaseAt);
       this.history.push({phase: name, elapsedMs: elapsed(this.started)});
       if (this.history.length > 32) this.history.shift();
     }
@@ -64,6 +66,8 @@
     refresh() {
       const options = this.options, term = options.screen.terminal;
       const snapshot = options.snapshot();
+      const navigation = performance.getEntriesByType("navigation")[0];
+      const paint = performance.getEntriesByName("first-contentful-paint")[0];
       const entries = performance.getEntriesByType("resource").filter(entry =>
         entry.name.startsWith(options.assetBase.href) || entry.name.startsWith(options.scriptBase.href) ||
         entry.name === options.workerURL.href).slice(-20);
@@ -72,6 +76,13 @@
         generatedAt: new Date().toISOString(), startedAt: this.startedAt,
         page: url(location.href), phase: this.currentPhase, elapsedMs: elapsed(this.started),
         phaseElapsedMs: elapsed(this.phaseAt), package: this.metadata,
+        pageTiming: {
+          // Navigation-relative times also cover work before this script ran,
+          // including stylesheets, fonts and module preloads.
+          elapsedMs: Math.round(performance.now()), firstPsqlPromptMs: this.firstPromptAt,
+          domContentLoadedMs: navigation?.domContentLoadedEventEnd ? Math.round(navigation.domContentLoadedEventEnd) : null,
+          firstContentfulPaintMs: paint ? Math.round(paint.startTime) : null
+        },
         environment: {
           userAgent: navigator.userAgent, language: navigator.language,
           secure: isSecureContext, isolated: globalThis.crossOriginIsolated === true,

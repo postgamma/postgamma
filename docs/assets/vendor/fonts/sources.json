@@ -1,0 +1,135 @@
+{
+  "cssSource": "https://fonts.googleapis.com/css?family=Space+Grotesk:300,300i,400,400i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&display=fallback",
+  "retrieved": "2026-10-17",
+  "files": {
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1i8q1w.woff2": {
+      "file": "ibmplexmono-08949f728dc5.woff2",
+      "bytes": 14708,
+      "sha256": "08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1iAq129k.woff2": {
+      "file": "ibmplexmono-62632b637530.woff2",
+      "bytes": 5868,
+      "sha256": "62632b6375305e70ddcafdd895218e6ae41a184fcd280a69c739460604ca00a9"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1iEq129k.woff2": {
+      "file": "ibmplexmono-6bc0f226a5b7.woff2",
+      "bytes": 13348,
+      "sha256": "6bc0f226a5b7884a8170e3f62c63d7675609d4631bdc5931b5cdab81821f00eb"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1iIq129k.woff2": {
+      "file": "ibmplexmono-f8c22ec1804b.woff2",
+      "bytes": 6912,
+      "sha256": "f8c22ec1804bd6966b70f43ac7c327025645b4c09597117fca2a5a6c750106fe"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1isq129k.woff2": {
+      "file": "ibmplexmono-7635422bd10d.woff2",
+      "bytes": 8356,
+      "sha256": "7635422bd10ddbbcb0e0caa1154b928298f5c8319b8c00b30978d4395f4783ce"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6pfjptAgt5VM-kVkqdyU8n1ioa0Xdgv-s.woff2": {
+      "file": "ibmplexmono-4aded3f2f2a7.woff2",
+      "bytes": 10404,
+      "sha256": "4aded3f2f2a7d27d9430ca6f6ef9dc7d7efa861a61891a5f67758d467da9ed14"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6pfjptAgt5VM-kVkqdyU8n1ioa1Xdg.woff2": {
+      "file": "ibmplexmono-0840095faae8.woff2",
+      "bytes": 16448,
+      "sha256": "0840095faae86403735a8c04014b72cb29e7923646b222b360b7e8252932e4e3"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6pfjptAgt5VM-kVkqdyU8n1ioa23dgv-s.woff2": {
+      "file": "ibmplexmono-1b07eee6df7d.woff2",
+      "bytes": 14524,
+      "sha256": "1b07eee6df7d26b31864581c2365131d384077605e0b63ae67c4a0a64363a6de"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6pfjptAgt5VM-kVkqdyU8n1ioa2Hdgv-s.woff2": {
+      "file": "ibmplexmono-a0b3b8cbe5a5.woff2",
+      "bytes": 7864,
+      "sha256": "a0b3b8cbe5a516e75f8e98305a0c7062adaddb791f6ed3bd15665e95ff8fec71"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6pfjptAgt5VM-kVkqdyU8n1ioa2ndgv-s.woff2": {
+      "file": "ibmplexmono-a6bab38af4f9.woff2",
+      "bytes": 6364,
+      "sha256": "a6bab38af4f9c761284fabe543b32eb4fa5760321f1e2550971e6b0f44b725a5"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3pQPwl1FgtIU.woff2": {
+      "file": "ibmplexmono-31fbbf2279dd.woff2",
+      "bytes": 7184,
+      "sha256": "31fbbf2279dd1bdfb9176a5d61dd85d77206ccba92a43ea5665210ee4ef9b6fa"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3pQPwl5FgtIU.woff2": {
+      "file": "ibmplexmono-5b9b81f54dd6.woff2",
+      "bytes": 13380,
+      "sha256": "5b9b81f54dd69635c7adcaacd4c4545a73fe4809c528e22734b238a83a74135f"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3pQPwl9FgtIU.woff2": {
+      "file": "ibmplexmono-6de519604eba.woff2",
+      "bytes": 6068,
+      "sha256": "6de519604eba816d624fbe830bff8123d8e8fd4921d60182b442adc8e9d66c19"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3pQPwlBFgg.woff2": {
+      "file": "ibmplexmono-4f84d86cfd06.woff2",
+      "bytes": 14908,
+      "sha256": "4f84d86cfd060f4ded334358ff8a4c81d4db2ed5addd568359d693f44a87765a"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3pQPwlRFgtIU.woff2": {
+      "file": "ibmplexmono-104701bedfa0.woff2",
+      "bytes": 8676,
+      "sha256": "104701bedfa06b56abba3e273f3ed74d7235d02c00ddc6ca942d65e2940fe6fe"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6sfjptAgt5VM-kVkqdyU8n1ioSblJ1gMoQ.woff2": {
+      "file": "ibmplexmono-2bb0d4c82652.woff2",
+      "bytes": 16540,
+      "sha256": "2bb0d4c82652472446ed1a5a89a0553f2db1e4ea17cbda66a45e690899d83e91"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6sfjptAgt5VM-kVkqdyU8n1ioSblJ1hMoQLNg.woff2": {
+      "file": "ibmplexmono-6ad82dff3073.woff2",
+      "bytes": 10528,
+      "sha256": "6ad82dff3073f85e63b2f88881fbe6dcdeadcb39f96c72b4305fda8083c769eb"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6sfjptAgt5VM-kVkqdyU8n1ioSblJ1j8oQLNg.woff2": {
+      "file": "ibmplexmono-89ab4be8dca3.woff2",
+      "bytes": 6480,
+      "sha256": "89ab4be8dca3b1aeb2084b048eb2692c2185c4780b5da6a3f15e805d3141e488"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6sfjptAgt5VM-kVkqdyU8n1ioSblJ1jcoQLNg.woff2": {
+      "file": "ibmplexmono-0891ba2908de.woff2",
+      "bytes": 7868,
+      "sha256": "0891ba2908de33d5db55343123e310cc9802ed5eee873c9a1f8f2e311794b8e4"
+    },
+    "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6sfjptAgt5VM-kVkqdyU8n1ioSblJ1jsoQLNg.woff2": {
+      "file": "ibmplexmono-18c8dc28d75e.woff2",
+      "bytes": 14684,
+      "sha256": "18c8dc28d75ecbda23c88fb11126852b2232916ec2e6d6dc0225def886a0cc98"
+    },
+    "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPb54C-s0.woff2": {
+      "file": "spacegrotesk-8895e3d49825.woff2",
+      "bytes": 6712,
+      "sha256": "8895e3d49825128bfa5238e4c96e9b432d7a3dadbe5c17c6081267398305dc71"
+    },
+    "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPb94C-s0.woff2": {
+      "file": "spacegrotesk-952dddb45d2f.woff2",
+      "bytes": 18940,
+      "sha256": "952dddb45d2f96f71cbf3b7f510b24379afc3c89ea02fcf89d377b45d62c0166"
+    },
+    "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4Cw.woff2": {
+      "file": "spacegrotesk-0640890476fc.woff2",
+      "bytes": 22288,
+      "sha256": "0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d"
+    }
+  },
+  "licenses": {
+    "spacegrotesk-OFL.txt": {
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/OFL.txt",
+      "sha256": "18a4de52385f6b988782639d5d0cc1326e5a8c2de9a7f01d7b20d9aedcc60943",
+      "upstreamSha256": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+      "note": "License text preserved; line endings normalized to LF and trailing whitespace removed."
+    },
+    "ibmplexmono-OFL.txt": {
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/OFL.txt",
+      "sha256": "d741e57d5f865e294df801f96b7b5161a88b211df65887e4358d271c9fc5fb4f",
+      "upstreamSha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+      "note": "License text preserved; line endings normalized to LF and trailing whitespace removed."
+    }
+  }
+}

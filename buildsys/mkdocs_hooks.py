@@ -29,6 +29,50 @@ RELEASES_URL_MARKER = "{{ POSTGAMMA_RELEASES_URL }}"
 RELEASE_STATE_MARKER = "{{ POSTGAMMA_RELEASE_STATE }}"
 
 
+def module_dependencies(directory: Path, entries: list[str]) -> list[str]:
+    """Find static relative imports in our emitted ES modules, without executing them.
+
+    Keep dynamic imports
+    (including native Wasm/data loading) on the existing verified startup path.
+    """
+    imports = re.compile(r"^\s*(?:import\s+(?:[^;]*?\s+from\s+)?|export\s+[^;]*?\s+from\s+)"
+                         r"['\"]([^'\"]+)['\"]", re.MULTILINE)
+    root, seen = directory.resolve(), set()
+
+    def visit(path: Path) -> None:
+        path = path.resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise ValueError("invalid documentation module dependency: " + str(path))
+        name = path.relative_to(root).as_posix()
+        if name in seen:
+            return
+        seen.add(name)
+        for specifier in imports.findall(path.read_text(encoding="utf-8")):
+            if specifier.startswith(("./", "../")):
+                visit(path.parent / specifier)
+
+    for entry in entries:
+        visit(root / entry)
+    return sorted(seen)
+
+
+def on_page_context(context: dict, page: Any, config: Any, nav: Any) -> dict:
+    """Prepare parallel imports of the homepage's small, main-thread modules."""
+    if not page.is_homepage:
+        return context
+    root = Path(config.config_file_path).resolve().parent
+    directory = Path(os.environ.get("POSTGAMMA_DOCS_WASM_DIR", root / "build/docs/browser"))
+    package = directory / "assets/wasm"
+    metadata = json.loads((package / "demo.json").read_text())
+    modules = module_dependencies(root / "docs", ["assets/javascripts/psql-terminal.js"])
+    if metadata.get("available"):
+        # Worker entry points install message handlers and must only execute in
+        # Workers. The public SDK entry and terminal only define their APIs.
+        modules += ["assets/wasm/" + name for name in module_dependencies(package, ["src/index.js"])]
+    context["live_modules"] = modules
+    return context
+
+
 class ReloadingTLSContext:
     """Use renewed certificate files for new connections without restarting MkDocs."""
 

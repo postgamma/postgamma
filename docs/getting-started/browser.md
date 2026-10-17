@@ -48,9 +48,16 @@ terminal scrollback is capped at 2,000 lines. Large results continue streaming
 while old displayed output is removed. Terminal assets are bundled with the site;
 no terminal CDN or backend service is needed.
 
+Once the page content is ready, it imports the terminal and SDK's small JavaScript
+dependencies in parallel while the terminal starts. The page fonts are served
+with the site too, so rendering does not wait for an external font service. These changes work
+on GitHub Pages and do not alter the engine, its integrity checks or the fresh
+in-memory database created on every start.
+
 If something fails, click **Report** in the terminal footer, then **Copy report**.
 The report opens inside the same window and includes the package build, browser
-capabilities, startup phase and timings, cached runtime counters, and original
+capabilities, startup phase and timings (including navigation to the first psql
+prompt), cached runtime counters, and original
 error stacks. It remains available during startup and when the engine or terminal
 module fails to load; collecting it does not send a request to the database.
 Select **Include recent SQL and terminal output** when the problem needs query

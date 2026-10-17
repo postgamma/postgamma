@@ -9,7 +9,7 @@ const {values} = parseArgs({options: {root: {type: 'string'}, url: {type: 'strin
   executable: {type: 'string'}, 'static-host': {type: 'boolean'}}});
 const require = createRequire(resolve(values.root, 'wasm/package.json'));
 const playwright = require('playwright');
-const report = {status: 'failed', engine: values.engine, staticHost: !!values['static-host'], cases: [], errors: [], requestsFailed: [], webSockets: []};
+const report = {status: 'failed', engine: values.engine, staticHost: !!values['static-host'], cases: [], errors: [], requestsFailed: [], webSockets: [], externalRequests: []};
 function passed(...cases) {report.cases.push(...cases); console.log('passed: ' + cases.join(', '));}
 mkdirSync(dirname(values.output), {recursive: true});
 let browser, page;
@@ -26,6 +26,10 @@ try {
   let navigations = 0, downloads = 0;
   page.on('framenavigated', frame => {if (frame === page.mainFrame()) navigations++;});
   page.on('request', request => {if (/postgamma\.(wasm|data)/.test(request.url())) downloads++;});
+  page.on('request', request => {
+    if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(values.url).origin)
+      report.externalRequests.push(request.url());
+  });
   await context.addInitScript(() => {
     window.psqlText = () => {
       const term = document.querySelector('[data-pg-psql-terminal]')?.terminal;
@@ -103,6 +107,7 @@ try {
     assert.equal(diagnostic.package, null);
     assert.equal(diagnostic.terminal.included, false);
     assert.equal(diagnostic.environment.isolated, true);
+    assert.equal(diagnostic.pageTiming.firstPsqlPromptMs, null);
     await closeReport();
     assert(await loading.isVisible());
     assert(await screen.evaluate(el => el.inert));
@@ -133,6 +138,21 @@ try {
     passed('diagnostic-report-works-while-startup-is-blocked');
   }
   await ready();
+  const preloads = await page.locator('#pg-live-modules').evaluate(el =>
+    JSON.parse(el.textContent).map(path => new URL(path, document.baseURI).href));
+  assert(preloads.some(url => url.endsWith('/assets/wasm/src/api/database.js')));
+  assert(preloads.some(url => url.endsWith('/assets/javascripts/psql-terminal.js')));
+  assert(preloads.every(url => url.startsWith(values.url) && !/\.(wasm|data)$/.test(url) && !url.includes('/worker/')),
+    'early imports stay below the deployment prefix and leave Workers and verified native downloads to the loader');
+  await page.evaluate(() => document.fonts.ready);
+  assert(await page.evaluate(() => {
+    const faces = [...document.fonts];
+    return ['Space Grotesk', 'IBM Plex Mono'].every(name =>
+      faces.some(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded'));
+  }), 'the original page fonts load from the static site');
+  // The existing GitHub star counter is optional and independent of startup.
+  assert.deepEqual(report.externalRequests.filter(url => new URL(url).hostname !== 'api.github.com'), []);
+  passed('parallel-module-imports-and-local-fonts-without-a-font-cdn');
   assert(downloads >= 2, 'Wasm and database assets download automatically');
   assert.equal(await page.locator('[data-pg-psql-start], [data-pg-psql-send]').count(), 0);
   assert.equal(await input.evaluate(el => getComputedStyle(el).opacity), '0');
@@ -197,6 +217,8 @@ try {
   assert.equal(diagnostic.kind, 'postgamma.live-diagnostics');
   assert.equal(diagnostic.diagnosticsVersion, 1);
   assert.equal(diagnostic.phase, 'ready');
+  assert(diagnostic.pageTiming.firstPsqlPromptMs >= diagnostic.pageTiming.domContentLoadedMs);
+  assert(diagnostic.pageTiming.firstPsqlPromptMs <= diagnostic.pageTiming.elapsedMs);
   assert.equal(diagnostic.runtime.storage, 'memory');
   assert.equal(diagnostic.runtime.active, true);
   assert.match(diagnostic.package.buildId, /^[a-f0-9]+$/);
@@ -362,6 +384,8 @@ try {
     await page.locator('[data-pg-psql-close]').click();
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
     passed('automatic-startup-error-visible-and-enter-to-retry');
+    // Replacing an already loaded module across reload also catches stale
+    // preload caches: the changed response must reach the normal error path.
     await context.route('**/assets/javascripts/psql-terminal.js', route => route.fulfill({contentType: 'text/javascript', body: 'throw new Error("terminal module failed for test");'}));
     await page.reload({waitUntil: 'domcontentloaded'});
     await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent.includes('terminal module failed'));

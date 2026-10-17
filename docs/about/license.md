@@ -32,5 +32,9 @@ the release manifest before redistributing an artifact. A static application
 link does not remove the obligation to preserve the license files supplied
 with the release.
 
+The website bundles Space Grotesk and IBM Plex Mono under the SIL Open Font
+License 1.1. Their license texts and the source URLs and checksums for the
+unmodified font files are included in `docs/assets/vendor/fonts/`.
+
 This page summarizes the distribution layout; the license texts control.
 The official project website is [postgamma.com](https://postgamma.com).

@@ -47,7 +47,9 @@ def main():
               'assets/vendor/xterm/xterm.mjs', 'assets/vendor/xterm/addon-fit.mjs',
               'assets/vendor/xterm/xterm.css',
               'assets/stylesheets/live.css', 'assets/stylesheets/extra.css',
+              'assets/vendor/fonts/fonts.css',
               'assets/wasm/postgamma.assets.json']
+    assets += [path.relative_to(site).as_posix() for path in sorted((site / 'assets/vendor/fonts').glob('*.woff2'))]
     if 'opfs' in clients:
         assets += ['opfs/index.html', 'assets/javascripts/opfs.js', 'assets/stylesheets/opfs.css']
     identity = {name: digest(site / name) for name in assets}

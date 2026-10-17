@@ -196,6 +196,21 @@ class DocumentationTests(unittest.TestCase):
             "releases https://example.test/releases.\n",
         )
 
+    def test_homepage_preloads_follow_relative_modules_without_running_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "entry.js").write_text("export {value} from './other.js';\n"
+                                           "const lazy = () => import('./large.js');\n")
+            (root / "other.js").write_text("import './entry.js';\nexport const value = 1;\n")
+            self.assertEqual(mkdocs_hooks.module_dependencies(root, ["entry.js", "other.js"]),
+                             ["entry.js", "other.js"])
+            (root / "other.js").write_text("import './missing.js';\n")
+            with self.assertRaisesRegex(ValueError, "module dependency"):
+                mkdocs_hooks.module_dependencies(root, ["entry.js"])
+            (root / "other.js").write_text("import '../outside.js';\n")
+            with self.assertRaisesRegex(ValueError, "module dependency"):
+                mkdocs_hooks.module_dependencies(root, ["entry.js"])
+
     def test_c_documentation_inventory_is_valid_json(self) -> None:
         inventory = json.loads(
             (PROJECT_ROOT / "docs/reference/c-api.json").read_text(
