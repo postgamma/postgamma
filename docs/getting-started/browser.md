@@ -213,12 +213,23 @@ try {
 
 Tabs do not share an instance or its SQL sessions. Another tab must wait for
 the current owner to close; it never steals ownership. Close the database
-before application-controlled navigation when possible. Browser shutdown and
-navigation release resources asynchronously, which is why reopening waits by
-default. History caching varies by browser: a page retained in bfcache can keep
-its owner alive. Do not assume that `pagehide` or pressing Back proves ownership
-has been released. The cross-tab gate records whether a real bfcache restore
-occurred; navigation without a cached restore is narrower evidence.
+before application-controlled navigation when possible. In a Window, OPFS
+instances default to `bfcache: 'discard'`: on `pagehide` with `persisted: true`,
+the SDK invalidates the instance and terminates its control/pthread Workers
+without awaiting asynchronous callbacks in the freezing page. Back/Forward
+restoration requires opening a new instance; old handles reject with
+`ClosedError`. Browser lock and file-handle release remains asynchronous, so
+reopening still waits by default. WAL recovers acknowledged commits; an
+interrupted COMMIT with no reply has an unknown outcome and must be checked
+before retrying.
+
+Memory instances default to `bfcache: 'preserve'`. Explicitly preserving an
+OPFS instance leaves navigation/ownership coordination to the application;
+explicitly discarding a memory instance loses its data. The policy can be set
+with `Database.open({storage: ..., bfcache: 'discard'})`. If the SDK itself
+runs in an application Worker, coordinate closing from its host page before
+navigation: Workers cannot observe Window lifecycle events. The cross-tab
+gate records real bfcache restoration separately from synthetic pagehide tests.
 
 Synchronous COMMIT waits for the browser storage barrier. The Chromium recovery
 suite covers interrupted Workers/browser processes and storage failures; it

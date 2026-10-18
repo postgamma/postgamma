@@ -74,6 +74,19 @@ the database to release its Workers and file handles. Clusters are target-specif
 do not mount a native PostgreSQL data directory. Synchronous COMMIT waits for the
 browser storage barrier; hardware power-loss durability is not established.
 
+When opened from a Window, OPFS instances default to `bfcache: 'discard'`:
+`pagehide` with `persisted: true` immediately invalidates the instance and
+terminates its control and pthread Workers. Browser lock/file-handle release
+is asynchronous. Returning with Back/Forward requires a new `Database.open()`;
+old operations reject with `ClosedError`. A COMMIT interrupted before its reply
+has an unknown outcome: reopen and check the data before retrying. Previously
+acknowledged commits are recovered through WAL. Memory databases default to
+`bfcache: 'preserve'`; discarding one loses its data. Either policy can be set
+explicitly. With `preserve`, the application is responsible for closing before
+navigation or accepting that a cached page can block other owners. If the SDK
+itself runs inside an application Worker, it cannot observe Window events;
+the host page must coordinate closing before navigation.
+
 Namespace checkpoints automatically reclaim metadata history. The initial
 profile allows 16,384 live file/directory entries and bounds the two metadata
 files to 16 MiB together. Existing preview databases upgrade when opened;

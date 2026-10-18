@@ -170,7 +170,11 @@ try {
     await a.goBack({waitUntil: 'commit'}); await a.waitForFunction(() => window.multitab);
     const uncontendedLifecycle = await invoke(a, 'lifecycle');
     const uncontendedRestore = uncontendedLifecycle.filter(event => event.type === 'pageshow').at(-1)?.persisted === true;
-    if (!uncontendedRestore) await open(a, {name});
+    if (uncontendedRestore) {
+      await assert.rejects(invoke(a, 'sql', 'SELECT 1'), /discarded on entering bfcache/);
+      await invoke(a, 'close').catch(() => {});
+    }
+    await open(a, {name});
     assert.deepEqual(await invoke(a, 'values'), {ack: '2', pending: '0'});
     await a.goto(destination);
     await open(b, {name}); assert.deepEqual(await invoke(b, 'values'), {ack: '2', pending: '0'});
@@ -207,6 +211,24 @@ try {
     assert.deepEqual(await invoke(b, 'sql', 'SELECT * FROM private_data'), [['b']]);
     await invoke(a, 'close'); assert.deepEqual(await invoke(b, 'sql', 'SELECT * FROM private_data'), [['b']]);
     await invoke(b, 'close'); return {instances, instanceCount: 2};
+  });
+  await test('pagehide-discard', async () => {
+    const a = await page(), b = await page(), name = 'pagehide-' + crypto.randomUUID();
+    await open(a, {name}); await invoke(a, 'init');
+    await invoke(a, 'pagehide', false);
+    assert.deepEqual(await invoke(a, 'values'), {ack: '2', pending: '0'});
+    await invoke(a, 'sql', "BEGIN; INSERT INTO ledger VALUES(3,'pending')");
+    await invoke(a, 'pagehide', true);
+    await assert.rejects(invoke(a, 'sql', 'SELECT 1'), /discarded on entering bfcache/);
+    await open(b, {name}); assert.deepEqual(await invoke(b, 'values'), {ack: '2', pending: '0'});
+    await invoke(b, 'close'); await invoke(a, 'close').catch(() => {});
+    await open(a, {name, bfcache: 'preserve'});
+    await invoke(a, 'pagehide', true);
+    assert.deepEqual(await invoke(a, 'values'), {ack: '2', pending: '0'});
+    await invoke(b, 'begin', {name, lock: 'fail'});
+    locked(await finish(b), name, 'busy');
+    await invoke(a, 'close');
+    return {syntheticPagehide: true, defaultDiscard: true, explicitPreserve: true};
   });
   assert(report.cases.length > 0);
   assert(report.cases.every(row => row.status === 'passed'), 'Cross-tab cases failed');

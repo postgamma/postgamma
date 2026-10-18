@@ -60,6 +60,13 @@ immediate failure, a configurable timeout and AbortSignal cancellation.
 `DatabaseLockedError` reports the name and whether the owner was busy or the
 wait timed out. Waiting creates no Wasm shared memory or pthread pool.
 
+OPFS instances opened in a Window default to discarding their Workers on
+`pagehide.persisted`. Old handles become unusable; returning from bfcache
+requires reopening. Memory instances preserve their state by default, and
+`bfcache` can explicitly select either policy. Applications hosting the SDK in
+their own Worker must coordinate navigation themselves. A COMMIT with no reply
+before interruption has an unknown outcome.
+
 Successful synchronous COMMIT waits for browser storage barriers. Interruption
 tests do not establish hardware power-loss durability. The full storage-error
 and crash-recovery suite is a Chromium gate; the three-engine package matrix

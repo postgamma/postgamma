@@ -2,7 +2,7 @@
 import {Database, DatabaseLockedError, Codecs, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
   type ScriptOptions, type Notification, type ArchiveOptions, type RestoreOptions, type LockOptions} from '@postgamma/wasm';
 const lockOptions: LockOptions = {lock: 'wait', lockTimeoutMs: 5000};
-const options: OpenOptions = {...lockOptions, signal: new AbortController().signal, storage: {type: 'opfs', name: 'typed-consumer'}};
+const options: OpenOptions = {...lockOptions, signal: new AbortController().signal, storage: {type: 'opfs', name: 'typed-consumer'}, bfcache: 'discard'};
 const locked = new DatabaseLockedError('typed-consumer', 'busy');
 const lockCode: 'DATABASE_LOCKED' = locked.code;
 void lockCode;

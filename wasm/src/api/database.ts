@@ -15,6 +15,7 @@ import {ArchiveEncoder, ArchiveDecoder} from '../storage/archive.js';
 import {ownPthreads} from '../runtime/pthreads.js';
 import {ownWorkerMailbox} from '../runtime/messages.js';
 import {prepareOwnership} from '../runtime/open.js';
+import {PageLifetime} from '../runtime/page.js';
 import {validateLockOptions} from '../storage/ownership.js';
 import type {LockOptions} from '../storage/ownership.js';
 export {DatabaseLockedError} from '../storage/ownership.js';
@@ -43,12 +44,15 @@ export interface OpenOptions extends LockOptions {
   storage?: {type: 'opfs'; name: string};
   /** Cancel opening, including waiting for OPFS ownership. */
   signal?: AbortSignal;
+  /** On pagehide.persisted, discard Workers and require reopen. Defaults to
+   * discard for OPFS, preserve for memory. Applies when called in a Window. */
+  bfcache?: 'discard' | 'preserve';
   /** URL of the complete matching asset directory, ending with a slash. */
   assetBase?: string | URL;
   /** Optional periodic diagnostics, 1..60000 ms; default 0 samples on commands only. */
   diagnostics?: {sampleIntervalMs?: number};
 }
-export class ClosedError extends Error {constructor() {super('Database handle is closing or closed'); this.name = 'ClosedError';}}
+export class ClosedError extends Error {constructor(message = 'Database handle is closing or closed') {super(message); this.name = 'ClosedError';}}
 export interface Parameter {typeOid: number; value: string | Uint8Array | null; format?: 0 | 1}
 export interface ExecuteOptions extends ControlOptions {parameters?: Parameter[]; binary?: boolean; chunkRows?: number}
 export interface ScriptOptions extends ControlOptions {chunkRows?: number}
@@ -120,7 +124,10 @@ class Transport {
   private eventsPending = false;
   private eventsRunning = false;
   private eventsEnabled = true;
-  constructor(worker: Worker, moduleURL: URL, compiled: WebAssembly.Module, memory: WebAssembly.Memory) {
+  private releasePage: () => void;
+  constructor(worker: Worker, moduleURL: URL, compiled: WebAssembly.Module, memory: WebAssembly.Memory,
+              releasePage = () => {}) {
+    this.releasePage = releasePage;
     this.worker = worker;
     worker.onmessage = ({data}) => {
       if (data.metrics) this.metrics = data.metrics;
@@ -203,6 +210,7 @@ class Transport {
   private retire(error: Error) {
     if (this.retired) return;
     this.retired = true;
+    this.releasePage();
     clearTimeout(this.retirementTimer);
     if (this.failure && this.failure !== error) this.failure.cause = error;
     this.failure ??= error;
@@ -247,7 +255,7 @@ class Transport {
       throw error;
     }
   }
-  terminate() {this.retire(new ClosedError());}
+  terminate(error: Error = new ClosedError()) {this.retire(error);}
   discard(error: Error) {return this.fail(error);}
 }
 export class Database {
@@ -267,6 +275,8 @@ export class Database {
   private static async createTransport(options: OpenOptions): Promise<Transport> {
     validateLockOptions(options);
     options.signal?.throwIfAborted();
+    if (options.bfcache !== undefined && !['discard', 'preserve'].includes(options.bfcache))
+      throw new TypeError('bfcache must be discard or preserve');
     if (options.storage && (options.storage.type !== 'opfs' || typeof options.storage.name !== 'string' ||
         !/^[a-zA-Z0-9_-]{1,64}$/.test(options.storage.name)))
       throw new TypeError('OPFS database name must contain 1-64 ASCII letters, digits, underscores or hyphens');
@@ -277,20 +287,25 @@ export class Database {
     const moduleUrl = import.meta.url;
     const base = options.assetBase ? new URL(options.assetBase, globalThis.location.href) : new URL('../../', moduleUrl);
     if (!base.pathname.endsWith('/')) throw new Error('assetBase must end with a slash');
-    const wait = <T>(work: Promise<T>) => options.signal ? abortable(work, options.signal) : work;
-    const manifest = await wait(assets(base));
-    if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
-    await wait(verifiedAsset(base, manifest, manifest.entries.worker));
-    options.signal?.throwIfAborted();
-    const worker = new Worker(new URL(manifest.entries.worker, base), {type: 'module'});
+    let worker: Worker | undefined, transport: Transport | undefined;
+    const page = new PageLifetime((options.bfcache ?? (options.storage ? 'discard' : 'preserve')) === 'discard',
+      new ClosedError('Database discarded on entering bfcache; reopen the database before use'),
+      error => {if (transport) transport.terminate(error); else worker?.terminate();});
+    const wait = <T>(work: Promise<T>) => abortable(options.signal ? abortable(work, options.signal) : work, page.signal);
     try {
+      const manifest = await wait(assets(base));
+      if (manifest.protocolVersion !== VERSION) throw new Error('postgamma bridge protocol mismatch');
+      await wait(verifiedAsset(base, manifest, manifest.entries.worker));
+      options.signal?.throwIfAborted(); page.signal.throwIfAborted();
+      worker = new Worker(new URL(manifest.entries.worker, base), {type: 'module'});
       await wait(ownWorkerMailbox(worker));
-      await prepareOwnership(worker, options.storage?.name ?? null, options, options.signal);
+      await wait(prepareOwnership(worker, options.storage?.name ?? null, options, options.signal));
       const compiled = await wait(compiledKernel(base, manifest));
-      options.signal?.throwIfAborted();
+      options.signal?.throwIfAborted(); page.signal.throwIfAborted();
       const memory = ownedMemory(manifest);
-      return new Transport(worker, new URL(manifest.entries.module, base), compiled, memory);
-    } catch (error) {worker.terminate(); throw error;}
+      transport = new Transport(worker, new URL(manifest.entries.module, base), compiled, memory, () => page.dispose());
+      return transport;
+    } catch (error) {page.dispose(); worker?.terminate(); throw error;}
   }
   static async open(options: OpenOptions = {}): Promise<Database> {
     const transport = await Database.createTransport(options);
