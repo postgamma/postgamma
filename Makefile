@@ -1120,6 +1120,14 @@ PUBLIC_ARTIFACT_EVIDENCE := $(STATIC_SDK_DIST_DIR)/public-artifacts.json
 help:
 	@echo "PostGamma source and release targets"
 	@echo
+	@echo "  server-build / server-test     build or validate the threaded PostgreSQL server"
+	@echo "  c-build / c-test               package the C SDK or validate the embedded runtime"
+	@echo "  python-build / python-test     build or validate the Python wheel"
+	@echo "  wasm-build / wasm-test         build the release browser SDK or run Wasm acceptance"
+	@echo "  full-test                      prepare tools, then run native and Wasm acceptance"
+	@echo "  full-test-prepare              prepare and check native/Wasm tools without full tests"
+	@echo "  wasm-alpha-test                add two active hours per browser to Wasm acceptance"
+	@echo
 	@echo "  source-init                    initialize pinned PostgreSQL and pgvector sources"
 	@echo "  doctor                         validate every local development dependency"
 	@echo "  doctor-threaded                validate threaded PostgreSQL build dependencies"
@@ -1133,7 +1141,7 @@ help:
 	@echo "  upstream-weekly                fetch PG_BRANCH and run the full weekly canary"
 	@echo "  embedded-runtime-fast-check    run the fast in-process runtime gates"
 	@echo "  embedded-runtime-check         run the complete embedded product gate"
-	@echo "  complete-source-check          run the complete source validation graph"
+	@echo "  complete-source-check          run the native source validation graph"
 	@echo "  embedded-conformance-check     compare the public API with PostgreSQL 19"
 	@echo "  embedded-lifecycle-check       validate open, recovery, and shutdown"
 	@echo "  embedded-query-check           validate typed in-process SQL execution"
@@ -1159,7 +1167,7 @@ help:
 	@echo "  wasm-target-check              verify initial kernel target and width decision"
 	@echo "  wasm-vector-check              check pgvector queries, indexes, and recovery"
 	@echo "  wasm-vector-serve              serve the persistent vector search example"
-	@echo "  wasm-package                   build the versioned browser npm tarball"
+	@echo "  wasm-package                   package an already generated Wasm kernel"
 	@echo "  wasm-ci               run the local Chromium CI stages with diagnostics"
 	@echo "  wasm-check-full       run pinned SQL, vector, recovery, package and browser gates"
 	@echo "  wasm-weekly           validate current PostgreSQL master in an isolated build"
@@ -1173,7 +1181,7 @@ help:
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"
 	@echo "  publication-check              validate product metadata and attribution"
 	@echo "  artifact-publication-check     check release payloads for build-host paths"
-	@echo "  release-candidate              test and build every local release artifact"
+	@echo "  release-candidate              test and build native release artifacts and docs"
 	@echo "  clean                          remove reproducible build products"
 	@echo "  help-internal                  show compatibility and maintainer targets"
 
@@ -5433,3 +5441,4 @@ clean:
 		--path "$(BUILD_DIR)" --within "$(ROOT)" --remove-only
 
 include $(ROOT)/buildsys/wasm.mk
+include $(ROOT)/buildsys/make/products.mk

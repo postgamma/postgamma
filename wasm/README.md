@@ -15,7 +15,19 @@ have passed in debug and release Chromium.
 tarball. The source package manifest remains private and contains development
 tools only; generated consumer metadata has no runtime dependencies.
 
-From the repository root:
+To build the public browser SDK from the repository root:
+
+```sh
+make wasm-build JOBS=2
+```
+
+This initializes sources and pinned tools, generates the target kernel, then
+creates the npm tarball. The default is release; `WASM_MODE=debug` applies to
+both generation and packaging. The exact archive path is printed. It does not
+run the full browser acceptance suite. The native equivalents are `server-build`,
+`c-build` and `python-build`; all accept `JOBS` and `BUILD_DIR`.
+
+To build and run Wasm acceptance:
 
 ```sh
 make wasm-test
@@ -34,7 +46,11 @@ its dependent stages `not-run`; any failure or unexecuted stage makes the final
 command exit nonzero. The summary pointer is
 `build/wasm/reports/ci.json`, and its `run_report` names the complete stage
 report and sibling logs. No command publishes a package. This is Wasm
-acceptance, not the separate full native PostgreSQL product regression suite.
+acceptance. `make full-test JOBS=2` and `./scripts/full-test.sh` run the complete
+native PostgreSQL product gate and then this Wasm suite, serially. The clean-host
+script also provisions native prerequisites. Both check browser dependencies
+before starting the long native gate. `make complete-source-check` remains
+native-only; the multi-hour alpha endurance gate remains `make wasm-alpha-test`.
 
 For individual checks:
 
@@ -56,7 +72,8 @@ Setup uses the candidate Emscripten version pinned in
 Node.js/npm, and the Playwright version locked in `package-lock.json`. It
 downloads tools into `.deps/wasm/` and installs npm dependencies in
 `wasm/node_modules/`. Repeating setup reuses matching installations; ordinary
-kernel builds and checks do not download tools or require a Python virtualenv.
+lower-level kernel builds and checks do not download tools or require a Python
+virtualenv. The public `wasm-build` and `wasm-test` entry points run setup automatically.
 The bundler gate separately installs its locked Vite/webpack test tools into
 `.deps/wasm/bundlers/` on first use and reuses them afterwards.
 
@@ -69,6 +86,7 @@ the doctor reports missing libraries before compiling probes.
 
 | Command | Result |
 | --- | --- |
+| `make wasm-build JOBS=2` | Prepare sources/tools, generate the target kernel and package the release browser SDK; `WASM_MODE=debug` overrides the build mode. |
 | `make wasm-setup` | Install or reuse the pinned SDK, npm dependencies, Chromium, and required host libraries. |
 | `make doctor-wasm` | Validate compiler/package identities and actually launch Chromium. |
 | `make wasm-probe-build` | Check the environment and incrementally compile the smoke probe. |
@@ -106,7 +124,7 @@ the doctor reports missing libraries before compiling probes.
 | `make wasm-storage-check WASM_STORAGE_SCENARIO=recovery` | Run the Worker/browser termination matrix, including interrupted initialization and torn namespace-log recovery. |
 | `make wasm-vector-check` | Check static pgvector, exact/ANN queries, parallel builds, transactions, independent sessions, persistent recovery and the browser example in Chromium. |
 | `make wasm-vector-serve` | Serve the persistent vector search example with the required isolation headers. |
-| `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. |
+| `make wasm-package` | Stage JS/types, Workers, Wasm, resources, asset manifest and notices; create the npm tarball without publishing it. Requires matching `wasm-kernel-generate`; use `wasm-build` to prepare automatically. |
 | `make wasm-package-check` | Build the package, install its tarball in a fresh consumer and validate types, SQL/concurrency/persistence and deployment failures. |
 | `make wasm-bundler-check WASM_MODE=release` | Install/reuse locked Vite and webpack test tools, build both examples from the latest production tarball and execute their output in Chromium. Requires `wasm-package-check`; included in `wasm-test`. |
 | `make wasm-ci` | Run tool/unit/generation/shared-runtime/native-oracle/SQL/package CI stages locally and retain stage timings and diagnostics. |

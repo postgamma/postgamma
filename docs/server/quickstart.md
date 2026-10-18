@@ -9,16 +9,16 @@ to initialize or run a server as root.
 ## Build and install
 
 ```bash
-git submodule update --init --recursive
 make doctor-threaded JOBS=4
 
 POSTGAMMA_SERVER_PREFIX="$PWD/build/server-install"
-make threaded-postgresql-build JOBS=4 \
+make server-build JOBS=4 \
   PG_GENERATED_CONFIGURE_ARGS="--prefix=$POSTGAMMA_SERVER_PREFIX"
 make -C build/generated-build install
 ```
 
-The generated source is in `build/generated/postgres/`; the compiled tree is in
+The build initializes pinned source dependencies automatically. The generated
+source is in `build/generated/postgres/`; the compiled tree is in
 `build/generated-build/`. The install step writes the server, client tools,
 libraries, and resources below `POSTGAMMA_SERVER_PREFIX`. It needs no system-wide
 installation or sudo. Keep the prefix consistent when rebuilding, and modify

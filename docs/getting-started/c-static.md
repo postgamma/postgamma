@@ -180,12 +180,11 @@ Build against the oldest supported sysroot; see
 Maintainers and source consumers can reproduce the same layout:
 
 ```bash
-git submodule update --init --recursive
-make static-sdk-package JOBS=8
+make c-build JOBS=8
 ```
 
-The command first runs the installed-consumer and host-safety gates, then
-writes the archive and its machine-readable receipt below `build/dist/`. It
+The command initializes pinned sources, runs the installed-consumer and
+host-safety gates, then writes the archive and its machine-readable receipt below `build/dist/`. It
 fails closed unless the PostGamma, PostgreSQL, and pgvector license files are
 present.
 

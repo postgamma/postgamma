@@ -171,10 +171,9 @@ full comparison.
 
 ## Build from source
 
-PostGamma supports source builds on Linux x86-64 with glibc 2.17 or newer.
+PostGamma supports native source builds on Linux x86-64 with glibc 2.17 or newer.
 Official Linux binaries are compiled and tested at that same glibc floor with
-the generic x86-64 CPU baseline. After cloning the repository, initialize the
-pinned PostgreSQL and pgvector submodules:
+the generic x86-64 CPU baseline.
 
 To provision a clean supported Linux machine and run the entire source gate in
 one command, use:
@@ -185,9 +184,11 @@ one command, use:
 
 The script detects apt, dnf/yum, or zypper systems, installs the host packages
 and checksum-pinned test toolchain, initializes both source dependencies, and
-runs `complete-source-check`, including Doxygen API generation and the strict
-MkDocs website build, as the current regular user. It refuses root and
-never creates an account; only package, swap, and process-limit setup use sudo.
+runs `full-test` as the current regular user: native validation, including
+Doxygen API generation and the strict MkDocs website build, followed by the
+release Wasm suite in Chromium, Firefox and Linux WebKit. It prepares and checks
+the pinned Wasm SDK and browser dependencies before the native tests. It refuses
+root and never creates an account; only package, swap, and process-limit setup use sudo.
 On hosts with less than 3 GiB of memory it uses one build job. On hosts with less than 4 GiB,
 it ensures that 4 GiB of swap is active and temporarily enables swap use while
 the gate runs. Run
@@ -195,8 +196,8 @@ the gate runs. Run
 settings without changing the host. The complete command and overrides are
 documented in the [installation guide](docs/getting-started/installation.md).
 
-For a manually managed development environment, initialize the pinned sources
-directly:
+For a manually managed development environment, the product build commands
+below initialize the pinned sources automatically. To initialize them separately:
 
 ```bash
 make source-init
@@ -226,16 +227,30 @@ a focused environment check and a matching build target:
 
 | Goal | Check the environment | Build target | Primary output |
 | --- | --- | --- | --- |
-| Threaded PostgreSQL core | `make doctor-threaded JOBS=4` | `make threaded-postgresql-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
-| Static C SDK | `make doctor-sdk JOBS=4` | `make static-sdk-package JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
-| Python wheel | `make doctor-python JOBS=4` | `make python-package-check JOBS=4` | `build/python-product/wheel/*.whl` |
+| Threaded PostgreSQL core | `make doctor-threaded JOBS=4` | `make server-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
+| Static C SDK | `make doctor-sdk JOBS=4` | `make c-build JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
+| Python wheel | `make doctor-python JOBS=4` | `make python-build JOBS=4` | `build/python-product/wheel/*.whl` |
+| Browser Wasm SDK | `make doctor-ast` | `make wasm-build JOBS=2` | `build/wasm/.../dist/postgamma-wasm-*.tgz` (exact path printed) |
 | Documentation site | `make doctor-docs` | `make docs` | `build/docs/site/` |
-| Complete local release | `make doctor JOBS=4` | `make release-candidate JOBS=4` | All of the above plus `build/dist/postgamma-*-local-release.json` |
+| Native local release | `make doctor JOBS=4` | `make release-candidate JOBS=4` | Native artifacts and docs plus `build/dist/postgamma-*-local-release.json` |
 
 The build targets repeat their corresponding environment checks, so the first
 command in each row is optional. Running it separately is recommended on a new
 machine: it stops before the build, compiles small toolchain probes, and prints
-platform-specific installation commands for missing dependencies.
+platform-specific installation commands for missing dependencies. `wasm-build`
+also installs/reuses the pinned Emscripten/Node tools and generates the target
+kernel before packaging. It defaults to release; use `WASM_MODE=debug` for a
+debug package. `doctor-ast` checks its host compiler prerequisites; after setup,
+`doctor-wasm` additionally checks the SDK and launches Chromium.
+
+Use `make server-test`, `make c-test`, `make python-test`, or `make wasm-test`
+for the corresponding product's validation. On a prepared host,
+`make full-test JOBS=2` checks tools, then runs the complete native source gate and the release
+Wasm suite serially. A failure in either gate fails the command. The native-only
+entry remains `make complete-source-check`; the multi-hour browser endurance
+qualification remains `make wasm-alpha-test`. Existing build/check target names
+remain available. C SDK packaging retains its consumer and host-safety checks;
+the other `*-build` commands do not run their full acceptance suites.
 
 `make doctor` is deliberately the complete check. It covers the native SDK,
 the full PostgreSQL test toolchain, Python wheel packaging, and documentation.
@@ -256,7 +271,7 @@ Use this path when working on the PostgreSQL source transformation itself:
 
 ```bash
 make doctor-threaded JOBS=4
-make threaded-postgresql-build JOBS=4
+make server-build JOBS=4
 ```
 
 The build leaves the transformed source in `build/generated/postgres/` and the
@@ -270,7 +285,7 @@ threaded PostgreSQL, the transformation, sanitizer runtime, and thread
 isolation contracts:
 
 ```bash
-make threaded-postgresql-check JOBS=4
+make server-test JOBS=4
 ```
 
 ### Follow upstream PostgreSQL
@@ -321,7 +336,7 @@ Use this path for native applications and for new language bindings:
 
 ```bash
 make doctor-sdk JOBS=4
-make static-sdk-package JOBS=4
+make c-build JOBS=4
 ```
 
 The target builds and tests the embedded kernel, then writes a versioned SDK
@@ -338,7 +353,8 @@ intend to test:
 python3 -m venv .venv
 . .venv/bin/activate
 make doctor-python JOBS=4
-make python-package-check JOBS=4
+make python-build JOBS=4
+make python-test JOBS=4
 ```
 
 The validated wheel is written to `build/python-product/wheel/`. This is a
@@ -384,7 +400,17 @@ The documentation build treats warnings and broken references as errors. The
 static site is written to `build/docs/site/`; see
 [Documentation website](#documentation-website) to preview it locally.
 
-### Run the WebAssembly checks
+### Build and validate the browser SDK
+
+```sh
+make wasm-build JOBS=2
+```
+
+This prepares pinned sources and tools, generates the kernel, and builds the
+release npm tarball. Use `make wasm-test JOBS=2` for complete Wasm acceptance,
+or `make full-test JOBS=2` to include the native source gate too.
+
+For individual toolchain and platform checks:
 
 ```sh
 make wasm-setup
@@ -561,7 +587,7 @@ package once, then subsequent documentation builds reuse the verified assets:
 make docs-serve DOCS_WASM_PACKAGE=/path/to/postgamma-wasm-0.1.0-alpha.1.tgz
 ```
 
-After `make wasm-package WASM_MODE=release`, use `DOCS_WASM_PACKAGE=auto` to
+After `make wasm-build`, use `DOCS_WASM_PACKAGE=auto` to
 select the latest successful local release package. Without a package, the
 documentation still builds and the demo explains why it is unavailable. Binary
 assets stay under `build/docs/browser/` and are included in the generated site.
@@ -625,6 +651,9 @@ the generated npm package, serving its assets and choosing ephemeral or OPFS
 storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
 validated package in Chromium, Firefox and Linux WebKit.
 
+`make wasm-build JOBS=2` prepares sources and tools, generates the target kernel,
+and packages a release browser SDK without running the full acceptance suite.
+
 `make wasm-test` sets up the pinned source, SDK and browsers, then builds and
 runs the release Wasm acceptance suite in one command. It includes the
 PGlite-derived SQL regression cases across Chromium, Firefox and Linux WebKit,
@@ -632,6 +661,8 @@ each with ephemeral and OPFS storage. Independent stages continue after a
 failure, and the command exits nonzero with all failures and unexecuted stages
 in the report referenced by `build/wasm/reports/ci.json`. It defaults to one
 build job; use `JOBS=2` to increase parallelism.
+It is also included in `make full-test` and `./scripts/full-test.sh`, after
+native validation. The native and Wasm suites keep their separate reports.
 
 `make wasm-release JOBS=2` reuses installed tools and runs the same release
 gates with fail-fast stage handling. Release artifacts remain separate from

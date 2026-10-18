@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provision a supported Linux host and run the complete source validation.
+# Provision a supported Linux host and run native and Wasm validation.
 
 set -Eeuo pipefail
 unset LANGUAGE LC_ADDRESS LC_COLLATE LC_CTYPE LC_IDENTIFICATION \
@@ -40,12 +40,13 @@ for argument in "$@"; do
 		cat <<'EOF'
 Usage: ./scripts/full-test.sh [--plan | --prepare-only | --artifacts-only]
 
-Provision a supported x86-64 Linux host and run complete-source-check as the
+Provision a supported x86-64 Linux host and run full-test (native + Wasm) as the
 current unprivileged user.  --plan prints the detected installation plan
 without changing the host.  --prepare-only installs and verifies the
 environment but does not start the test. Privileged package, swap, and
 process-limit commands use sudo without changing the identity that runs builds
-and tests.
+and tests. The pinned Wasm SDK and three browser engines are also prepared;
+multi-hour Wasm alpha endurance remains a separate make wasm-alpha-test command.
 --artifacts-only tests an exported SDK and wheel without rebuilding the kernel.
 
 Useful environment overrides:
@@ -307,6 +308,10 @@ if [[ "$mode" == plan ]]; then
 	printf 'toolchain=%s\n' "$toolchain"
 	printf 'workflow_requirements=buildsys/requirements.txt\n'
 	printf 'documentation_requirements=docs/requirements.txt\n'
+	printf 'test_target=full-test\n'
+	printf 'test_suites=native,wasm-release\n'
+	printf 'wasm_tools=pinned-emsdk,node,chromium,firefox,webkit\n'
+	printf 'wasm_alpha_endurance=separate\n'
 	printf 'git_prefix=%s\n' "$git_prefix"
 	printf 'perl_modules=%s\n' "$perl_modules"
 	printf 'jobs=%s\n' "$jobs"
@@ -966,7 +971,7 @@ raise_open_file_limit()
 
 write_runner()
 {
-	local runner=$work_root/run/complete-source-check.sh
+	local runner=$work_root/run/full-test.sh
 	local build_dir=$work_root/build
 	local strace
 	strace=$(command -v strace)
@@ -1027,7 +1032,7 @@ fi
 unset PG_REPOSITORY PG_REPOSITORY_FALLBACK \\
 	PGVECTOR_REPOSITORY PGVECTOR_REPOSITORY_FALLBACK
 if [[ "\$runner_mode" == preflight ]]; then
-	exec "\$MAKE" -j1 doctor-full-test doctor-python doctor-docs \\
+	exec "\$MAKE" -j1 full-test-prepare \\
 		BUILD_DIR=$(printf '%q' "$build_dir") \\
 		JOBS=$(printf '%q' "$jobs") \\
 		PYTHON="\$PYTHON" MAKE="\$MAKE" CC="\$CC" CXX="\$CXX" \\
@@ -1036,7 +1041,7 @@ if [[ "\$runner_mode" == preflight ]]; then
 		PG_CONFIGURE_ARGS=$(printf '%q' "${POSTGAMMA_PG_CONFIGURE_ARGS:---without-icu}")
 fi
 if [[ "\$runner_mode" == run ]]; then
-	"\$MAKE" -j1 complete-source-check static-sdk-package \\
+	"\$MAKE" -j1 full-test static-sdk-package \\
 		BUILD_DIR=$(printf '%q' "$build_dir") \\
 		JOBS=$(printf '%q' "$jobs") \\
 		SESSION_EXECUTOR_TIMEOUT_SECONDS=$(printf '%q' "$session_timeout") \\
@@ -1078,7 +1083,7 @@ write_runner
 
 if [[ "$mode" != artifacts ]]; then
 	log "verifying the provisioned environment as $test_user"
-	"$work_root/run/complete-source-check.sh" preflight
+	"$work_root/run/full-test.sh" preflight
 fi
 
 if [[ "$mode" == prepare ]]; then
@@ -1091,23 +1096,23 @@ if [[ "$mode" == artifacts ]]; then
 	runner_mode=artifacts
 	log "testing the existing SDK and wheel from $test_artifacts"
 else
-	log "starting complete-source-check and packaged artifact checks with JOBS=$jobs; this can take several hours"
+	log "starting full-test (native + Wasm) and packaged artifact checks with JOBS=$jobs; this can take several hours"
 fi
 log "build directory: $work_root/build"
 log "log: $work_root/full-test.log"
 set +e
 if command -v ionice >/dev/null 2>&1; then
-	nice -n 10 ionice -c 2 -n 7 "$work_root/run/complete-source-check.sh" "$runner_mode" \
+	nice -n 10 ionice -c 2 -n 7 "$work_root/run/full-test.sh" "$runner_mode" \
 		2>&1 | tee "$work_root/full-test.log"
 	status=${PIPESTATUS[0]}
 else
-	nice -n 10 "$work_root/run/complete-source-check.sh" "$runner_mode" \
+	nice -n 10 "$work_root/run/full-test.sh" "$runner_mode" \
 		2>&1 | tee "$work_root/full-test.log"
 	status=${PIPESTATUS[0]}
 fi
 set -e
 if ((status == 0)); then
-	if [[ "$runner_mode" == run ]]; then log "complete-source-check passed"; fi
+	if [[ "$runner_mode" == run ]]; then log "full-test passed (native + Wasm)"; fi
 	log "packaged artifact checks passed"
 else
 	log "$runner_mode validation failed with exit code $status"

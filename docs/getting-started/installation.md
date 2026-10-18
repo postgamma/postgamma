@@ -32,8 +32,12 @@ Product compilation uses the host's headers and libraries. AST and C++17 test
 tools use the private toolchain's sysroot and library paths, so old hosts do not
 need a newer system C++ runtime to run the build tools. It validates the current
 checkout's clean, committed source directly, runs the environment preflight,
-and starts `make complete-source-check static-sdk-package`, followed by tests
+and starts `make full-test static-sdk-package`, followed by tests
 of the packaged SDK and pip-installed wheel with build-library overrides removed.
+The full test prepares the pinned Wasm SDK and Chromium, Firefox and Linux WebKit,
+checks their dependencies, then runs native validation and the release Wasm suite
+serially. Browser setup errors stop before the long native gate; either suite
+failing makes the command fail.
 The source gate also generates the C and Python API references and builds the
 documentation website with warnings treated as errors. The provisioner installs
 missing Doxygen packages and the pinned `docs/requirements.txt` dependencies;
@@ -134,7 +138,34 @@ checks, and the dedicated timeout/cancellation tests are unchanged.
 workload and defaults to 1800 seconds in the clean-host runner for older
 `strace` implementations without seccomp filtering.
 Use `--prepare-only` to stop after source initialization and the complete
-environment preflight.
+environment preflight, including the Wasm SDK and browser matrix. Cached tools
+and browsers are reused. Browser execution has additional host-library and OS
+requirements beyond the native glibc floor; unsupported browser environments
+fail preflight rather than silently skipping Wasm.
+
+## Product build and test commands
+
+After installing the host compiler prerequisites, run these commands from the
+repository root. Each build initializes the pinned source dependencies itself:
+
+| Product | Build | Product tests |
+| --- | --- | --- |
+| Threaded PostgreSQL server | `make server-build JOBS=2` | `make server-test JOBS=2` |
+| Embedded C SDK archive | `make c-build JOBS=2` | `make c-test JOBS=2` |
+| Python wheel | `make python-build JOBS=2` | `make python-test JOBS=2` |
+| Browser Wasm SDK | `make wasm-build JOBS=2` | `make wasm-test JOBS=2` |
+
+`wasm-build` prepares/reuses Emscripten and Node, generates target code, then
+builds the npm tarball. It defaults to release; `WASM_MODE=debug` selects debug
+for both generation and packaging. The C SDK build retains its static-consumer
+and host-safety packaging gates. Other builds do not run full acceptance.
+Existing lower-level target names remain available.
+
+On a prepared host, `make full-test JOBS=2` runs the complete native gate followed
+by Wasm acceptance. Native-only CI can keep using `make complete-source-check`.
+`make full-test-prepare` checks both environments without kernel compilation or
+full acceptance. Multi-hour Wasm alpha qualification is explicit:
+`make wasm-alpha-test JOBS=2`.
 
 After a successful full test, `build/full-test/artifacts/` contains the exact
 SDK archive, wheel, wheel receipt, and a manifest binding their hashes to the
@@ -160,7 +191,7 @@ other CPython versions remain separate release gates.
 
 ## Source-build prerequisites
 
-Source builds are supported on x86-64 Linux with glibc 2.17 or newer. Official
+Native source builds are supported on x86-64 Linux with glibc 2.17 or newer. Official
 Linux binaries are compiled and tested at that floor with the generic x86-64
 CPU baseline. A full local release build needs a C/C++ toolchain, matching LLVM
 and Clang development files, PostgreSQL's generator and native-library
@@ -331,7 +362,7 @@ suite:
 
 ```bash
 make doctor-threaded JOBS=4
-make threaded-postgresql-build JOBS=4
+make server-build JOBS=4
 ```
 
 The generated source is written to `build/generated/postgres/`, and its
@@ -343,7 +374,7 @@ Run the full reference-versus-threaded PostgreSQL and isolation gate before
 submitting changes to the transformation:
 
 ```bash
-make threaded-postgresql-check JOBS=4
+make server-test JOBS=4
 ```
 
 Both builds keep the pinned source checkout clean. The reference server uses
@@ -445,9 +476,8 @@ SDK prefix; its `resource-pack/` child is the runtime resource root.
 ### Build and validate from source
 
 ```bash
-make source-init
 make doctor-sdk
-make static-sdk-package JOBS=8
+make c-build JOBS=8
 ```
 
 This runs the static consumer and host-safety gates, then creates the same
