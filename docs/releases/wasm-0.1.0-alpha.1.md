@@ -59,6 +59,8 @@ Opening waits up to 5 seconds for an existing owner by default, with explicit
 immediate failure, a configurable timeout and AbortSignal cancellation.
 `DatabaseLockedError` reports the name and whether the owner was busy or the
 wait timed out. Waiting creates no Wasm shared memory or pthread pool.
+`Database.list()` enumerates named OPFS clusters including incomplete restores;
+`Database.delete()` removes one under the same exclusive ownership lock.
 
 OPFS instances opened in a Window default to discarding their Workers on
 `pagehide.persisted`. Old handles become unusable; returning from bfcache
@@ -83,7 +85,8 @@ older builds cannot reopen that upgraded format. This metadata migration is
 not a general PostgreSQL major-version upgrade. `dumpDataDir()` closes an idle
 source and streams a complete archive. `Database.loadDataDir()` requires the
 exact matching asset build and a new target; `clone()` combines these steps.
-Failed OPFS restores retain an incomplete marker and cannot be opened. This
+Failed OPFS restores retain an incomplete marker and cannot be opened; use the
+locked deletion API before retrying the name. This
 archive is not a cross-version migration format.
 
 Close requests, COPY streams and connections before closing the database.

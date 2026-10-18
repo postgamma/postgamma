@@ -1,6 +1,7 @@
 /* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
 import {Database, DatabaseLockedError, Codecs, NotificationOverflowError, version, type OpenOptions, type Parameter, type Result,
-  type ScriptOptions, type Notification, type ArchiveOptions, type RestoreOptions, type LockOptions} from '@postgamma/wasm';
+  type ScriptOptions, type Notification, type ArchiveOptions, type RestoreOptions, type LockOptions,
+  type DeleteOptions} from '@postgamma/wasm';
 const lockOptions: LockOptions = {lock: 'wait', lockTimeoutMs: 5000};
 const options: OpenOptions = {...lockOptions, signal: new AbortController().signal, storage: {type: 'opfs', name: 'typed-consumer'}, bfcache: 'discard'};
 const locked = new DatabaseLockedError('typed-consumer', 'busy');
@@ -42,6 +43,13 @@ async function typedArchive(db: Database, source: ReadableStream<Uint8Array>) {
   await (await restored.clone()).close();
 }
 void typedArchive;
+async function typedStorage() {
+  const names: string[] = await Database.list();
+  const deletion: DeleteOptions = {lock: 'fail', signal: new AbortController().signal};
+  const removed: boolean = await Database.delete('obsolete', deletion);
+  return {names, removed};
+}
+void typedStorage;
 // @ts-expect-error A native pointer is not a supported parameter value.
 const invalid: Parameter = {typeOid: 20, value: 123};
 void invalid;

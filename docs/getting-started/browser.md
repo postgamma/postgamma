@@ -231,6 +231,14 @@ runs in an application Worker, coordinate closing from its host page before
 navigation: Workers cannot observe Window lifecycle events. The cross-tab
 gate records real bfcache restoration separately from synthetic pagehide tests.
 
+Use `await Database.list()` to enumerate named OPFS clusters, including failed
+restores. It returns a sorted snapshot without opening a kernel. Use
+`await Database.delete(name, {lock: 'fail'})` for safe removal; it returns false
+if absent. Deletion takes the same lock as open/restore, accepts the same lock
+timeouts and an `AbortSignal`, and retains ownership until removal completes.
+Cancellation only applies before removal starts. Do not remove OPFS directories
+directly. Cluster names here are distinct from SQL database names.
+
 Synchronous COMMIT waits for the browser storage barrier. The Chromium recovery
 suite covers interrupted Workers/browser processes and storage failures; it
 does not establish hardware power-loss durability. Handle quota and I/O errors
@@ -249,7 +257,7 @@ For a complete same-build copy, use `dumpDataDir()` with `Database.loadDataDir()
 or `clone()`. Export closes an idle source database; close its connections and
 requests first. Restore requires a new target and the exact matching asset
 build. Failed OPFS restores retain an incomplete marker and cannot be opened;
-use a new name for another attempt.
+delete the failed target with `Database.delete(name)` before reusing that name.
 
 Each connection serializes `query()` calls; different connections can execute
 concurrently. Use `execute()` and its request iterator for large results,

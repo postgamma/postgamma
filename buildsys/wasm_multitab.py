@@ -47,7 +47,7 @@ def check(config, longjmp, engines, selected=None):
                         run(command + ['--profile', str(Path(temporary) / 'profile')], case / 'browser.log',
                             dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=900)
                     browser = read_json(case / 'browser.json')
-                    if browser['status'] != 'passed' or len(browser['cases']) != (1 if selected else 9):
+                    if browser['status'] != 'passed' or len(browser['cases']) != (1 if selected else 10):
                         raise WasmError('Incomplete cross-tab evidence')
                     report['engines'][engine] = {'status': 'passed', 'report': str(case / 'browser.json')}
                 except Exception as error:

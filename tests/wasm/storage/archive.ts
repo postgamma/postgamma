@@ -85,6 +85,15 @@ export async function archive(checks: string[], metrics: unknown[]) {
     },
   }), {storage: cancelled, signal: signal.signal}), /cancelled/);
   await rejected(Database.open({storage: cancelled, create: false}), /incomplete restore/);
+  for (const target of [invalidCluster, cancelled]) {
+    assert((await Database.list()).includes(target.name), 'Incomplete restores remain discoverable');
+    assert(await Database.delete(target.name), 'Incomplete restore can be safely deleted');
+    assert(!(await Database.list()).includes(target.name), 'Deleted restore no longer occupies its name');
+  }
+  const retried = await Database.open({storage: cancelled});
+  const retryConnection = await retried.connect();
+  assert(scalar(await retryConnection.query('SELECT 42')) === '42', 'Deleted restore name is reusable');
+  await retryConnection.close(); metrics.push(await retried.close()); await Database.delete(cancelled.name);
   const exportStorage = {type: 'opfs' as const, name: 'archive-export-cancel-' + crypto.randomUUID()};
   const exporting = await Database.open({storage: exportStorage});
   await (await exporting.dumpDataDir()).cancel(); metrics.push(await exporting.close());
@@ -94,5 +103,5 @@ export async function archive(checks: string[], metrics: unknown[]) {
   await rejected(closedStream.getReader().read(), /closed/);
   checks.push('archive-checksum', 'archive-truncation', 'archive-trailing-data', 'archive-build-identity',
     'archive-cancelled-restore-not-openable', 'archive-cancelled-export-reopen', 'archive-path-traversal', 'archive-concurrent-close',
-    'archive-invalid-cluster-quarantined');
+    'archive-invalid-cluster-quarantined', 'archive-incomplete-delete-reuse');
 }

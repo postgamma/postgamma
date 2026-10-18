@@ -87,6 +87,16 @@ navigation or accepting that a cached page can block other owners. If the SDK
 itself runs inside an application Worker, it cannot observe Window events;
 the host page must coordinate closing before navigation.
 
+`await Database.list()` returns a sorted snapshot of this origin's OPFS cluster
+names, including incomplete restores. It does not open a kernel or create a
+directory. `await Database.delete(name, {lock: 'fail'})` deletes a cluster and
+returns `true`, or `false` if absent. Deletion holds the same ownership lock as
+open/restore until removal finishes, and accepts `lock`, `lockTimeoutMs` and
+`signal`. Cancellation applies before removal starts; removal itself cannot
+be cancelled or rolled back. These names identify OPFS clusters, not SQL
+databases within a cluster. Listing is a snapshot, not a reservation. Never
+delete the `postgamma/<name>` directory directly while a database may be open.
+
 Namespace checkpoints automatically reclaim metadata history. The initial
 profile allows 16,384 live file/directory entries and bounds the two metadata
 files to 16 MiB together. Existing preview databases upgrade when opened;
@@ -114,7 +124,8 @@ Both operations accept an `AbortSignal`. The archive must come from the exact
 same asset `buildId`, including extensions; it is not a cross-version upgrade
 format. Restore requires a new OPFS name, or a new ephemeral module, and never
 overwrites an existing database. Failed OPFS restores retain an incomplete
-marker and cannot be opened; use a new name for a later attempt. `clone()` also
+marker and cannot be opened; safely remove that failed target with
+`await Database.delete(name)` before retrying the same name. `clone()` also
 closes the source and streams into the new database. External tablespaces and
 symbolic links are not supported by the archive format.
 

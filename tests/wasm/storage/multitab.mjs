@@ -212,6 +212,23 @@ try {
     await invoke(a, 'close'); assert.deepEqual(await invoke(b, 'sql', 'SELECT * FROM private_data'), [['b']]);
     await invoke(b, 'close'); return {instances, instanceCount: 2};
   });
+  await test('database-management', async () => {
+    const a = await page(), b = await page(), name = 'delete-' + crypto.randomUUID();
+    assert.equal(await invoke(b, 'delete', name), false);
+    await open(a, {name}); await invoke(a, 'init');
+    assert((await invoke(b, 'list')).includes(name));
+    await assert.rejects(invoke(b, 'delete', name, {lock: 'fail'}), /already has a live owner/);
+    await assert.rejects(invoke(b, 'delete', name, {lockTimeoutMs: 100}), /Timed out waiting/);
+    assert.deepEqual(await invoke(a, 'values'), {ack: '2', pending: '0'});
+    const deleting = invoke(b, 'delete', name);
+    await waiting(a, name); await invoke(a, 'close');
+    assert.equal(await deleting, true);
+    assert(!(await invoke(b, 'list')).includes(name));
+    assert.equal(await invoke(b, 'delete', name), false);
+    await open(a, {name}); await invoke(a, 'init'); await invoke(a, 'close');
+    assert.equal(await invoke(b, 'delete', name), true);
+    return {deletedAfterOwnerClosed: true, nameReusable: true};
+  });
   await test('pagehide-discard', async () => {
     const a = await page(), b = await page(), name = 'pagehide-' + crypto.randomUUID();
     await open(a, {name}); await invoke(a, 'init');
@@ -225,9 +242,8 @@ try {
     await open(a, {name, bfcache: 'preserve'});
     await invoke(a, 'pagehide', true);
     assert.deepEqual(await invoke(a, 'values'), {ack: '2', pending: '0'});
-    await invoke(b, 'begin', {name, lock: 'fail'});
-    locked(await finish(b), name, 'busy');
-    await invoke(a, 'close');
+    await assert.rejects(invoke(b, 'delete', name, {lock: 'fail'}), /already has a live owner/);
+    await invoke(a, 'close'); await invoke(b, 'delete', name);
     return {syntheticPagehide: true, defaultDiscard: true, explicitPreserve: true};
   });
   assert(report.cases.length > 0);

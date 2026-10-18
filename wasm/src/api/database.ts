@@ -18,6 +18,9 @@ import {prepareOwnership} from '../runtime/open.js';
 import {PageLifetime} from '../runtime/page.js';
 import {validateLockOptions} from '../storage/ownership.js';
 import type {LockOptions} from '../storage/ownership.js';
+import {listDatabases, deleteDatabase} from '../storage/management.js';
+import type {DeleteOptions} from '../storage/management.js';
+export type {DeleteOptions} from '../storage/management.js';
 export {DatabaseLockedError} from '../storage/ownership.js';
 import {OperationControl, abortable} from './control.js';
 import type {ControlOptions} from './control.js';
@@ -272,6 +275,10 @@ export class Database {
   private terminal?: PsqlTerminal;
   private terminalStarting?: Promise<PsqlTerminal>;
   private constructor(transport: Transport, handle: Handle) {this.transport = transport; this.handle = handle;}
+  /** List this origin's named OPFS clusters, including incomplete restores. */
+  static list(): Promise<string[]> {return listDatabases();}
+  /** Delete a named OPFS cluster under its ownership lock; false if absent. */
+  static delete(name: string, options: DeleteOptions = {}): Promise<boolean> {return deleteDatabase(name, options);}
   private static async createTransport(options: OpenOptions): Promise<Transport> {
     validateLockOptions(options);
     options.signal?.throwIfAborted();

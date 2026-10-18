@@ -121,7 +121,8 @@ def startup(config, longjmp: str, action: str, scenario: str, extensions=()) -> 
             run([builder.tools["node"], str(config.root / readiness_test), str(site / "src/protocol/readiness.js")],
                 builder.current / "readiness.log", builder.env, config.root)
             close_test = "tests/wasm/sql/close.mjs"
-            for test, entry in (("tests/wasm/sql/page.mjs", "src"),):
+            for test, entry in (("tests/wasm/storage/management.mjs", "src/api/database.js"),
+                                ("tests/wasm/sql/page.mjs", "src")):
                 report["harness_sources"][test] = digest(config.root / test)
                 run([builder.tools["node"], str(config.root / test), str(site / entry)],
                     builder.current / (Path(test).stem + "-api.log"), builder.env, config.root)

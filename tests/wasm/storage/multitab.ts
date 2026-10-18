@@ -81,5 +81,7 @@ page.multitab = {
       pending: scalar(await connection.query("SELECT count(*) FROM ledger WHERE value='pending'"))};
   },
   lifecycle: () => JSON.parse(sessionStorage.getItem('multitab-events') ?? '[]'),
+  list: () => sdk.Database.list(),
+  delete: (name: string, options: sdk.DeleteOptions = {}) => sdk.Database.delete(name, options),
   pagehide: (persisted: boolean) => window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted})),
 };

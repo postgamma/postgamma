@@ -92,7 +92,7 @@ def matrix(config, longjmp, scenario, extensions, engines):
                             'archive-existing-destination-preserved', 'archive-checksum', 'archive-truncation',
                             'archive-trailing-data', 'archive-build-identity', 'archive-path-traversal',
                             'archive-cancelled-restore-not-openable', 'archive-cancelled-export-reopen', 'archive-concurrent-close',
-                            'archive-invalid-cluster-quarantined'}
+                            'archive-invalid-cluster-quarantined', 'archive-incomplete-delete-reuse'}
                         if not required <= set(row['probe']['checks']): raise WasmError('Missing archive checks')
                     if scenario == 'contrib':
                         required = {'contrib-extension-ddl-rollback', 'contrib-pg-trgm-gin', 'contrib-pg-trgm-gist',

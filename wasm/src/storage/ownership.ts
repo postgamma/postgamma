@@ -24,7 +24,8 @@ export function validateLockOptions(options: LockOptions): void {
 export async function acquire(name: string, options: LockOptions = {}, signal?: AbortSignal): Promise<() => Promise<void>> {
   validateLockOptions(options);
   signal?.throwIfAborted();
-  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) throw new Error('Database name must contain 1-64 ASCII letters, digits, underscores or hyphens');
+  if (typeof name !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(name))
+    throw new Error('Database name must contain 1-64 ASCII letters, digits, underscores or hyphens');
   if (!navigator.locks || !navigator.storage?.getDirectory || typeof BroadcastChannel !== 'function')
     throw new Error('OPFS, Web Locks and BroadcastChannel are required');
   let release!: () => void;
@@ -41,8 +42,10 @@ export async function acquire(name: string, options: LockOptions = {}, signal?: 
   try {
     const work = navigator.locks.request('postgamma:database:' + name,
       immediate ? {mode: 'exclusive', ifAvailable: true} : {mode: 'exclusive', signal: controller.signal}, async lock => {
-        controller.signal.throwIfAborted();
-        if (!lock) throw new DatabaseLockedError(name, options.lock === 'fail' ? 'busy' : 'timeout');
+        // Reject the public acquisition, without an exception escaping the
+        // browser's async lock callback (Firefox can report that as pageerror).
+        if (controller.signal.aborted) {reject(controller.signal.reason); return;}
+        if (!lock) {reject(new DatabaseLockedError(name, options.lock === 'fail' ? 'busy' : 'timeout')); return;}
         ready(); await held;
       });
     work.catch(reject);
