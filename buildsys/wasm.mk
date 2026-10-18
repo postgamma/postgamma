@@ -19,7 +19,7 @@ POSTGAMMA_WASM_ARGS = --root "$(ROOT)" --build-dir "$(BUILD_DIR)" \
 	$(if $(WASM_NODE),--node "$(WASM_NODE)") \
 	$(if $(WASM_BROWSER_EXECUTABLE),--browser-executable "$(WASM_BROWSER_EXECUTABLE)")
 
-.PHONY: wasm-setup doctor-wasm wasm-probe-build wasm-probe-check wasm-clean
+.PHONY: wasm-setup wasm-toolchain-setup doctor-wasm wasm-toolchain-doctor wasm-browser-doctor wasm-probe-build wasm-probe-check wasm-clean
 .PHONY: wasm-platform-check wasm-wait-check wasm-recovery-check wasm-opfs-check
 .PHONY: wasm-browser-setup wasm-browser-check
 .PHONY: wasm-resource-check
@@ -40,8 +40,17 @@ wasm-test:
 wasm-setup:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" setup $(POSTGAMMA_WASM_ARGS)
 
+wasm-toolchain-setup:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" toolchain-setup $(POSTGAMMA_WASM_ARGS)
+
 doctor-wasm:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" doctor $(POSTGAMMA_WASM_ARGS)
+
+wasm-toolchain-doctor:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" toolchain-doctor $(POSTGAMMA_WASM_ARGS)
+
+wasm-browser-doctor:
+	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" browser-doctor $(POSTGAMMA_WASM_ARGS)
 
 wasm-probe-build:
 	@$(PYTHON) "$(ROOT)/buildsys/wasm.py" probe-build $(POSTGAMMA_WASM_ARGS) --probe "$(WASM_PROBE)" --seed "$(WASM_SEED)"

@@ -1050,7 +1050,7 @@ PUBLIC_ARTIFACT_EVIDENCE := $(STATIC_SDK_DIST_DIR)/public-artifacts.json
 	generated-check-world generated-thread-runtime-check thread-isolation-check \
 	thread-isolation-stress thread-isolation-soak
 
-.PHONY: help help-internal source-init bootstrap doctor doctor-threaded doctor-sdk doctor-foundation doctor-ast doctor-build \
+.PHONY: help help-internal source-init bootstrap doctor doctor-native doctor-threaded doctor-sdk doctor-foundation doctor-ast doctor-build \
 	doctor-python doctor-docs doctor-full-test doctor-release doctor-workflow \
 	verify-upstream postgresql-adapter-check check-layout version-check portability-check publication-check artifact-publication-check \
 	docs docs-api docs-check docs-serve \
@@ -1120,16 +1120,20 @@ PUBLIC_ARTIFACT_EVIDENCE := $(STATIC_SDK_DIST_DIR)/public-artifacts.json
 help:
 	@echo "PostGamma source and release targets"
 	@echo
-	@echo "  server-build / server-test     build or validate the threaded PostgreSQL server"
-	@echo "  c-build / c-test               package the C SDK or validate the embedded runtime"
-	@echo "  python-build / python-test     build or validate the Python wheel"
-	@echo "  wasm-build / wasm-test         build the release browser SDK or run Wasm acceptance"
+	@echo "  server-doctor / server-build / server-test   check tools, build or test the server"
+	@echo "  c-doctor / c-build / c-test                  check tools, package or test the C SDK"
+	@echo "  python-doctor / python-build / python-test   check tools, build or test the wheel"
+	@echo "  wasm-doctor / wasm-build / wasm-test         check tools, build or test the browser SDK"
+	@echo "  docs-doctor                    validate documentation dependencies"
+	@echo "  full-test-doctor               check installed native/Wasm tools and all three browsers"
+	@echo "  wasm-browser-doctor            check installed browser libraries and launch all three engines"
 	@echo "  full-test                      prepare tools, then run native and Wasm acceptance"
 	@echo "  full-test-prepare              prepare and check native/Wasm tools without full tests"
 	@echo "  wasm-alpha-test                add two active hours per browser to Wasm acceptance"
 	@echo
 	@echo "  source-init                    initialize pinned PostgreSQL and pgvector sources"
-	@echo "  doctor                         validate every local development dependency"
+	@echo "  doctor                         check native, Python, docs, Wasm and all browser dependencies"
+	@echo "  doctor-native                  check native/Python/docs release dependencies"
 	@echo "  doctor-threaded                validate threaded PostgreSQL build dependencies"
 	@echo "  doctor-sdk                     validate native C SDK dependencies"
 	@echo "  doctor-python                  validate native and Python wheel dependencies"
@@ -1153,8 +1157,9 @@ help:
 	@echo "  python-package-check           build and validate the local wheel"
 	@echo "  static-sdk-package             build the tested static C SDK archive"
 	@echo "  docs                           build the documentation website strictly"
+	@echo "  wasm-toolchain-setup           install reusable SDK/npm build tools without browsers"
 	@echo "  wasm-setup                     install reusable Wasm probe tools"
-	@echo "  doctor-wasm                    validate SDK, npm dependencies, and Chromium"
+	@echo "  doctor-wasm                    legacy SDK/Chromium probe check (use wasm-doctor for builds)"
 	@echo "  wasm-probe-build               compile the Wasm toolchain smoke probe"
 	@echo "  wasm-probe-check               run the Wasm smoke probe in Chromium"
 	@echo "  wasm-platform-check            check Wasm ABI, pthread, TLS, stack, and libc"
@@ -1195,8 +1200,8 @@ help-internal:
 	@echo "  doctor-build          require the internal native build dependencies"
 	@echo "  doctor-python         require native and Python wheel dependencies"
 	@echo "  doctor-docs           require documentation dependencies"
-	@echo "  doctor-release        compatibility alias for the complete doctor"
-	@echo "  doctor-full-test      require the complete validation toolchain"
+	@echo "  doctor-release        check native release dependencies, including Python and docs"
+	@echo "  doctor-full-test      internal native validation toolchain check"
 	@echo "  verify-upstream       require the pinned, clean PostgreSQL submodule"
 	@echo "  postgresql-adapter-check validate adapter/source major compatibility"
 	@echo "  portability-check     check source files for build-host path dependencies"
@@ -1387,7 +1392,7 @@ docs-serve-start: docs-api docs-wasm
 		$(MKDOCS) serve --strict --config-file "$(ROOT)/mkdocs.yml" \
 		--dev-addr "$(DOCS_DEV_ADDR)"
 
-doctor:
+doctor-native:
 	@CC="$(CC)" CXX="$(CXX)" AR="$(AR)" NM="$(NM)" \
 		READELF="$(READELF)" STRACE="$(STRACE)" OBJCOPY="$(OBJCOPY)" \
 		MKDOCS="$(MKDOCS)" DOXYGEN="$(DOXYGEN)" \
@@ -1445,7 +1450,7 @@ doctor-full-test:
 		STRACE="$(STRACE)" $(PYTHON) buildsys/doctor.py --root "$(ROOT)" \
 		--build-dir "$(BUILD_DIR)" --jobs "$(JOBS)" --require-profile full-test
 
-doctor-release: doctor
+doctor-release: doctor-native
 
 bootstrap: doctor-foundation check-layout portability-check verify-upstream postgresql-adapter-check
 

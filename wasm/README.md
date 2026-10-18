@@ -26,6 +26,16 @@ creates the npm tarball. The default is release; `WASM_MODE=debug` applies to
 both generation and packaging. The exact archive path is printed. It does not
 run the full browser acceptance suite. The native equivalents are `server-build`,
 `c-build` and `python-build`; all accept `JOBS` and `BUILD_DIR`.
+`make wasm-doctor` checks installed host tools, pinned SDK/npm dependencies
+and host AST compatibility with target headers. It does not need a browser.
+Both doctor and build use that same preflight; `wasm-build` first runs
+`wasm-toolchain-setup`, which installs/reuses build tools without browsers.
+Doctors never install tools or initialize sources. Use `make source-init` and
+`make wasm-toolchain-setup` before a standalone doctor on a fresh checkout.
+`make wasm-browser-doctor` separately checks installed browser libraries and
+launches Chromium, Firefox and WebKit; it does not run SQL or OPFS acceptance.
+`make full-test-doctor` combines native and Wasm test preflights, while
+`make doctor` also includes the native release and documentation dependencies.
 
 To build and run Wasm acceptance:
 
@@ -87,8 +97,11 @@ the doctor reports missing libraries before compiling probes.
 | Command | Result |
 | --- | --- |
 | `make wasm-build JOBS=2` | Prepare sources/tools, generate the target kernel and package the release browser SDK; `WASM_MODE=debug` overrides the build mode. |
+| `make wasm-doctor` | Check host tools, SDK/npm identities, contracts and target-header compatibility without requiring browsers. |
+| `make wasm-toolchain-setup` | Install or reuse the SDK and npm build dependencies without downloading browser binaries. |
+| `make wasm-browser-doctor` | Check installed libraries and launch all three browsers; no installation or SQL kernel build. |
 | `make wasm-setup` | Install or reuse the pinned SDK, npm dependencies, Chromium, and required host libraries. |
-| `make doctor-wasm` | Validate compiler/package identities and actually launch Chromium. |
+| `make doctor-wasm` | Legacy internal probe check: validate compiler/package identities and launch Chromium. |
 | `make wasm-probe-build` | Check the environment and incrementally compile the smoke probe. |
 | `make wasm-probe-check` | Build as needed, serve with COOP/COEP headers, and run the probe in Chromium. |
 | `make wasm-platform-check` | Run the ABI, pthread, TLS, stack, semaphore, memory stream, entropy, and locale probes. |
@@ -1038,7 +1051,7 @@ performance must be reported for the actual tested profile.
 
 `manifests/wasm-storage-protocol.json` defines storage operation numbers and
 Emscripten errno mappings. Its C enum and TypeScript constants are checked in
-and verified by `doctor-wasm` and kernel linking. After an intentional contract
+and verified by `wasm-doctor`, `doctor-wasm` and kernel linking. After an intentional contract
 change, regenerate both with
 `python3 buildsys/wasm_storage_protocol.py --root . --write`. C compilation also
 checks the error numbers against the target libc. Requests use named fields;

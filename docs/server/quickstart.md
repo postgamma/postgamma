@@ -9,7 +9,8 @@ to initialize or run a server as root.
 ## Build and install
 
 ```bash
-make doctor-threaded JOBS=4
+make source-init
+make server-doctor JOBS=4
 
 POSTGAMMA_SERVER_PREFIX="$PWD/build/server-install"
 make server-build JOBS=4 \

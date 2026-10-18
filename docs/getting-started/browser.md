@@ -113,6 +113,12 @@ This initializes the source and pinned Wasm tools, generates the kernel and
 builds a release browser SDK. Use `WASM_MODE=debug` for a debug package. The
 command prints the exact `postgamma-wasm-*.tgz` path and does not run the full
 browser test suite or publish the package.
+`make wasm-doctor` checks the installed host compiler, SDK, npm dependencies
+and target-header compatibility without installing or launching browsers.
+`wasm-build` prepares these tools and runs that check automatically. For a
+standalone check on a fresh checkout, run `make source-init` and
+`make wasm-toolchain-setup` first. Browser startup can be checked separately
+with `make wasm-browser-doctor` after `make wasm-browser-setup`.
 
 To build and validate in one command, use `make wasm-test JOBS=2`. It runs the
 full Wasm gates including the PGlite-derived tests in three browsers with

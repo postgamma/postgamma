@@ -120,7 +120,7 @@ $(RELEASE_CANDIDATE_RECEIPT): python-release-candidate-check static-sdk-package 
 release-candidate: override PG_CONFIGURE_ARGS := $(strip \
 	$(POSTGAMMA_FULL_TEST_BASE_PG_CONFIGURE_ARGS) \
 	$(POSTGAMMA_FULL_TEST_REQUIRED_PG_CONFIGURE_ARGS))
-release-candidate: doctor $(RELEASE_CANDIDATE_RECEIPT)
+release-candidate: doctor-release $(RELEASE_CANDIDATE_RECEIPT)
 
 $(STATIC_SDK_RELEASE_ARCHIVE) $(STATIC_SDK_RELEASE_CHECKSUM) \
 		$(STATIC_SDK_RELEASE_RECEIPT) &: \

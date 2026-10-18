@@ -13,7 +13,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKENDS = (
-    "source-init", "doctor-ast", "doctor-full-test", "doctor-python", "doctor-docs",
+    "source-init", "doctor-ast", "doctor-full-test", "doctor-python",
+    "doctor-native", "doctor-threaded", "doctor-sdk", "doctor-docs",
+    "wasm-toolchain-setup", "wasm-toolchain-doctor", "wasm-browser-doctor",
     "doctor-wasm", "threaded-postgresql-build", "static-sdk-package",
     "python-wheel", "threaded-postgresql-check", "embedded-runtime-check",
     "python-package-check", "complete-source-check", "wasm-setup",
@@ -87,7 +89,8 @@ class ProductTargetsTests(unittest.TestCase):
         result, rows = self.run_target("wasm-build")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([row["target"] for row in rows], [
-            "source-init", "doctor-ast", "wasm-setup", "wasm-kernel-generate", "wasm-package",
+            "source-init", "wasm-toolchain-setup", "doctor-ast", "wasm-toolchain-doctor",
+            "wasm-generator-tools-check", "wasm-kernel-generate", "wasm-package",
         ])
         self.assertEqual([row["mode"] for row in rows[-2:]], ["release", "release"])
         self.assertTrue(all(row["jobs"] == "2" and row["build"] == "custom-output"
@@ -107,7 +110,8 @@ class ProductTargetsTests(unittest.TestCase):
                     self.assertEqual(rows[-1]["extensions"], "none")
 
     def test_wasm_build_stops_after_any_failed_prerequisite(self):
-        stages = ["source-init", "doctor-ast", "wasm-setup", "wasm-kernel-generate", "wasm-package"]
+        stages = ["source-init", "wasm-toolchain-setup", "doctor-ast", "wasm-toolchain-doctor",
+                  "wasm-generator-tools-check", "wasm-kernel-generate", "wasm-package"]
         for index, stage in enumerate(stages):
             with self.subTest(stage=stage):
                 result, rows = self.run_target("wasm-build", fail=stage)
@@ -118,8 +122,8 @@ class ProductTargetsTests(unittest.TestCase):
         result, rows = self.run_target("full-test", "WASM_MODE=debug")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([row["target"] for row in rows], [
-            "source-init", "doctor-full-test", "doctor-python", "doctor-docs", "doctor-ast",
-            "wasm-setup", "wasm-browser-setup", "doctor-wasm", "wasm-generator-tools-check",
+            "source-init", "wasm-setup", "wasm-browser-setup", "doctor-full-test", "doctor-python", "doctor-docs",
+            "doctor-ast", "wasm-toolchain-doctor", "wasm-generator-tools-check", "wasm-browser-doctor",
             "complete-source-check", "source-init", "wasm-setup", "wasm-browser-setup",
             "wasm-check-full",
         ])
@@ -132,17 +136,43 @@ class ProductTargetsTests(unittest.TestCase):
         result, rows = self.run_target("full-test-prepare")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([row["target"] for row in rows], [
-            "source-init", "doctor-full-test", "doctor-python", "doctor-docs", "doctor-ast",
-            "wasm-setup", "wasm-browser-setup", "doctor-wasm", "wasm-generator-tools-check",
+            "source-init", "wasm-setup", "wasm-browser-setup", "doctor-full-test", "doctor-python", "doctor-docs",
+            "doctor-ast", "wasm-toolchain-doctor", "wasm-generator-tools-check", "wasm-browser-doctor",
         ])
 
     def test_full_test_propagates_environment_native_and_browser_failures(self):
-        for stage in ("doctor-full-test", "wasm-browser-setup", "doctor-wasm",
+        for stage in ("doctor-full-test", "doctor-docs", "wasm-browser-setup", "wasm-toolchain-doctor",
                       "wasm-generator-tools-check", "complete-source-check", "wasm-check-full"):
             with self.subTest(stage=stage):
                 result, rows = self.run_target("full-test", fail=stage)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(rows[-1]["target"], stage)
+                self.assertIn(stage, [row["target"] for row in rows])
+                if stage not in ("complete-source-check", "wasm-check-full"):
+                    self.assertNotIn("complete-source-check", [row["target"] for row in rows])
+
+    def test_product_doctors_only_check_their_installed_dependencies(self):
+        for target, expected in (
+            ("server-doctor", ["doctor-threaded"]),
+            ("c-doctor", ["doctor-sdk"]),
+            ("python-doctor", ["doctor-python"]),
+            ("docs-doctor", ["doctor-docs"]),
+            ("wasm-doctor", ["doctor-ast", "wasm-toolchain-doctor", "wasm-generator-tools-check"]),
+        ):
+            with self.subTest(target=target):
+                result, rows = self.run_target(target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([row["target"] for row in rows], expected)
+
+    def test_global_doctors_cover_wasm_without_installing_and_retain_failures(self):
+        for target, first in (("doctor", ["doctor-native"]),
+                              ("full-test-doctor", ["doctor-full-test", "doctor-python", "doctor-docs"])):
+            expected = first + ["doctor-ast", "wasm-toolchain-doctor",
+                                "wasm-generator-tools-check", "wasm-browser-doctor"]
+            for failed in ("", first[0], "wasm-browser-doctor"):
+                with self.subTest(target=target, failed=failed):
+                    result, rows = self.run_target(target, fail=failed)
+                    self.assertEqual(result.returncode == 0, not failed, result.stderr)
+                    self.assertEqual([row["target"] for row in rows], expected)
 
 
 if __name__ == "__main__":

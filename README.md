@@ -227,12 +227,12 @@ a focused environment check and a matching build target:
 
 | Goal | Check the environment | Build target | Primary output |
 | --- | --- | --- | --- |
-| Threaded PostgreSQL core | `make doctor-threaded JOBS=4` | `make server-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
-| Static C SDK | `make doctor-sdk JOBS=4` | `make c-build JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
-| Python wheel | `make doctor-python JOBS=4` | `make python-build JOBS=4` | `build/python-product/wheel/*.whl` |
-| Browser Wasm SDK | `make doctor-ast` | `make wasm-build JOBS=2` | `build/wasm/.../dist/postgamma-wasm-*.tgz` (exact path printed) |
-| Documentation site | `make doctor-docs` | `make docs` | `build/docs/site/` |
-| Native local release | `make doctor JOBS=4` | `make release-candidate JOBS=4` | Native artifacts and docs plus `build/dist/postgamma-*-local-release.json` |
+| Threaded PostgreSQL core | `make server-doctor JOBS=4` | `make server-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
+| Static C SDK | `make c-doctor JOBS=4` | `make c-build JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
+| Python wheel | `make python-doctor JOBS=4` | `make python-build JOBS=4` | `build/python-product/wheel/*.whl` |
+| Browser Wasm SDK | `make wasm-doctor JOBS=2` | `make wasm-build JOBS=2` | `build/wasm/.../dist/postgamma-wasm-*.tgz` (exact path printed) |
+| Documentation site | `make docs-doctor` | `make docs` | `build/docs/site/` |
+| Native local release | `make doctor-release JOBS=4` | `make release-candidate JOBS=4` | Native artifacts and docs plus `build/dist/postgamma-*-local-release.json` |
 
 The build targets repeat their corresponding environment checks, so the first
 command in each row is optional. Running it separately is recommended on a new
@@ -240,8 +240,11 @@ machine: it stops before the build, compiles small toolchain probes, and prints
 platform-specific installation commands for missing dependencies. `wasm-build`
 also installs/reuses the pinned Emscripten/Node tools and generates the target
 kernel before packaging. It defaults to release; use `WASM_MODE=debug` for a
-debug package. `doctor-ast` checks its host compiler prerequisites; after setup,
-`doctor-wasm` additionally checks the SDK and launches Chromium.
+debug package. `wasm-doctor` checks host tools, Emscripten/Node/npm identities,
+locked packages and host AST compatibility with the target SDK headers. Building
+does not install or launch browsers. A standalone doctor does not download
+tools or initialize sources: use `make source-init wasm-toolchain-setup` to
+prepare a fresh Wasm checkout, or let `wasm-build` prepare it automatically.
 
 Use `make server-test`, `make c-test`, `make python-test`, or `make wasm-test`
 for the corresponding product's validation. On a prepared host,
@@ -252,10 +255,15 @@ qualification remains `make wasm-alpha-test`. Existing build/check target names
 remain available. C SDK packaging retains its consumer and host-safety checks;
 the other `*-build` commands do not run their full acceptance suites.
 
-`make doctor` is deliberately the complete check. It covers the native SDK,
-the full PostgreSQL test toolchain, Python wheel packaging, and documentation.
-Use `doctor-threaded`, `doctor-sdk`, `doctor-python`, or `doctor-docs` when you
-only need that workflow and do not want unrelated tools to block the build.
+`make doctor` checks installed native, Python, documentation and Wasm tools,
+plus the libraries and startup of Chromium, Firefox and Linux WebKit. It retains
+failures while continuing independent checks. `make full-test-doctor` checks the
+native, documentation and Wasm test environments.
+Use `server-doctor`, `c-doctor`, `python-doctor`, `wasm-doctor` or `docs-doctor`
+for one product, and `wasm-browser-doctor` for the browser matrix alone.
+Doctors only check and print remedies; setup/prepare commands install tools.
+Native release packaging uses `doctor-release`, which does not require Wasm.
+The older doctor names remain available for existing automation.
 The exact package requirements and supported Linux families are listed in the
 [installation guide](docs/getting-started/installation.md).
 
@@ -270,7 +278,7 @@ not yet available.
 Use this path when working on the PostgreSQL source transformation itself:
 
 ```bash
-make doctor-threaded JOBS=4
+make server-doctor JOBS=4
 make server-build JOBS=4
 ```
 
@@ -335,7 +343,7 @@ download mirrors for CI too; changing either also causes tests to run.
 Use this path for native applications and for new language bindings:
 
 ```bash
-make doctor-sdk JOBS=4
+make c-doctor JOBS=4
 make c-build JOBS=4
 ```
 
@@ -352,7 +360,7 @@ intend to test:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-make doctor-python JOBS=4
+make python-doctor JOBS=4
 make python-build JOBS=4
 make python-test JOBS=4
 ```
@@ -392,7 +400,7 @@ only one entry in the required release matrix.
 ### Build the documentation
 
 ```bash
-make doctor-docs
+make docs-doctor
 make docs
 ```
 
@@ -478,7 +486,7 @@ Maintainers can run the complete local release gate with:
 
 ```bash
 python3 -m pip install -r buildsys/requirements.txt
-make doctor JOBS=4
+make doctor-release JOBS=4
 make release-candidate JOBS=4
 ```
 

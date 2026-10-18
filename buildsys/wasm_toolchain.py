@@ -308,11 +308,12 @@ def package_ready(config: Configuration, tools: dict, env: dict) -> bool:
         return False
 
 
-def setup(config: Configuration) -> None:
+def setup(config: Configuration, *, browser: bool = True) -> None:
     directory = config.deps / "receipts" / ("setup-" + run_id())
     directory.mkdir(parents=True)
     log = directory / "commands.log"
-    report = {"kind": "postgamma.wasm-setup", "status": "failed", "actions": []}
+    report = {"kind": "postgamma.wasm-setup", "status": "failed", "actions": [],
+              "browser_required": browser}
     try:
         sdk = config.profile["emsdk"]
         if not config.external_sdk:
@@ -345,20 +346,22 @@ def setup(config: Configuration) -> None:
                 "installed_lock_sha256": digest(config.package / "node_modules/.package-lock.json"),
             })
             report["actions"].append("install-npm")
-        description = browser_description(config, tools, env)
-        if not Path(description["executable"]).is_file():
-            if config.browser_override:
-                raise WasmError(f"supplied browser is missing: {config.browser_override}")
-            print("wasm setup: installing pinned Chromium", flush=True)
-            run([tools["node"], str(config.package / "node_modules/playwright/cli.js"),
-                 "install", "chromium", "--no-shell"], log, env)
-            report["actions"].append("install-browser")
-        if setup_browser_libraries(config, Path(description["executable"]), env, log):
-            report["actions"].append("cache-browser-libraries")
-        report["browser"] = description
+        if browser:
+            description = browser_description(config, tools, env)
+            if not Path(description["executable"]).is_file():
+                if config.browser_override:
+                    raise WasmError(f"supplied browser is missing: {config.browser_override}")
+                print("wasm setup: installing pinned Chromium", flush=True)
+                run([tools["node"], str(config.package / "node_modules/playwright/cli.js"),
+                     "install", "chromium", "--no-shell"], log, env)
+                report["actions"].append("install-browser")
+            if setup_browser_libraries(config, Path(description["executable"]), env, log):
+                report["actions"].append("cache-browser-libraries")
+            report["browser"] = description
         report["status"] = "installed"
-        write_json(config.deps / "receipts/tools.json", report)
-        print("wasm setup: " + (", ".join(report["actions"]) or "reused SDK, npm dependencies, and browser"))
+        write_json(config.deps / "receipts" / ("tools.json" if browser else "build-tools.json"), report)
+        reused = "reused SDK and npm dependencies" + (", and browser" if browser else "")
+        print("wasm setup: " + (", ".join(report["actions"]) or reused))
     except Exception as error:
         report["error"] = str(error)
         raise

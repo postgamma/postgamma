@@ -113,10 +113,11 @@ def run_browser(config: Configuration, tools: dict, env: dict, directory: Path,
     return result
 
 
-def doctor(config: Configuration) -> tuple[dict, dict, Path]:
-    directory = config.build / "wasm/doctor" / run_id()
+def doctor(config: Configuration, *, browser: bool = True) -> tuple[dict, dict, Path]:
+    directory = config.build / ("wasm/doctor" if browser else "wasm/toolchain-doctor") / run_id()
     report = {"kind": "postgamma.wasm-doctor", "status": "failed",
-              "scope": "Wasm probe tools; host AST generators are not required yet",
+              "scope": ("SDK, npm dependencies and Chromium startup" if browser else
+                        "SDK and locked npm dependencies; no browser is required"),
               "target": config.target, "mode": config.mode}
     try:
         tools, env = sdk_tools(config)
@@ -126,7 +127,11 @@ def doctor(config: Configuration) -> tuple[dict, dict, Path]:
         report["sdk_adapter_contract"] = sdk_contract(config.root, config.sdk, config.profile["emsdk"]["version"])
         report["storage_protocol"] = storage_contract(config.root)
         if not package_ready(config, tools, env):
-            raise WasmError("locked browser dependencies are missing or changed; run make wasm-setup")
+            raise WasmError("locked npm dependencies are missing or changed; run make wasm-toolchain-setup")
+        if not browser:
+            report["status"] = "passed"
+            print(f"wasm toolchain: {tools['emcc_version']}; Node {tools['node_version']}", flush=True)
+            return tools, env, directory / "report.json"
         description = browser_description(config, tools, env)
         if not Path(description["executable"]).is_file():
             raise WasmError("Chromium is missing; run make wasm-setup")
@@ -358,7 +363,7 @@ def clean(config: Configuration) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "browser-setup", "doctor", "probe-build", "probe-check", "resource-check", "clean", "kernel"))
+    parser.add_argument("command", choices=("setup", "toolchain-setup", "browser-setup", "doctor", "toolchain-doctor", "browser-doctor", "probe-build", "probe-check", "resource-check", "clean", "kernel"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--deps-dir", type=Path)
@@ -378,13 +383,18 @@ def main() -> int:
                        "use make wasm-probe-check for the toolchain smoke probe\n")
     try:
         config = configuration(args)
-        if args.command in ("setup", "browser-setup"):
-            setup(config)
+        if args.command in ("setup", "toolchain-setup", "browser-setup"):
+            setup(config, browser=args.command != "toolchain-setup")
             if args.command == "browser-setup":
                 from wasm_browsers import setup_browsers
                 setup_browsers(config)
         elif args.command == "doctor":
             doctor(config)
+        elif args.command == "toolchain-doctor":
+            doctor(config, browser=False)
+        elif args.command == "browser-doctor":
+            from wasm_browsers import check_browsers
+            check_browsers(config)
         elif args.command == "clean":
             clean(config)
         elif args.command == "resource-check":

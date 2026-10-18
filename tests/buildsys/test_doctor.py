@@ -621,7 +621,7 @@ class DoctorTests(unittest.TestCase):
         )
         self.assertIn("static-sdk-package: doctor-sdk", makefile)
         self.assertIn(
-            "release-candidate: doctor $(RELEASE_CANDIDATE_RECEIPT)",
+            "release-candidate: doctor-release $(RELEASE_CANDIDATE_RECEIPT)",
             makefile,
         )
 

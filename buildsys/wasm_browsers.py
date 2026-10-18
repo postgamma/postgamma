@@ -7,9 +7,67 @@ import platform
 import shlex
 import subprocess
 import sys
+import tempfile
 
 from wasm_toolchain import (Configuration, WasmError, apt_download_plan, browser_environment,
-                            capture, digest, run, run_id, sdk_tools, write_json)
+                            capture, digest, package_ready, read_json, run, run_id, sdk_tools, write_json)
+
+
+def check_browsers(config: Configuration) -> Path:
+    """Check installed browser dependencies and launch every engine; never install."""
+    directory = config.build / "wasm/browser-doctor" / run_id()
+    directory.mkdir(parents=True)
+    report = {"kind": "postgamma.wasm-browser-doctor", "status": "failed",
+              "scope": "Installed browser libraries and startup; no SQL kernel acceptance"}
+    try:
+        tools, env = sdk_tools(config)
+        if not package_ready(config, tools, env):
+            raise WasmError("locked npm dependencies are missing or changed; run make wasm-setup")
+        info = description(config, tools, env)
+        if config.browser_override:
+            for engine in info["engines"]:
+                if engine["name"] == "chromium":
+                    engine["executable"] = str(Path(config.browser_override).resolve())
+        report["browsers"] = info
+        absent = [engine["name"] for engine in info["engines"]
+                  if not Path(engine["executable"]).is_file()]
+        if absent:
+            raise WasmError("missing browsers: " + ", ".join(absent) + "; run make wasm-browser-setup")
+        if platform.system() == "Linux":
+            missing = missing_libraries(config, info["engines"], env)
+            report["missing_libraries"] = missing
+            if missing:
+                raise WasmError("browser host libraries unavailable; run make wasm-browser-setup: "
+                                + "; ".join(missing))
+        output = directory / "startup.json"
+        report["startup_report"] = str(output)
+        command = [tools["node"], str(config.root / "tests/wasm/browser/doctor.mjs"),
+                   "--root", str(config.root), "--output", str(output)]
+        if config.browser_override:
+            command += ["--executable", str(Path(config.browser_override).resolve())]
+        launcher = config.deps / "browser-libs/launch-webkit.sh"
+        if launcher.is_file():
+            command += ["--webkit-executable", str(launcher)]
+        with tempfile.TemporaryDirectory(prefix="pgm-browser-doctor-") as temporary:
+            run(command, directory / "startup.log",
+                dict(browser_environment(config, env), TMPDIR=temporary), config.root, timeout=90)
+        startup = read_json(output)
+        report["startup"] = startup
+        expected = {"chromium", "firefox", "webkit"}
+        rows = startup.get("engines", [])
+        if (startup.get("status") != "passed" or len(rows) != 3 or
+                {row["name"] for row in rows} != expected or
+                any(row.get("status") != "passed" for row in rows)):
+            raise WasmError("browser startup matrix incomplete or failed; see " + str(output))
+        report["status"] = "passed"
+        print("wasm browsers: " + ", ".join(f"{r['name']} {r['version']}" for r in rows), flush=True)
+    except Exception as error:
+        report["error"] = str(error)
+        raise
+    finally:
+        write_json(directory / "report.json", report)
+        print(f"wasm browser doctor report: {directory / 'report.json'}", flush=True)
+    return directory / "report.json"
 
 
 def description(config: Configuration, tools: dict, env: dict) -> dict:

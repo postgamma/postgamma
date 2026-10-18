@@ -19,12 +19,16 @@ product, and upstream compatibility gates. Initialize the source input first:
 
 ```bash
 make source-init
-make doctor
+make doctor-native
 ```
 
-Use `make doctor-threaded`, `make doctor-sdk`, `make doctor-python`, or
-`make doctor-docs` before a focused build. Use `make doctor` for the complete
-local release environment. These checks honor the selected compiler and
+Use `make server-doctor`, `make c-doctor`, `make python-doctor`, `make wasm-doctor`,
+or `make docs-doctor` before a focused build. Wasm contributors can prepare build
+tools with `make wasm-toolchain-setup` and test browsers with
+`make wasm-browser-setup`. Use `make doctor` to check every installed environment,
+including Wasm and all three browser engines, or `make full-test-doctor` for the
+native/Wasm test environments without docs. Doctors do not install tools.
+These checks honor the selected compiler and
 PostgreSQL configure arguments, and fail before parallel compilation when a
 required header, library, host capability, or submodule is unavailable.
 
