@@ -25,8 +25,12 @@ export {DatabaseLockedError} from '../storage/ownership.js';
 import {OperationControl, abortable} from './control.js';
 import type {ControlOptions} from './control.js';
 import {SerialQueue} from './queue.js';
-export interface ArchiveOptions {signal?: AbortSignal}
-export type RestoreOptions = Omit<OpenOptions, 'create'> & ArchiveOptions;
+export interface ArchiveOptions {
+  signal?: AbortSignal;
+  /** Cancel an export left unread between pulls; 0 (default) disables this. */
+  idleTimeoutMs?: number;
+}
+export type RestoreOptions = Omit<OpenOptions, 'create'>;
 export interface LogicalOptions extends ControlOptions {
   database?: string; user?: string;
   schemaOnly?: boolean; dataOnly?: boolean; noOwner?: boolean; noPrivileges?: boolean;
@@ -457,6 +461,9 @@ export class Database {
     }
   }
   private async createArchive(options: ArchiveOptions): Promise<ReadableStream<Uint8Array>> {
+    const idleTimeoutMs = options.idleTimeoutMs ?? 0;
+    if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs < 0 || idleTimeoutMs > 2147483647)
+      throw new RangeError('idleTimeoutMs must be an integer from 0 to 2147483647');
     if (this.closing || this.starting.size || this.logicalWork || this.terminal || this.terminalStarting)
       throw new Error('Archive requires an idle database');
     options.signal?.throwIfAborted();
@@ -476,9 +483,11 @@ export class Database {
     await this.finishClose(true);
     const resources = (this.transport.metrics as {resources?: unknown})?.resources;
     const encoder = new ArchiveEncoder(); let first = true, finished = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
     let stopping: Promise<unknown> | undefined;
     const stop = () => stopping ??= (async () => {
       finished = true; options.signal?.removeEventListener('abort', abort);
+      clearTimeout(idleTimer);
       try {(await this.transport.call(Op.stop)).end();}
       finally {this.transport.terminate();}
       this.transport.metrics = {...this.transport.metrics as object, resources,
@@ -486,11 +495,18 @@ export class Database {
       return this.transport.metrics;
     })();
     let controller: ReadableStreamDefaultController<Uint8Array>;
-    const abort = () => {controller.error(options.signal?.reason); void stop().catch(() => {});};
+    const fail = (reason: unknown) => {if (!finished) {controller.error(reason); void stop().catch(() => {});}};
+    const abort = () => fail(options.signal?.reason);
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      if (!finished && idleTimeoutMs) idleTimer = setTimeout(() => fail(
+        new DOMException('Archive stream idle timeout; export cancelled and storage cleanup started', 'TimeoutError')), idleTimeoutMs);
+    };
     const stream = new ReadableStream<Uint8Array>({
       start(value) {controller = value;},
       pull: async value => {
         if (finished) return;
+        clearTimeout(idleTimer);
         try {
           options.signal?.throwIfAborted();
           if (first) {first = false; value.enqueue(await encoder.frame(archiveHeader())); return;}
@@ -500,12 +516,14 @@ export class Database {
           if (last) await stop();
           if (!options.signal?.aborted) {value.enqueue(bytes); if (last) value.close();}
         } catch (error) {value.error(error); await stop();}
+        finally {armIdle();}
       },
       cancel: async () => {await stop();},
     }, {highWaterMark: 0});
     this.archiveCancel = async () => {controller.error(new ClosedError()); return stop();};
     options.signal?.addEventListener('abort', abort, {once: true});
     if (options.signal?.aborted) abort();
+    armIdle();
     return stream;
   }
   /** A clone closes the source, then restores its stream into a new target. */

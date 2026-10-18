@@ -8,6 +8,16 @@ async function rejected(work: Promise<unknown>, pattern: RegExp) {
   try {await work;} catch (error) {assert(pattern.test(String(error)), `Expected ${pattern}, got ${error}`); return;}
   throw new Error(`Expected rejection: ${pattern}`);
 }
+async function collectArchive(stream: ReadableStream<Uint8Array>): Promise<Blob> {
+  const reader = stream.getReader(), chunks: BlobPart[] = [];
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) return new Blob(chunks);
+      chunks.push(value.slice());
+    }
+  } finally {reader.releaseLock();}
+}
 async function verify(db: Database, vector: boolean) {
   const c = await db.connect();
   assert(scalar(await c.query("SELECT md5(string_agg(v, '' ORDER BY id)) FROM archive_rows")) ===
@@ -32,7 +42,10 @@ export async function archive(checks: string[], metrics: unknown[]) {
   await rejected(c.query('SELECT 1'), /closed/);
   // Only the fixture collects a Blob for damaged/truncated archive variants.
   // The product API and clone below transfer bounded records with backpressure.
-  const blob = await new Response(stream).blob();
+  // Response(stream).blob() can fail in Chromium's native streaming-Blob
+  // storage independently of the SDK on constrained hosts. Read explicitly
+  // so SDK errors remain visible; only this damage-testing fixture buffers.
+  const blob = await collectArchive(stream);
   metrics.push(await db.close());
   assert(blob.size > 1024 * 1024, 'A complete physical database was archived');
   const storage = {type: 'opfs' as const, name: 'archive-' + crypto.randomUUID()};
@@ -101,7 +114,15 @@ export async function archive(checks: string[], metrics: unknown[]) {
   const preparing = reopened.dumpDataDir(), closing = reopened.close();
   const closedStream = await preparing; metrics.push(await closing);
   await rejected(closedStream.getReader().read(), /closed/);
+  const timed = await Database.open({storage: exportStorage, create: false});
+  await rejected(timed.dumpDataDir({idleTimeoutMs: -1}), /idleTimeoutMs/);
+  const idle = await timed.dumpDataDir({idleTimeoutMs: 50});
+  await new Promise(resolve => setTimeout(resolve, 120));
+  await rejected(idle.getReader().read(), /idle timeout/);
+  metrics.push(await timed.close());
+  const afterIdle = await Database.open({storage: exportStorage, create: false});
+  metrics.push(await afterIdle.close()); await Database.delete(exportStorage.name);
   checks.push('archive-checksum', 'archive-truncation', 'archive-trailing-data', 'archive-build-identity',
     'archive-cancelled-restore-not-openable', 'archive-cancelled-export-reopen', 'archive-path-traversal', 'archive-concurrent-close',
-    'archive-invalid-cluster-quarantined', 'archive-incomplete-delete-reuse');
+    'archive-invalid-cluster-quarantined', 'archive-incomplete-delete-reuse', 'archive-idle-timeout-reopen');
 }

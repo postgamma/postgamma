@@ -35,7 +35,7 @@ async function typedConsumer(): Promise<Result[]> {
 }
 void typedConsumer;
 async function typedArchive(db: Database, source: ReadableStream<Uint8Array>) {
-  const archiveOptions: ArchiveOptions = {signal: new AbortController().signal};
+  const archiveOptions: ArchiveOptions = {signal: new AbortController().signal, idleTimeoutMs: 30000};
   const restoreOptions: RestoreOptions = {...archiveOptions, storage: {type: 'opfs', name: 'restored'}};
   const stream: ReadableStream<Uint8Array> = await db.dumpDataDir(archiveOptions);
   await stream.cancel();

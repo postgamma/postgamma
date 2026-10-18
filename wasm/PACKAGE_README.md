@@ -128,6 +128,13 @@ usable. Consume the stream to EOF, cancel it, or call `db.close()` to release
 the remaining storage ownership. Pipe it directly to a writable destination to
 keep transfer memory bounded. Records contain at most 256 KiB of file data and
 are protected by chained SHA-256 checksums and a required end record.
+Use `dumpDataDir({idleTimeoutMs: 30000})` to cancel a stream left unread for
+30 seconds between pulls, including before its first read. It rejects reads
+with `TimeoutError` and starts storage cleanup. The default is `0` (disabled);
+an outstanding pull is active work and is not subject to this idle deadline.
+The option is not a deadline for initialization or I/O. `await db.close()`
+waits for cleanup and reports cleanup failures. Backpressure from a slow
+consumer also counts as idle, so choose the timeout for the destination.
 
 ```ts
 const archive = await db.dumpDataDir(); // closes the source

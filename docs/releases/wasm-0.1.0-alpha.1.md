@@ -90,7 +90,9 @@ not a general PostgreSQL major-version upgrade. `dumpDataDir()` closes an idle
 source and streams a complete archive. `Database.loadDataDir()` requires the
 exact matching asset build and a new target; `clone()` combines these steps.
 Failed OPFS restores retain an incomplete marker and cannot be opened; use the
-locked deletion API before retrying the name. This
+locked deletion API before retrying the name. An optional `idleTimeoutMs` on
+`dumpDataDir()` cancels abandoned streams and starts storage cleanup; it is
+disabled by default and excludes time spent in an active pull. This
 archive is not a cross-version migration format.
 
 Close requests, COPY streams and connections before closing the database.

@@ -274,6 +274,12 @@ or `clone()`. Export closes an idle source database; close its connections and
 requests first. Restore requires a new target and the exact matching asset
 build. Failed OPFS restores retain an incomplete marker and cannot be opened;
 delete the failed target with `Database.delete(name)` before reusing that name.
+An export retains ownership until its stream reaches EOF, is cancelled, or
+`db.close()` completes. To bound an abandoned stream, pass
+`dumpDataDir({idleTimeoutMs: 30000})`; it fails with `TimeoutError` after 30
+seconds without a pull and starts cleanup. The default is disabled. Time spent
+waiting for an active pull is excluded, but slow consumer backpressure counts
+as idle. `await db.close()` waits for cleanup and exposes cleanup errors.
 
 Each connection serializes `query()` calls; different connections can execute
 concurrently. Use `execute()` and its request iterator for large results,
