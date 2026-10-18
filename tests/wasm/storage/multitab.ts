@@ -83,5 +83,6 @@ page.multitab = {
   lifecycle: () => JSON.parse(sessionStorage.getItem('multitab-events') ?? '[]'),
   list: () => sdk.Database.list(),
   delete: (name: string, options: sdk.DeleteOptions = {}) => sdk.Database.delete(name, options),
+  persistence: (request = false) => sdk.Database.storagePersistence({request}),
   pagehide: (persisted: boolean) => window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted})),
 };

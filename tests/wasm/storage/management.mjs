@@ -16,6 +16,7 @@ const directory = {
     entries.delete(name);
   },
 };
+let persistRequests = 0;
 const storage = {
   async getDirectory() {
     rootCalls++;
@@ -25,7 +26,8 @@ const storage = {
       return directory;
     }};
   },
-
+  async persisted() {return false;},
+  async persist() {persistRequests++; return false;},
 };
 Object.defineProperty(globalThis, 'navigator', {configurable: true, value: {storage,
   locks: {async request(name, options, callback) {
@@ -58,4 +60,15 @@ await assert.rejects(Database.delete('complete'), /injected I\/O failure/);
 assert(!lockHeld, 'Failed deletion also releases ownership'); quotaFailure = false;
 assert.equal(await Database.delete('complete'), true);
 assert.equal(await Database.delete('complete'), false);
-console.log('Storage management: lock lifetime, incomplete cleanup, errors and validation passed');
+assert.equal(await Database.storagePersistence(), 'best-effort'); assert.equal(persistRequests, 0);
+assert.equal(await Database.storagePersistence({request: true}), 'best-effort'); assert.equal(persistRequests, 1);
+storage.persist = async () => {persistRequests++; return true;};
+assert.equal(await Database.storagePersistence({request: true}), 'persistent');
+storage.persisted = async () => true;
+assert.equal(await Database.storagePersistence({request: true}), 'persistent'); assert.equal(persistRequests, 2);
+storage.persisted = async () => {throw new DOMException('denied', 'SecurityError');};
+await assert.rejects(Database.storagePersistence(), /denied/);
+delete storage.persisted;
+assert.equal(await Database.storagePersistence({request: true}), 'unsupported');
+await assert.rejects(Database.storagePersistence({request: 'yes'}), TypeError);
+console.log('Storage management: lock lifetime, incomplete cleanup, errors, validation and explicit persistence passed');

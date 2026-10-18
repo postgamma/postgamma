@@ -3,6 +3,7 @@ import {acquire} from './ownership.js';
 import type {LockOptions} from './ownership.js';
 
 export interface DeleteOptions extends LockOptions {signal?: AbortSignal}
+export type StoragePersistence = 'persistent' | 'best-effort' | 'unsupported';
 const missing = (error: unknown) => error instanceof DOMException && error.name === 'NotFoundError';
 type Directory = FileSystemDirectoryHandle & {entries(): AsyncIterableIterator<[string, FileSystemHandle]>};
 async function directory(): Promise<Directory | undefined> {
@@ -31,4 +32,15 @@ export async function deleteDatabase(name: string, options: DeleteOptions = {}):
     try {await root.removeEntry(name, {recursive: true}); return true;}
     catch (error) {if (missing(error)) return false; throw error;}
   } finally {await release();}
+}
+/** Persistence is origin-wide. Merely opening a database never requests it. */
+export async function storagePersistence(options: {request?: boolean} = {}): Promise<StoragePersistence> {
+  if (options.request !== undefined && typeof options.request !== 'boolean')
+    throw new TypeError('request must be a boolean');
+  const storage = navigator.storage;
+  if (typeof storage?.persisted !== 'function') return 'unsupported';
+  if (await storage.persisted()) return 'persistent';
+  if (!options.request) return 'best-effort';
+  if (typeof storage.persist !== 'function') return 'unsupported';
+  return await storage.persist() ? 'persistent' : 'best-effort';
 }

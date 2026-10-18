@@ -97,6 +97,24 @@ be cancelled or rolled back. These names identify OPFS clusters, not SQL
 databases within a cluster. Listing is a snapshot, not a reservation. Never
 delete the `postgamma/<name>` directory directly while a database may be open.
 
+OPFS defaults to best-effort storage: browser eviction can remove an origin's
+data under storage pressure or inactivity policies. To inspect or explicitly
+request origin-wide protection against automatic eviction:
+
+```ts
+const current = await Database.storagePersistence();
+const requested = await Database.storagePersistence({request: true});
+// Each returns 'persistent', 'best-effort', or 'unsupported'.
+```
+
+Opening a database never requests this permission. A request can be denied;
+user deletion of site data still removes persistent storage. Keep backups of
+important data. Safari's inactivity policy counts days of Safari use without
+interaction with the site, rather than seven elapsed calendar days; installed
+web apps and persistent storage have separate policy considerations. See
+[WebKit's storage policy](https://webkit.org/blog/14403/updates-to-storage-policy/)
+and [its inactivity policy](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/).
+
 Namespace checkpoints automatically reclaim metadata history. The initial
 profile allows 16,384 live file/directory entries and bounds the two metadata
 files to 16 MiB together. Existing preview databases upgrade when opened;

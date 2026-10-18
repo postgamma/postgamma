@@ -78,6 +78,10 @@ async function test(name, work) {
 try {
   context = await require('playwright')[engine].launchPersistentContext(values.profile, {
     headless: true, timeout: 15000, ignoreDefaultArgs: ['--disable-back-forward-cache'],
+    // The pinned Firefox driver cannot grant persistent-storage through
+    // grantPermissions. Its real permission UI honors this profile default.
+    ...(engine === 'firefox' && (!values.case || values.case === 'storage-persistence') ?
+      {firefoxUserPrefs: {'permissions.default.persistent-storage': 1}} : {}),
     ...(values.executable ? {executablePath: values.executable} : engine === 'chromium' ? {channel: 'chromium'} : {}),
   });
   report.browserVersion = context.browser().version();
@@ -245,6 +249,16 @@ try {
     await assert.rejects(invoke(b, 'delete', name, {lock: 'fail'}), /already has a live owner/);
     await invoke(a, 'close'); await invoke(b, 'delete', name);
     return {syntheticPagehide: true, defaultDiscard: true, explicitPreserve: true};
+  });
+  await test('storage-persistence', async () => {
+    const a = await page();
+    const before = await invoke(a, 'persistence');
+    assert(['unsupported', 'best-effort', 'persistent'].includes(before));
+    const after = await invoke(a, 'persistence', true);
+    assert(['unsupported', 'best-effort', 'persistent'].includes(after));
+    if (engine === 'firefox') assert.equal(after, 'persistent', 'Firefox profile allows the real persistence request');
+    assert.equal(await invoke(a, 'persistence'), after === 'unsupported' ? before : after);
+    return {before, after, permissionPreset: engine === 'firefox' ? 'firefox-default-allow' : 'browser-default'};
   });
   assert(report.cases.length > 0);
   assert(report.cases.every(row => row.status === 'passed'), 'Cross-tab cases failed');

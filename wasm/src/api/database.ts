@@ -18,9 +18,9 @@ import {prepareOwnership} from '../runtime/open.js';
 import {PageLifetime} from '../runtime/page.js';
 import {validateLockOptions} from '../storage/ownership.js';
 import type {LockOptions} from '../storage/ownership.js';
-import {listDatabases, deleteDatabase} from '../storage/management.js';
-import type {DeleteOptions} from '../storage/management.js';
-export type {DeleteOptions} from '../storage/management.js';
+import {listDatabases, deleteDatabase, storagePersistence} from '../storage/management.js';
+import type {DeleteOptions, StoragePersistence} from '../storage/management.js';
+export type {DeleteOptions, StoragePersistence} from '../storage/management.js';
 export {DatabaseLockedError} from '../storage/ownership.js';
 import {OperationControl, abortable} from './control.js';
 import type {ControlOptions} from './control.js';
@@ -279,6 +279,8 @@ export class Database {
   static list(): Promise<string[]> {return listDatabases();}
   /** Delete a named OPFS cluster under its ownership lock; false if absent. */
   static delete(name: string, options: DeleteOptions = {}): Promise<boolean> {return deleteDatabase(name, options);}
+  /** Query or explicitly request origin-wide persistent storage. */
+  static storagePersistence(options: {request?: boolean} = {}): Promise<StoragePersistence> {return storagePersistence(options);}
   private static async createTransport(options: OpenOptions): Promise<Transport> {
     validateLockOptions(options);
     options.signal?.throwIfAborted();

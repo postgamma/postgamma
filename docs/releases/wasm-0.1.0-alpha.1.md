@@ -61,6 +61,10 @@ immediate failure, a configurable timeout and AbortSignal cancellation.
 wait timed out. Waiting creates no Wasm shared memory or pthread pool.
 `Database.list()` enumerates named OPFS clusters including incomplete restores;
 `Database.delete()` removes one under the same exclusive ownership lock.
+OPFS storage is best-effort unless the origin has persistent-storage permission.
+`Database.storagePersistence()` reports the state; `{request: true}` explicitly
+requests permission. Browser eviction and user site-data deletion are distinct
+from database WAL recovery.
 
 OPFS instances opened in a Window default to discarding their Workers on
 `pagehide.persisted`. Old handles become unusable; returning from bfcache

@@ -184,7 +184,23 @@ origin and database name. Reopen it with the same name and `create: false` to
 require an existing database. One origin/name has one live owner, enforced with
 Web Locks and a synchronous file access handle. Browser site-data deletion or
 origin changes make the old database unavailable. Native PostgreSQL cluster
-directories cannot be mounted into this target.
+directories cannot be mounted into this target. OPFS uses best-effort storage
+by default: automatic browser eviction can remove an origin's data under
+storage pressure or inactivity policies. Check or explicitly request persistence:
+
+```typescript
+const state = await Database.storagePersistence();
+// Call in response to an application action when persistent storage is needed.
+const requested = await Database.storagePersistence({request: true});
+// 'persistent', 'best-effort' (including a denied request), or 'unsupported'
+```
+
+This permission applies to the origin, not to one database. `open()` never
+requests it automatically. It does not protect against user deletion of site
+data or replace backups. Safari's inactivity policy counts seven days of
+Safari use without interaction with the site, not simply seven calendar days;
+installed web apps have different treatment. See [WebKit's storage policy](https://webkit.org/blog/14403/updates-to-storage-policy/)
+and [inactivity policy](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/).
 
 Opening an occupied OPFS database waits up to 5 seconds for the previous owner
 to release it. Set `lockTimeoutMs` to change that bound, or `lock: 'fail'` to
