@@ -15,6 +15,9 @@
     const loading = element("loading");
     const widget = document.getElementById("live-demo"), expand = widget.querySelector("[data-pg-live-expand]");
     let dialog, autoExpandPending = true;
+    let examples, examplesLoading, exampleCommand;
+    const sidebar = panel.querySelector('[data-pg-examples]');
+    const examplesToggle = panel.querySelector('[data-pg-examples-toggle]');
     let session, opening, openingWork, stopping, view, loadingTimer, loadingAt, stageAt, loadingStep = 0;
     let attempts = 0, submittedLines = 0, lastOutputAt = null, lastSample = null, lastMetrics = null;
     const diagnostics = globalThis.PostGammaLiveReport ? new PostGammaLiveReport(panel, {
@@ -25,7 +28,8 @@
           status: status.textContent, state: status.dataset.state, opening: !!opening, closing: !!stopping,
           active: !!session?.active, inputReady: !!view?.active,
           estimatedStartupPercent: loading.hidden ? null : Number(element("progress").getAttribute("aria-valuenow")),
-          sample: lastSample, metrics: lastMetrics, sampling: "Last observed values; no database request is made."};
+          sample: lastSample, metrics: lastMetrics, examples: examples?.snapshot() ?? null,
+          sampling: "Last observed values; no database request is made."};
       }
     }) : null;
     if (!diagnostics) {element("report-open").disabled = true; element("report-open").title = "Report script could not be loaded";}
@@ -35,7 +39,8 @@
       lastMetrics = database.diagnostics() ?? lastMetrics;
     }
     function screenVisibility() {
-      const blocked = !loading.hidden || !element("report").hidden;
+      const blocked = !loading.hidden || !element("report").hidden ||
+        (!sidebar.hidden && matchMedia('(max-width: 800px)').matches);
       screen.inert = blocked;
       if (blocked) screen.setAttribute("aria-hidden", "true"); else screen.removeAttribute("aria-hidden");
       if (!element("report").hidden) loading.setAttribute("aria-hidden", "true"); else loading.removeAttribute("aria-hidden");
@@ -43,6 +48,7 @@
     function state(text, kind = "idle") {
       if (status.textContent !== text) status.textContent = text;
       if (status.dataset.state !== kind) status.dataset.state = kind;
+      examples?.refresh();
     }
     function startLoading() {
       loading.hidden = false; screenVisibility();
@@ -79,6 +85,7 @@
       cancel.disabled = !session;
       close.disabled = (!session && !opening) || !!stopping;
       screen.setAttribute("aria-busy", String(!!opening));
+      examples?.refresh();
     }
     function failure(error) {
       diagnostics?.failure(error); diagnostics?.phase("failed");
@@ -114,6 +121,7 @@
     }
     async function release() {
       if (stopping) return stopping;
+      examples?.cancel(); finishExampleCommand(new Error('The session was closed.'));
       diagnostics?.phase("closing-database");
       opening?.abort(new DOMException("Startup canceled", "AbortError"));
       const previous = session; session = undefined;
@@ -136,7 +144,10 @@
           const revision = owned.revision, batch = await owned.terminal.read();
           if (!owned.active) return;
           if (batch.data.length) lastOutputAt = new Date().toISOString();
-          await view.output(decoder.decode(batch.data, {stream: batch.state !== "exited"}),
+          const text = decoder.decode(batch.data, {stream: batch.state !== "exited"});
+          if (exampleCommand?.owner === owned && owned.revision === exampleCommand.revision)
+            exampleCommand.output = (exampleCommand.output + text).slice(-65536);
+          await view.output(text,
             () => batch.state === "input" && owned.active && revision === owned.revision);
           if (!owned.active) return;
           if (view.active && !loading.hidden) {stopLoading(); focusWhenReady();}
@@ -147,6 +158,8 @@
           }
           state(view.active ? "Ready" : "Running…", view.active ? "ready" : "loading");
           diagnostics?.phase(view.active ? "ready" : "executing");
+          if (view.active && exampleCommand?.owner === owned && owned.revision === exampleCommand.revision)
+            finishExampleCommand();
           await new Promise(resolve => setTimeout(resolve, batch.data.length ? 0 : 30));
         }
       } catch (error) {
@@ -205,11 +218,14 @@
       if (!owned || stopping) return;
       submittedLines++; diagnostics?.phase("executing");
       owned.revision++; state("Running…", "loading");
+      if (exampleCommand?.owner === owned) exampleCommand.revision = owned.revision;
       await owned.terminal.write(text);
     }
     async function interrupt() {
       if (!session || stopping) return;
+      examples?.cancel();
       const owned = session; owned.revision++;
+      if (exampleCommand?.owner === owned && exampleCommand.revision !== null) exampleCommand.revision = owned.revision;
       try {await view.cancel(); await owned.terminal.interrupt();}
       catch (error) {failure(error);}
     }
@@ -223,7 +239,8 @@
     try {
       const {PsqlScreen} = await import(new URL("psql-terminal.js", script));
       view = new PsqlScreen(screen, {line: submit, interrupt, eof: shutdown, restart: open,
-        closed: () => !session && !opening && !stopping, error: failure, textInput: expandOnFirstInput});
+        closed: () => !session && !opening && !stopping, error: failure, textInput: expandOnFirstInput,
+        busy: () => !!examples?.busy, changed: () => examples?.refresh()});
     } catch (error) {
       screen.textContent = "Could not load the terminal: " + error.message; failure(error);
       reset.textContent = "Reload"; reset.addEventListener("click", () => location.reload()); return;
@@ -249,11 +266,74 @@
       const overflow = document.body.style.overflow; document.body.style.overflow = "hidden";
       expand.setAttribute("aria-label", "Collapse demo");
       dialog.addEventListener("close", () => {
+        showExamples(false);
         placeholder.replaceWith(widget); dialog.remove(); dialog = undefined; document.body.style.overflow = overflow;
         expand.setAttribute("aria-label", "Expand demo"); focusCurrentView();
       }, {once: true});
       dialog.showModal(); focusCurrentView();
+      void prepareExamples();
+      showExamples(!matchMedia('(max-width: 800px)').matches);
     }
+    function exampleUnavailable() {
+      if (!session || opening || stopping) return 'Wait for PostgreSQL to be ready.';
+      if (!view.active) return 'Wait for the current command to finish.';
+      if (view.line.length || view.pending) return 'Finish or clear the current terminal input first.';
+      if (!/^[^\r\n]*=[#>] $/.test(view.prefix)) return 'Return to a standard idle psql prompt first (finish the statement, COPY or transaction).';
+      return '';
+    }
+    function finishExampleCommand(error) {
+      const command = exampleCommand;
+      if (!command) return;
+      exampleCommand = undefined; clearTimeout(command.timer);
+      if (!error && /(?:^|\n)(?:ERROR|FATAL|PANIC):/.test(command.output))
+        error = new Error(command.output.trim().slice(0, 1200));
+      error ? command.reject(error) : command.resolve(command.output);
+    }
+    function executeExample(sql, owner) {
+      if (!owner || session !== owner || stopping || !view.active || exampleCommand)
+        return Promise.reject(new Error('The example session is no longer ready.'));
+      return new Promise((resolve, reject) => {
+        exampleCommand = {owner, revision: null, output: '', resolve, reject,
+          timer: setTimeout(() => {
+            finishExampleCommand(new Error('Example command timed out. Use Ctrl+C or Reset to recover.'));
+            void interrupt();
+          }, 30000)};
+        void view.insert(sql, true).catch(finishExampleCommand);
+      });
+    }
+    async function prepareExamples() {
+      if (examples || examplesLoading) return;
+      examplesLoading = true;
+      try {
+        const {PsqlExamples} = await import(new URL('psql-examples.js', script));
+        examples = new PsqlExamples(sidebar, {unavailable: exampleUnavailable,
+          owner: () => session, connected: owner => owner === session && !!owner?.active && !stopping,
+          execute: executeExample, insert: text => view.insert(text),
+          focus: () => {if (matchMedia('(max-width: 800px)').matches) showExamples(false); view.focus();}});
+        examples.refresh();
+      } catch (error) {
+        sidebar.querySelector('[data-pg-example-description]').textContent = 'Examples could not load. Reload the page to retry.';
+        diagnostics?.failure(error, 'loading-examples');
+      } finally {examplesLoading = false;}
+    }
+    function showExamples(show) {
+      sidebar.hidden = !show;
+      panel.classList.toggle('pg-psql--examples', show);
+      examplesToggle.setAttribute('aria-expanded', String(show));
+      screenVisibility();
+    }
+    examplesToggle.addEventListener('click', () => {
+      void prepareExamples(); showExamples(sidebar.hidden);
+      if (!sidebar.hidden) sidebar.querySelector('[data-pg-examples-hide]').focus(); else view.focus();
+    });
+    sidebar.querySelector('[data-pg-examples-hide]').addEventListener('click', () => {showExamples(false); examplesToggle.focus();});
+    sidebar.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); showExamples(false); view.focus();}
+    });
+    element('report-open').addEventListener('click', () => {
+      if (matchMedia('(max-width: 800px)').matches) showExamples(false);
+    });
+    matchMedia('(max-width: 800px)').addEventListener('change', screenVisibility);
     function focusCurrentView() {
       if (diagnostics?.visible) element("report-text").focus({preventScroll: true}); else view.focus();
     }

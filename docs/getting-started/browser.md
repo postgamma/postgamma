@@ -30,6 +30,19 @@ terminal once per page load, preserving your input. After you collapse it, typin
 and database resets keep it compact. You can also use the expand button at any time;
 a manual size choice disables automatic expansion until the page reloads.
 
+Expanding also opens **Examples** beside the terminal; on a phone, use the
+**Examples** button to open its drawer. Browse SQL aggregation, JSONB,
+transactions, vector search and a parallel query. **Insert** puts the complete
+script on an editable line without executing it; **Run example** executes it
+through the same psql session and checks the result. Finish or clear existing
+input and return to a standard idle prompt before running an example. Each
+example cleans up its sample data; Ctrl+C interrupts the run and performs cleanup.
+The parallel example requires `EXPLAIN ANALYZE` to report two planned and two
+launched workers. **Run quick check** runs the four smaller examples and records
+their outcomes, failed steps and timings in **Report**. These are interactive
+smoke checks; release qualification uses the separate Wasm test gates. The examples
+module loads on expansion, and sample data is created only when a script runs.
+
 psql handles SQL parsing, prompts, backslash commands and result formatting.
 The page provides an xterm.js terminal with inline input and output. Enter sends
 a line; psql supplies the continuation prompt for unfinished SQL. The arrow keys

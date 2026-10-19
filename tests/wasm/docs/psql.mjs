@@ -23,9 +23,10 @@ try {
   page.on('websocket', socket => report.webSockets.push(socket.url()));
   page.on('requestfailed', request => {if (request.url().startsWith(values.url)) report.requestsFailed.push(request.url());});
   if (new URL(values.url).protocol === 'http:') await context.route('https://**/*', route => route.abort());
-  let navigations = 0, downloads = 0;
+  let navigations = 0, downloads = 0, exampleDownloads = 0;
   page.on('framenavigated', frame => {if (frame === page.mainFrame()) navigations++;});
   page.on('request', request => {if (/postgamma\.(wasm|data)/.test(request.url())) downloads++;});
+  page.on('request', request => {if (request.url().includes('/psql-examples.js')) exampleDownloads++;});
   page.on('request', request => {
     if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(values.url).origin)
       report.externalRequests.push(request.url());
@@ -168,11 +169,14 @@ try {
   // Drive the terminal's real keyboard and clipboard events, with no separate
   // command input or submit button and no direct calls into the database SDK.
   assert.equal(await page.locator('dialog[open]').count(), 0, 'startup does not expand');
+  assert.equal(exampleDownloads, 0, 'examples stay off the startup download path');
   await input.focus(); await input.press('ArrowLeft'); await input.press('Backspace');
   assert.equal(await page.locator('dialog[open]').count(), 0, 'control keys do not expand');
   await page.keyboard.type('S');
   await page.waitForSelector('dialog[open]');
   await page.waitForFunction(() => window.psqlText().endsWith('postgres=# S'));
+  await page.waitForSelector('[data-example="sql"]');
+  assert(await page.locator('[data-pg-example-run]').isDisabled(), 'partial input protects against example insertion');
   assert(await input.evaluate(el => el === document.activeElement), 'expansion retains keyboard focus');
   await page.screenshot({path: values.output.replace(/\.json$/, '-first-input.png')});
   await page.keyboard.type('ELECT 123;');
@@ -199,6 +203,83 @@ try {
   await page.waitForFunction(() => /\n\s*3000\s*\n/.test(window.psqlText())); await ready();
   assert.equal((await read()).split('postgres=# SELECT length(').length - 1, 1, 'long input echoes once');
   passed('inline-echo-cursor-edit-delete-home-end-history-draft-unicode-grapheme-ctrl-l');
+  const downloadsBeforeExamples = downloads;
+  await page.locator('[data-pg-live-expand]').click();
+  await page.locator('[data-example="json"]').click();
+  await page.locator('[data-pg-example-insert]').click();
+  await page.waitForFunction(() => window.psqlText().includes('CREATE TEMP TABLE pg_live_') && window.psqlText().endsWith('ROLLBACK;'));
+  assert.equal(await page.locator('[data-pg-psql-status]').textContent(), 'Ready', 'Insert does not submit any SQL');
+  assert(await page.locator('[data-pg-example-check]').isDisabled());
+  await input.press('Control+u'); await ready();
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-pg-example-results] li[data-state="passed"]').length === 4 &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  await ready();
+  const checked = await openReport();
+  assert.equal(checked.runtime.examples.running, false);
+  assert.deepEqual(checked.runtime.examples.results.map(row => [row.id, row.status]),
+    [['sql', 'passed'], ['json', 'passed'], ['transaction', 'passed'], ['vector', 'passed']]);
+  assert.equal(checked.terminal.included, false);
+  await closeReport();
+  await page.locator('[data-example="parallel"]').click();
+  await page.locator('[data-pg-example-run]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'passed' &&
+    !document.querySelector('[data-pg-example-run]').disabled);
+  assert.match(await read(), /Workers Planned: 2/); assert.match(await read(), /Workers Launched: 2/);
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-examples.png')});
+  await command('BEGIN;', /BEGIN/, 'postgres=*# ');
+  assert(await page.locator('[data-pg-example-run]').isDisabled(), 'examples do not enter a user transaction');
+  await command('ROLLBACK;', /ROLLBACK/);
+  await command('SELECT', /postgres-# /, 'postgres-# ');
+  assert(await page.locator('[data-pg-example-run]').isDisabled(), 'examples do not append to multiline SQL');
+  await input.press('Control+c'); await ready();
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'running');
+  await page.locator('[data-pg-psql-cancel]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li[data-state="cancelled"]') &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  await command('SELECT 82 AS after_example_cancel;', /\n\s*82\s*\n/);
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await command('SET default_transaction_read_only = on;', /SET/);
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li[data-state="failed"]') &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  const failedCheck = await openReport();
+  assert(failedCheck.runtime.examples.results.some(row => row.status === 'failed' && row.error.includes('read-only')));
+  await closeReport();
+  await command('SET default_transaction_read_only = off;', /SET/);
+  await page.locator('[data-example="sql"]').click();
+  await page.locator('[data-pg-example-run]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'passed' &&
+    !document.querySelector('[data-pg-example-run]').disabled);
+  assert.equal(downloads, downloadsBeforeExamples, 'examples reuse the original Wasm instance');
+  await page.evaluate(() => {
+    document.querySelector('[data-pg-example-check]').click();
+    document.querySelector('[data-pg-psql-reset]').click();
+  });
+  await ready();
+  await page.waitForFunction(() => !document.querySelector('[data-pg-example-check]').disabled);
+  const resetCheck = await openReport();
+  assert.equal(resetCheck.runtime.examples.running, false);
+  assert(resetCheck.runtime.examples.results.some(row => row.status === 'cancelled'));
+  await closeReport();
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await page.setViewportSize({width: 390, height: 844});
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-terminal]').inert);
+  assert(await page.locator('[data-pg-psql-terminal]').evaluate(el => el.inert), 'mobile drawer does not accept hidden terminal input');
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-examples-mobile.png')});
+  await page.locator('[data-pg-examples-hide]').click();
+  assert(!(await screen.evaluate(el => el.inert)));
+  await page.locator('[data-pg-examples-toggle]').click();
+  await page.locator('[data-pg-examples-hide]').press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(), 1, 'Escape dismisses the drawer before the terminal');
+  await page.setViewportSize({width: 1440, height: 1000});
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  passed('lazy-examples-insert-without-submit-four-real-checks-report-and-two-launched-workers',
+    'examples-protect-drafts-transactions-and-multiline-input-cancel-cleanup-and-mobile-drawer',
+    'failed-sql-check-reports-real-error-cleans-up-and-retries', 'reset-cancels-examples-without-writing-into-the-new-session');
   await command('\\?', /General.*\\copyright.*quit psql/);
   await command('CREATE DATABASE terminal_test;', /CREATE DATABASE/);
   await command('\\c terminal_test', /You are now connected to database "terminal_test"/, 'terminal_test=# ');
@@ -404,6 +485,8 @@ try {
   report.error = error.stack; process.exitCode = 1;
   if (page && !page.isClosed()) {
     report.ui = await page.evaluate(() => ({status: document.querySelector('[data-pg-psql-status]')?.textContent,
+      examples: document.querySelector('[data-pg-example-results]')?.textContent,
+      exampleStatus: document.querySelector('[data-pg-example-status]')?.textContent,
       output: window.psqlText?.()})).catch(() => null);
     await page.screenshot({path: values.output.replace(/\.json$/, '-failure.png')}).catch(() => {});
   }

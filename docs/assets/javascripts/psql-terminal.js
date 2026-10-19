@@ -34,6 +34,7 @@ export class PsqlScreen {
     this.term.onData(data => {
       if (data === '\x03') {this.pending = ''; this.handlers.interrupt(); return;}
       if (data === '\x04' && this.active && !this.line.length) {this.handlers.eof(); return;}
+      if (this.handlers.busy?.()) {this.term.write('\x07'); return;}
       if (this.handlers.closed()) {if (data === '\r') this.handlers.restart(); return;}
       data = data.replace(/\r\n|\n/g, '\r');
       if (this.encoder.encode(this.pending + data).length > 65536) {this.term.write('\x07'); return;}
@@ -45,12 +46,23 @@ export class PsqlScreen {
     this.fit.fit();
   }
   enqueue(action) {
-    const result = this.work.then(action);
+    const result = this.work.then(action).finally(() => this.handlers.changed?.());
     this.work = result.catch(error => this.handlers.error(error));
     return result;
   }
   write(text) {return new Promise(resolve => this.term.write(text, resolve));}
   focus() {this.term.textarea.focus({preventScroll: true});}
+  async insert(text, submit = false) {
+    if (/[\r\n\x00-\x1f\x7f]/.test(text) || this.encoder.encode(text + '\n').length > 16384)
+      throw new Error('Example must fit on one complete terminal input line.');
+    const inserted = await this.enqueue(async () => {
+      if (!this.active || this.line.length || this.pending) return false;
+      this.pending = text + (submit ? '\r' : '');
+      await this.drain();
+      return true;
+    });
+    if (!inserted) throw new Error('Finish or clear the current input first.');
+  }
   split(text) {return Array.from(this.segmenter.segment(text), part => part.segment);}
   forget() {
     this.active = false; this.line = []; this.cursor = 0;

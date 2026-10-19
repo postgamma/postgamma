@@ -57,6 +57,7 @@
     <div>
       <div id="pg-panel-browser" class="pg-code-panel pg-live" role="tabpanel" aria-labelledby="pg-tab-browser" data-pg-live>
         <div class="pg-psql" data-pg-psql>
+          <div class="pg-psql-workspace">
           <div class="pg-psql-frame">
             <div class="pg-psql-screen" data-pg-psql-terminal aria-label="Interactive psql terminal" aria-busy="true">Loading PostgreSQL…</div>
             <div class="pg-psql-loading" data-pg-psql-loading>
@@ -74,11 +75,29 @@
               <p data-pg-psql-report-notice role="status" aria-live="polite">Created locally. Review before sharing.</p>
             </section>
           </div>
+          <aside id="pg-psql-examples" class="pg-psql-examples" data-pg-examples hidden aria-label="Runnable PostgreSQL examples">
+            <div class="pg-examples-head"><strong>Explore PostgreSQL</strong><button type="button" data-pg-examples-hide aria-label="Hide examples">×</button></div>
+            <nav class="pg-examples-list" data-pg-examples-list aria-label="Choose an example"></nav>
+            <div class="pg-example-detail">
+              <p data-pg-example-description>Loading examples…</p>
+              <p class="pg-example-expected" data-pg-example-expected></p>
+              <details open><summary>SQL script</summary><pre><code data-pg-example-sql></code></pre></details>
+              <div class="pg-example-actions"><button type="button" data-pg-example-insert disabled>Insert</button><button type="button" class="pg-example-run" data-pg-example-run disabled>Run example</button></div>
+            </div>
+            <div class="pg-examples-check">
+              <button type="button" data-pg-example-check disabled>Run quick check</button>
+              <span>4 small checks · results included in Report</span>
+              <ol data-pg-example-results aria-label="Check results" hidden></ol>
+            </div>
+            <p class="pg-examples-status" data-pg-example-status role="status" aria-live="polite"></p>
+          </aside>
+          </div>
           <noscript>Enable JavaScript to use the psql terminal.</noscript>
           <div class="pg-live-footer pg-psql-footer">
             <span data-pg-psql-status role="status" aria-live="polite" data-state="loading">Loading PostgreSQL…</span>
             <span class="pg-psql-hint">In-memory · \? for help</span>
             <div class="pg-psql-controls">
+              <button type="button" class="pg-examples-toggle" data-pg-examples-toggle aria-controls="pg-psql-examples" aria-expanded="false">Examples</button>
               <button type="button" data-pg-psql-report-open aria-controls="pg-live-report" aria-expanded="false" title="Generate a diagnostic report">Report</button>
               <button type="button" data-pg-psql-cancel disabled>Ctrl+C</button>
               <button type="button" data-pg-psql-reset disabled title="Discard this database and start a new one">Reset</button>

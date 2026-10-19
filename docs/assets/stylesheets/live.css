@@ -97,6 +97,48 @@
 .pg-psql-progress > span { display: block; width: 2%; height: 100%; background: #48e6ce; border-radius: inherit; transition: width .3s ease; }
 .pg-psql-loading-note { display: flex; justify-content: center; gap: .4rem; color: #7f979d; font-size: .47rem; }
 .pg-live-dialog .pg-psql-screen { height: min(68vh, 36rem); }
+/* Expanded psql and its on-demand examples share the same live session. */
+.pg-psql-workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); }
+.pg-psql-frame { min-width: 0; min-height: 0; }
+.pg-examples-toggle, .pg-psql-examples[hidden] { display: none !important; }
+.pg-live-dialog .pg-examples-toggle { display: inline-block !important; }
+.md-typeset .pg-live-dialog { width: min(72rem, calc(100vw - 2rem)); }
+.pg-live-dialog .pg-psql-workspace { height: min(68dvh, 36rem); }
+.pg-live-dialog .pg-psql-workspace .pg-psql-screen { height: 100%; }
+.pg-live-dialog .pg-psql--examples .pg-psql-workspace { grid-template-columns: minmax(0, 1fr) 18rem; }
+.pg-psql-examples { min-height: 0; overflow: auto; padding: .8rem; border-left: 1px solid #26383d; background: #0e161a; color: #b9cdd1; font: .6rem/1.6 var(--md-text-font-family), sans-serif; scrollbar-color: #32424b transparent; }
+.pg-examples-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
+.pg-examples-head strong { color: #e1eeed; font-size: .72rem; }
+.pg-examples-head button { font-size: 1rem; padding: 0 .35rem; cursor: pointer; }
+.pg-examples-list { display: grid; gap: .18rem; }
+.pg-examples-list button { text-align: left; padding: .3rem .55rem; border: 1px solid transparent; border-radius: .25rem; font: inherit; cursor: pointer; }
+.pg-examples-list button:hover:enabled { background: #17272c; }
+.pg-examples-list button[aria-pressed="true"] { color: #83efde; background: #17312f; border-color: #2f6158; }
+.md-typeset .pg-example-detail > p { margin: .7rem 0 .35rem; font-size: .59rem; }
+.md-typeset .pg-example-detail .pg-example-expected { color: #85c9ba; font-size: .53rem; }
+.md-typeset .pg-example-detail details { margin: .6rem 0; padding: 0; border: 1px solid #26383d; border-radius: .25rem; background: #0a1013; font-size: .55rem; box-shadow: none; }
+.md-typeset .pg-example-detail summary { padding: .4rem .6rem; margin: 0; color: #b9cdd1; background: none; }
+.md-typeset .pg-example-detail summary::before, .md-typeset .pg-example-detail summary::after { display: none; }
+.md-typeset .pg-example-detail pre { max-height: 7rem; margin: 0; padding: .5rem .6rem; overflow: auto; }
+.md-typeset .pg-example-detail code { padding: 0; color: #bdd6d2; background: transparent; font-size: .52rem; }
+.pg-example-actions { display: flex; gap: .4rem; }
+.pg-example-actions button, .pg-examples-check > button { border: 1px solid #39534f; border-radius: .25rem; padding: .35rem .6rem; font: inherit; cursor: pointer; }
+.pg-example-actions .pg-example-run { flex: 1; background: #48e6ce; border-color: #48e6ce; color: #06201c; font-weight: 600; }
+.pg-psql-examples button:disabled { opacity: .4; cursor: default; }
+.pg-examples-check { margin-top: .85rem; padding-top: .75rem; border-top: 1px solid #26383d; }
+.pg-examples-check > button { color: #c4dedc; }
+.pg-examples-check > span { display: block; margin-top: .35rem; color: #7f969e; font-size: .5rem; }
+.md-typeset .pg-examples-check ol { padding: 0; margin: .6rem 0 0; list-style: none; font-size: .53rem; }
+.md-typeset .pg-examples-check li { margin: .3rem 0; color: #d5c794; }
+.pg-examples-check li[data-state="passed"] { color: #85e3ac; }
+.pg-examples-check li[data-state="failed"], .pg-examples-check li[data-state="cancelled"] { color: #ffaaa4; }
+.pg-examples-check li small { display: block; font: inherit; overflow-wrap: anywhere; }
+.md-typeset .pg-examples-status { margin: .65rem 0 0; color: #8ca4ac; font-size: .51rem; overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .pg-live-dialog .pg-psql--examples .pg-psql-workspace { grid-template-columns: minmax(0, 1fr); }
+  .pg-psql-examples { position: absolute; inset: 0 0 0 auto; z-index: 3; width: min(100%, 20rem); box-sizing: border-box; box-shadow: -1rem 0 2rem #0006; }
+  .md-typeset .pg-live-dialog { width: calc(100vw - .6rem); }
+}
 @keyframes pg-psql-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .pg-psql-spinner { animation: none; } .pg-psql-progress > span { transition: none; } }
 @media (max-width: 600px) {

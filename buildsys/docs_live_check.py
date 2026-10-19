@@ -43,7 +43,7 @@ def main():
     harnesses = {client: Path(__file__).resolve().parents[1] / 'tests/wasm/docs' /
                  {'psql': 'psql.mjs', 'js': 'homepage.mjs', 'opfs': 'opfs.mjs'}[client] for client in clients}
     assets = ['index.html', 'live-worker.js', 'assets/javascripts/live.js',
-              'assets/javascripts/psql.js', 'assets/javascripts/psql-terminal.js', 'assets/javascripts/live-report.js',
+              'assets/javascripts/psql.js', 'assets/javascripts/psql-terminal.js', 'assets/javascripts/psql-examples.js', 'assets/javascripts/live-report.js',
               'assets/vendor/xterm/xterm.mjs', 'assets/vendor/xterm/addon-fit.mjs',
               'assets/vendor/xterm/xterm.css',
               'assets/stylesheets/live.css', 'assets/stylesheets/extra.css',
