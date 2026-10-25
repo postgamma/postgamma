@@ -76,9 +76,12 @@ struct PostgammaThread
 {
 	pthread_t	thread;
 	PostgammaThreadMain main_function;
+	PostgammaThreadStartFailure start_failure;
 	void	   *argument;
 	PostgammaThreadStackInfo stack_info;
 	_Atomic int startup_status;
+	pthread_mutex_t startup_mutex;
+	pthread_cond_t startup_condition;
 	bool		joined;
 	char		name[POSTGAMMA_THREAD_NAME_MAX + 1];
 };
@@ -119,6 +122,11 @@ static void *thread_start(void *argument);
 static int prepare_child_signal_mask(sigset_t *mask);
 static int set_fd_flags(int descriptor);
 static void add_wake_count(uint64_t *total, uint64_t increment);
+static int create_thread(PostgammaThread **thread,
+						 const PostgammaThreadAttributes *attributes,
+						 PostgammaThreadMain main_function,
+						 PostgammaThreadStartFailure start_failure,
+						 void *argument);
 
 
 int
@@ -161,6 +169,30 @@ postgamma_thread_create(PostgammaThread **thread,
 						PostgammaThreadMain main_function,
 						void *argument)
 {
+	return create_thread(thread, attributes, main_function, NULL, argument);
+}
+
+
+int
+postgamma_thread_create_async(PostgammaThread **thread,
+							 const PostgammaThreadAttributes *attributes,
+							 PostgammaThreadMain main_function,
+							 PostgammaThreadStartFailure start_failure,
+							 void *argument)
+{
+	if (start_failure == NULL)
+		return EINVAL;
+	return create_thread(thread, attributes, main_function, start_failure, argument);
+}
+
+
+static int
+create_thread(PostgammaThread **thread,
+			  const PostgammaThreadAttributes *attributes,
+			  PostgammaThreadMain main_function,
+			  PostgammaThreadStartFailure start_failure,
+			  void *argument)
+{
 	PostgammaThread *created;
 	pthread_attr_t native_attributes;
 	sigset_t	all_signals;
@@ -169,6 +201,8 @@ postgamma_thread_create(PostgammaThread **thread,
 	int			restore_status;
 	bool		attributes_initialized = false;
 	bool		signal_mask_changed = false;
+	bool		startup_mutex_initialized = false;
+	bool		startup_condition_initialized = false;
 
 	if (thread == NULL || main_function == NULL)
 		return EINVAL;
@@ -184,6 +218,7 @@ postgamma_thread_create(PostgammaThread **thread,
 		return status;
 	}
 	created->main_function = main_function;
+	created->start_failure = start_failure;
 	created->argument = argument;
 	atomic_init(&created->startup_status, POSTGAMMA_THREAD_START_PENDING);
 	if (attributes != NULL && attributes->name != NULL)
@@ -198,6 +233,17 @@ postgamma_thread_create(PostgammaThread **thread,
 		memcpy(created->name, attributes->name, length + 1);
 	}
 
+	if (start_failure == NULL)
+	{
+		status = pthread_mutex_init(&created->startup_mutex, NULL);
+		if (status != 0)
+			goto fail;
+		startup_mutex_initialized = true;
+		status = pthread_cond_init(&created->startup_condition, NULL);
+		if (status != 0)
+			goto fail;
+		startup_condition_initialized = true;
+	}
 	status = pthread_attr_init(&native_attributes);
 	if (status != 0)
 		goto fail;
@@ -229,10 +275,24 @@ postgamma_thread_create(PostgammaThread **thread,
 
 	(void) pthread_attr_destroy(&native_attributes);
 	attributes_initialized = false;
+	if (start_failure != NULL)
+	{
+		*thread = created;
+		return 0;
+	}
+	/* Startup can wait for the scheduler or libc; do not burn a carrier. */
+	if (pthread_mutex_lock(&created->startup_mutex) != 0)
+		abort();
 	while ((status = atomic_load_explicit(
 				&created->startup_status, memory_order_acquire)) ==
 		   POSTGAMMA_THREAD_START_PENDING)
-		(void) sched_yield();
+		if (pthread_cond_wait(&created->startup_condition,
+							  &created->startup_mutex) != 0)
+			abort();
+	if (pthread_mutex_unlock(&created->startup_mutex) != 0 ||
+		pthread_cond_destroy(&created->startup_condition) != 0 ||
+		pthread_mutex_destroy(&created->startup_mutex) != 0)
+		abort();
 	if (status != 0)
 	{
 		int			join_status = pthread_join(created->thread, NULL);
@@ -252,6 +312,10 @@ fail:
 	}
 	if (attributes_initialized)
 		(void) pthread_attr_destroy(&native_attributes);
+	if (startup_condition_initialized)
+		(void) pthread_cond_destroy(&created->startup_condition);
+	if (startup_mutex_initialized)
+		(void) pthread_mutex_destroy(&created->startup_mutex);
 	free(created);
 	return status;
 }
@@ -682,7 +746,22 @@ thread_start(void *argument)
 
 	PostgammaCurrentThread = thread;
 	status = query_current_stack(&thread->stack_info);
+	if (thread->start_failure != NULL)
+	{
+		atomic_store_explicit(&thread->startup_status, status, memory_order_release);
+		if (thread->name[0] != '\0')
+			(void) postgamma_thread_set_current_name(thread->name);
+		result = status == 0 ? thread->main_function(thread->argument) :
+			thread->start_failure(status, thread->argument);
+		PostgammaCurrentThread = NULL;
+		return result;
+	}
+	if (pthread_mutex_lock(&thread->startup_mutex) != 0)
+		abort();
 	atomic_store_explicit(&thread->startup_status, status, memory_order_release);
+	if (pthread_cond_signal(&thread->startup_condition) != 0 ||
+		pthread_mutex_unlock(&thread->startup_mutex) != 0)
+		abort();
 	if (status != 0)
 	{
 		PostgammaCurrentThread = NULL;

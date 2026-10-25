@@ -89,6 +89,31 @@ void postgamma_load_bundled_extensions(void);
 int postgamma_backend_printf(const char *format, ...)
 	pg_attribute_printf(1, 2);
 void postgamma_dispatch_pending_signals(void);
+
+/* Published at session bind and withdrawn before yield/cleanup releases it. */
+#ifdef POSTGAMMA_EVENT_TIMERS
+extern POSTGAMMA_THREAD_LOCAL const PostgammaBackendInterruptState *
+	PostgammaCurrentBackendInterruptState
+#ifdef POSTGAMMA_SERVER_LOCAL_EXEC_TLS
+	__attribute__((tls_model("local-exec")))
+#endif
+	;
+#endif
+
+static inline void
+postgamma_check_for_signals(void)
+{
+#ifdef POSTGAMMA_EVENT_TIMERS
+	const PostgammaBackendInterruptState *state =
+		PostgammaCurrentBackendInterruptState;
+
+	/* The unbound sentinel always takes the bootstrap/standalone path. */
+	if (!postgamma_backend_interrupts_pending(state))
+		return;
+#endif
+	postgamma_dispatch_pending_signals();
+}
+
 int postgamma_sigprocmask(int how, const sigset_t *set, sigset_t *old_set);
 #ifndef WIN32
 char *postgamma_backend_setlocale(int category, const char *locale);
@@ -143,7 +168,9 @@ int postgamma_prepare_syslogger_startup_data(
 	void *startup_data, size_t startup_data_length);
 void postgamma_discard_syslogger_startup_data(
 	void *startup_data, size_t startup_data_length);
-int postgamma_prepare_syslogger_pipe_state(void);
+int postgamma_prepare_syslogger_pipe_state(int *descriptor);
+void postgamma_install_syslogger_pipe_state(int descriptor);
+void postgamma_discard_syslogger_pipe(int descriptor);
 void postgamma_discard_syslogger_pipe_state(void);
 void postgamma_shutdown_syslogger_file_access(void);
 void postgamma_destroy_postgres_memory_contexts(bool invoke_callbacks);

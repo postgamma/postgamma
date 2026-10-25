@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -121,6 +124,34 @@ class PostgreSQLAdapterTests(unittest.TestCase):
             "monitor is blocked in the relation-lock semaphore wait", generated
         )
         self.assertIn("ROLLBACK PREPARED 'postgamma_semaphore_blocker'", generated)
+
+    def test_wait_retries_after_a_timer_callback_rearms_or_disarms(self) -> None:
+        document = postgresql_adapter.load_adapter(
+            PROJECT_ROOT / "manifests/postgresql/adapter.json"
+        )
+        source = (PROJECT_ROOT / "postgres/src/backend/storage/ipc/waiteventset.c").read_text()
+        edits = [edit for edit in document["generated_support"]["edits"]
+                 if edit["path"] == "src/backend/storage/ipc/waiteventset.c"]
+        generated = postgresql_adapter.apply_non_overlapping_edits(edits, source)
+        start = generated.index("int\nWaitEventSetWait(")
+        end = generated.index("\n#if defined(WAIT_USE_EPOLL)", start)
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / "wait_event_loop.inc").write_text(generated[start:end])
+            for flags in ([], ["-DNDEBUG"],
+                          ["-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"]):
+                with self.subTest(flags=flags):
+                    binary = work / "wait-timer"
+                    compiled = subprocess.run(
+                        [*shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-O1",
+                         "-Wall", "-Wextra", "-Werror", *flags, f"-I{work}",
+                         "-Iruntime/include", "tests/runtime/test_wait_event_timer.c",
+                         "runtime/src/virtual_signal.c", "-o", str(binary)],
+                        cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+                    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_rejects_unknown_fields_and_malformed_runtime_hooks(self) -> None:
         document = adapter_document()

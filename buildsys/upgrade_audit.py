@@ -41,6 +41,7 @@ STATE_STRUCTURAL_FIELDS = (
     "has_initializer",
     "constant_initializer",
     "initializer_class",
+    "preparation",
 )
 STATE_IDENTITY_METADATA_FIELDS = ("usr",)
 STATE_TOPOLOGY_FIELDS = (

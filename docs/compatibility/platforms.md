@@ -60,6 +60,25 @@ prove the manylinux floor. In particular, a wheel built on Ubuntu 24.04 must not
 be relabeled as `manylinux_2_17` without the release repair and compatibility
 gates.
 
+`scripts/full-test.sh` uses the host's development headers and runtime libraries
+for product builds, while keeping AST and C++17 test tools' private dependencies
+separate. It preserves installed system package versions and exports the tested
+SDK and wheel with a hash manifest. Run `--artifacts-only` with that manifest on
+other target systems to exercise exactly the same artifacts without rebuilding
+the kernel. A source test on each host and an artifact test across hosts answer
+different compatibility questions; both are needed.
+
+The artifact checker records loader resolution for native products after
+removing build-library environment overrides. It also compares the installed
+wheel integration process's loaded libraries with that resolution, so a library
+already loaded by the interpreter cannot silently mask a product dependency.
+Its `--maximum-glibc 2.17`
+option additionally rejects shipped ELF files requiring newer glibc symbols.
+This inspection does not prove the static archive's minimum consumer link
+environment: the SDK must still be linked and executed on the minimum system.
+Testing locally built artifacts does not replace the pinned manylinux release
+build or the release CPython matrix.
+
 ## Other platforms
 
 musllinux, macOS, Windows, additional CPU architectures, and stable-ABI Python

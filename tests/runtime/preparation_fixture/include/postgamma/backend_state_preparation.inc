@@ -1,0 +1,2 @@
+extern const PostgammaBackendStatePreparation TestPreparation;
+#define PostgammaPreparedRoleState TestPreparation

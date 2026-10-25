@@ -942,6 +942,13 @@ def main() -> int:
         "schema_version": 1,
         "passed": sorted(result.passed_scenarios),
         "skipped": sorted(result.skipped_scenarios),
+        "native_module": postgamma._native.__file__,
+        "loaded_objects": sorted({
+            fields[5]
+            for line in Path("/proc/self/maps").read_text().splitlines()
+            if len(fields := line.split(maxsplit=5)) == 6
+            and "x" in fields[1] and fields[5].startswith("/")
+        }),
     }
     print(SCENARIO_MARKER + " " + json.dumps(document, sort_keys=True))
     complete = (

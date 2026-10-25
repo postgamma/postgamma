@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a fixed PostgreSQL candidate as pristine and threaded trees."""
+"""Build a fixed PostgreSQL candidate as reference and threaded trees."""
 
 from __future__ import annotations
 

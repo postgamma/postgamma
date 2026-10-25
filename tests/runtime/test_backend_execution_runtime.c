@@ -20,6 +20,7 @@ typedef struct WorkerState
 typedef struct QuantumState
 {
 	PostgammaBackendRegistry *registry;
+	_Atomic uint32_t *first_wave_gate;
 	_Atomic uint32_t calls;
 	_Atomic uint32_t cleaned;
 	uint32_t	carriers[3];
@@ -171,6 +172,18 @@ run_three_quantums(
 	assert(call < 3);
 	assert(start_info->quantum_sequence == (uint64_t) call + 1);
 	state->carriers[call] = start_info->carrier_index;
+	if (call == 0 && state->first_wave_gate != NULL)
+	{
+		uint64_t	deadline = postgamma_monotonic_now_ns() + UINT64_C(5000000000);
+
+		/* The first pair must hold both execution tokens at the same time. */
+		atomic_fetch_add_explicit(state->first_wave_gate, 1, memory_order_acq_rel);
+		while (atomic_load_explicit(state->first_wave_gate, memory_order_acquire) < 2)
+		{
+			assert(postgamma_monotonic_now_ns() < deadline);
+			(void) poll(NULL, 0, 1);
+		}
+	}
 	if (call == 0)
 		record_stack_validation(state->registry, start_info, true);
 	if (call == 2)
@@ -367,6 +380,7 @@ wait_for_completion(PostgammaBackendRegistry *registry)
 int
 main(void)
 {
+	enum { SESSION_COUNT = 1000 };
 	PostgammaBackendRegistry *registry;
 	PostgammaBackendLaunchRequest request;
 	PostgammaBackendHandle handles[2];
@@ -627,11 +641,12 @@ main(void)
 		assert(postgamma_backend_registry_destroy(registry) == 0);
 	}
 	{
-		enum { SESSION_COUNT = 1000 };
 		PostgammaBackendHandle *pooled_handles = calloc(
 			SESSION_COUNT, sizeof(*pooled_handles));
 		QuantumState *quantum_states = calloc(
 			SESSION_COUNT, sizeof(*quantum_states));
+		_Atomic uint32_t first_wave_gate = 0;
+		uint64_t	observed_migrations = 0;
 
 		assert(pooled_handles != NULL);
 		assert(quantum_states != NULL);
@@ -644,6 +659,8 @@ main(void)
 		for (size_t index = 0; index < SESSION_COUNT; index++)
 		{
 			quantum_states[index].registry = registry;
+			if (index < 2)
+				quantum_states[index].first_wave_gate = &first_wave_gate;
 			memset(&request, 0, sizeof(request));
 			request.backend_type = 300;
 			request.execution_class = POSTGAMMA_BACKEND_CLASS_CLIENT;
@@ -680,6 +697,9 @@ main(void)
 			assert(quantum_states[index].carriers[0] != 0);
 			assert(quantum_states[index].carriers[1] != 0);
 			assert(quantum_states[index].carriers[2] != 0);
+			for (size_t quantum = 1; quantum < 3; quantum++)
+				observed_migrations += quantum_states[index].carriers[quantum] !=
+					quantum_states[index].carriers[quantum - 1];
 		}
 		assert(postgamma_backend_registry_telemetry(
 			registry, &telemetry) == 0);
@@ -689,11 +709,13 @@ main(void)
 		assert(telemetry.client_threads_peak <= 2);
 		assert(telemetry.client_quantums == SESSION_COUNT * 3);
 		assert(telemetry.quantum_yields == SESSION_COUNT * 2);
-		assert(telemetry.carrier_migrations >= SESSION_COUNT);
+		/* Work stealing can keep a session on its previous carrier. */
+		assert(telemetry.carrier_migrations == observed_migrations);
 		assert(telemetry.carrier_migrations <= SESSION_COUNT * 2);
 		assert(telemetry.work_steals <= telemetry.client_quantums);
 		assert(telemetry.execution_token_budget == 2);
 		assert(telemetry.execution_tokens_active == 0);
+		assert(atomic_load_explicit(&first_wave_gate, memory_order_acquire) == 2);
 		assert(telemetry.execution_tokens_peak == 2);
 		assert(telemetry.runnable_sessions == 0);
 		assert(telemetry.running_quantums == 0);
@@ -704,37 +726,52 @@ main(void)
 		free(pooled_handles);
 	}
 	{
-		QuantumState state = {0};
-		PostgammaBackendHandle handle;
-		PostgammaBackendCompletion completion;
-
 		provider_config.kind = POSTGAMMA_BACKEND_PROVIDER_POOLED;
 		provider_config.worker_count = 2;
 		provider_config.queue_capacity = 2;
 		provider_config.execution_token_count = 2;
 		assert(postgamma_backend_registry_create_with_provider(
 			&registry, 2, &provider_config) == 0);
-		state.registry = registry;
-		memset(&request, 0, sizeof(request));
-		request.backend_type = 301;
-		request.execution_class = POSTGAMMA_BACKEND_CLASS_CLIENT;
-		request.thread_name = "aba-client";
-		request.main_function = run_three_quantums;
-		request.main_argument = &state;
-		request.cleanup_function = record_quantum_cleanup;
-		request.cleanup_argument = &state;
-		assert(postgamma_backend_launch(registry, &request, &handle) == 0);
-		wait_for_quantum_wave(&state, 1, 1);
-		assert(postgamma_backend_schedule(registry, handle.id) == 0);
-		wait_for_quantum_wave(&state, 1, 2);
-		assert(postgamma_backend_schedule(registry, handle.id) == 0);
-		completion = wait_for_completion(registry);
-		assert(completion.handle.id == handle.id);
-		assert(postgamma_backend_completion_join(registry, &completion) == 0);
-		assert(state.carriers[0] == state.carriers[2]);
-		assert(state.carriers[0] != state.carriers[1]);
-		assert(atomic_load_explicit(
-			&state.cleaned, memory_order_acquire) == 1);
+		/*
+		 * With one live session the assigned carrier cannot be busy with other
+		 * work, so stealing cannot mask a missing migration. Require A-B-A for
+		 * every session, independently of the concurrent wave's timing.
+		 */
+		for (size_t index = 0; index < SESSION_COUNT; index++)
+		{
+			QuantumState state = {0};
+			PostgammaBackendHandle handle;
+			PostgammaBackendCompletion completion;
+
+			state.registry = registry;
+			memset(&request, 0, sizeof(request));
+			request.backend_type = 301;
+			request.execution_class = POSTGAMMA_BACKEND_CLASS_CLIENT;
+			request.thread_name = "aba-client";
+			request.main_function = run_three_quantums;
+			request.main_argument = &state;
+			request.cleanup_function = record_quantum_cleanup;
+			request.cleanup_argument = &state;
+			assert(postgamma_backend_launch(registry, &request, &handle) == 0);
+			wait_for_quantum_wave(&state, 1, 1);
+			assert(postgamma_backend_schedule(registry, handle.id) == 0);
+			wait_for_quantum_wave(&state, 1, 2);
+			assert(postgamma_backend_schedule(registry, handle.id) == 0);
+			completion = wait_for_completion(registry);
+			assert(completion.handle.id == handle.id);
+			assert(postgamma_backend_completion_join(registry, &completion) == 0);
+			assert(state.carriers[0] == state.carriers[2]);
+			assert(state.carriers[0] != state.carriers[1]);
+			assert(atomic_load_explicit(
+				&state.cleaned, memory_order_acquire) == 1);
+		}
+		assert(postgamma_backend_registry_telemetry(registry, &telemetry) == 0);
+		assert(telemetry.client_quantums == SESSION_COUNT * 3);
+		assert(telemetry.quantum_yields == SESSION_COUNT * 2);
+		assert(telemetry.carrier_migrations == SESSION_COUNT * 2);
+		assert(telemetry.work_steals == 0);
+		assert(telemetry.backend_completions == SESSION_COUNT);
+		assert(postgamma_backend_registry_active_count(registry) == 0);
 		assert(postgamma_backend_registry_destroy(registry) == 0);
 	}
 	assert(postgamma_backend_registry_create(&registry, 1) == 0);

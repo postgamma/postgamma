@@ -1,6 +1,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "postgamma/guc_runtime.h"
+#include "../check.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -90,8 +91,8 @@ run_instance_state_worker(void *argument)
 	worker->address = postgamma_backend_state_address_by_id(
 		"external:pg_mode_mask", &instance_mode_template);
 	worker->observed = *worker->address;
-	worker->fast_path_address = postgamma_backend_state_address_by_id(
-		"external:pg_mode_mask", &instance_mode_template);
+	worker->fast_path_address = postgamma_backend_state_address_cached(
+		POSTGAMMA_BACKEND_STATE_SLOT_EDBACBD6E88D527E, &instance_mode_template);
 	postgamma_execution_context_restore(&execution, previous);
 	postgamma_execution_context_destroy(&execution);
 	postgamma_role_context_destroy(&role);
@@ -135,9 +136,13 @@ run_worker(void *argument)
 		FakeTransactionState **current = postgamma_backend_state_address_relocated(
 			POSTGAMMA_BACKEND_STATE_SLOT_99EE0B8E2B9438FC,
 			&current_transaction_template, targets, 1);
+		void *cached = postgamma_backend_state_address_cached(
+			POSTGAMMA_BACKEND_STATE_SLOT_99EE0B8E2B9438FC,
+			&current_transaction_template);
 
 		assert(top->marker == 41);
 		assert(*current == top);
+		CHECK(cached == current);
 	}
 	{
 		PostgammaBackendStateTemplate targets[] = {
@@ -209,7 +214,22 @@ test_rebind_on_one_thread(void)
 	POSTGAMMA_BACKEND_STATE_VALUE(
 		POSTGAMMA_BACKEND_STATE_SLOT_8D69A00A31D3AF16,
 		backend_pid_template) = 11;
+	/* Nested bindings must restore the execution's already populated cache. */
+	{
+		PostgammaExecutionContext *nested = postgamma_execution_context_bind(&second);
+		int *second_address = postgamma_backend_state_address_cached(
+			POSTGAMMA_BACKEND_STATE_SLOT_8D69A00A31D3AF16, &backend_pid_template);
+
+		CHECK(nested == &first);
+		CHECK(*second_address == 0);
+		postgamma_execution_context_restore(&second, nested);
+		CHECK(PostgammaCurrentBackendStateAddresses == first.backend_state_addresses);
+		CHECK(POSTGAMMA_BACKEND_STATE_VALUE(
+			POSTGAMMA_BACKEND_STATE_SLOT_8D69A00A31D3AF16, backend_pid_template) == 11);
+	}
 	postgamma_execution_context_restore(&first, previous);
+	CHECK(postgamma_execution_context_current() == NULL);
+	CHECK(PostgammaCurrentBackendStateAddresses[POSTGAMMA_BACKEND_STATE_SLOT_8D69A00A31D3AF16] == NULL);
 
 	previous = postgamma_execution_context_bind(&second);
 	assert(POSTGAMMA_GUC_VALUE(work_mem) == 0);

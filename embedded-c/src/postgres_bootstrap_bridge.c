@@ -416,6 +416,10 @@ pgm_bootstrap_run(uint64_t generation, const char *data_directory,
 	if (status == 0)
 	{
 		kernel.execution_initialized = true;
+		status = postgamma_backend_state_context_prepare(kernel.role.postgres_backend_state);
+	}
+	if (status == 0)
+	{
 		kernel.previous_execution =
 			postgamma_execution_context_bind(&kernel.execution);
 		kernel.execution_bound = true;
@@ -746,6 +750,10 @@ postgamma_postgres_single_user_memory(
 	if (status == 0)
 	{
 		kernel.execution_initialized = true;
+		status = postgamma_backend_state_context_prepare(kernel.role.postgres_backend_state);
+	}
+	if (status == 0)
+	{
 		kernel.previous_execution =
 			postgamma_execution_context_bind(&kernel.execution);
 		kernel.execution_bound = true;

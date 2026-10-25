@@ -147,6 +147,15 @@ class UpgradeAuditTests(unittest.TestCase):
             ["external:stable"],
         )
 
+    def test_initializer_representation_proof_changes_require_review(self) -> None:
+        before = candidate("external:stable", "stable", "c:@stable")
+        after = candidate("external:stable", "stable", "c:@stable")
+        before["preparation"] = {"zero_bytes": True, "target": "x86_64-linux-gnu"}
+        after["preparation"] = {"zero_bytes": False, "target": "x86_64-linux-gnu"}
+        result = upgrade_audit.diff_backend_state(state_catalog(before), state_catalog(after))
+        self.assertEqual(len(result["structural_changes"]), 1)
+        self.assertIn("preparation", result["structural_changes"][0]["changes"])
+
     def test_reports_catalog_churn_moves_and_guc_reclassification(self) -> None:
         baseline_state = state_catalog(
             candidate("external:old_guc", "old_guc", "c:@old_guc"),

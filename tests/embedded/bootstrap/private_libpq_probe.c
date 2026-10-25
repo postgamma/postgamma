@@ -68,6 +68,77 @@ postgamma_bootstrap_result_is_one(const PostgammaPrivateQueryResult *result)
 }
 
 
+static bool
+postgamma_bootstrap_extended_copy(
+	PostgammaPrivateLibpqConnection *connection, unsigned int scenario)
+{
+	PostgammaPrivateLibpqOperation *operation = NULL;
+	PostgammaPrivateOwnedResult *result = NULL;
+	PostgammaPrivateLibpqProgress progress;
+	PostgammaPrivateCopyProgress copy_progress;
+	int64_t		deadline;
+	unsigned int results = 0;
+	bool		ok = false;
+
+	if (!postgamma_bootstrap_deadline(&deadline) ||
+		postgamma_private_libpq_operation_start(
+			connection, POSTGAMMA_BOOTSTRAP_REQUEST_GENERATION + scenario + 1,
+			"COPY fixture FROM STDIN", NULL, 0, 0, &operation) !=
+		POSTGAMMA_PRIVATE_LIBPQ_OK)
+		goto done;
+	for (;;)
+	{
+		if (postgamma_private_libpq_operation_progress(
+				operation, &progress, &result) != POSTGAMMA_PRIVATE_LIBPQ_OK)
+			goto done;
+		if (progress == POSTGAMMA_PRIVATE_LIBPQ_PROGRESS_COMPLETE)
+		{
+			ok = results == 2;
+			break;
+		}
+		if (progress == POSTGAMMA_PRIVATE_LIBPQ_PROGRESS_RESULT_READY)
+		{
+			bool expected = results == 0 ?
+				result->status == POSTGAMMA_PRIVATE_RESULT_COPY_IN :
+				results == 1 && (scenario == 2 ?
+					result->status == POSTGAMMA_PRIVATE_RESULT_COMMAND_OK :
+					result->status == POSTGAMMA_PRIVATE_RESULT_FATAL_ERROR &&
+					strcmp(result->sqlstate, "57014") == 0);
+
+			if (!expected)
+				goto done;
+			postgamma_private_libpq_result_free(result);
+			result = NULL;
+			if (results++ == 0)
+			{
+				do
+				{
+					if (postgamma_private_libpq_copy_finish(
+							operation, scenario == 2 ? NULL : "fixture abort",
+							&copy_progress) != POSTGAMMA_PRIVATE_LIBPQ_OK)
+						goto done;
+					if (copy_progress != POSTGAMMA_PRIVATE_COPY_END &&
+						postgamma_private_libpq_operation_wait(operation, deadline) !=
+						POSTGAMMA_PRIVATE_LIBPQ_OK)
+						goto done;
+				} while (copy_progress != POSTGAMMA_PRIVATE_COPY_END);
+				if (postgamma_private_libpq_copy_release(operation) !=
+					POSTGAMMA_PRIVATE_LIBPQ_OK)
+					goto done;
+			}
+			continue;
+		}
+		if (postgamma_private_libpq_operation_wait(operation, deadline) !=
+			POSTGAMMA_PRIVATE_LIBPQ_OK)
+			goto done;
+	}
+done:
+	postgamma_private_libpq_result_free(result);
+	postgamma_private_libpq_operation_free(&operation);
+	return ok;
+}
+
+
 pgm_bootstrap_private_libpq_result
 pgm_bootstrap_probe_private_libpq(void)
 {
@@ -194,6 +265,24 @@ pgm_bootstrap_probe_private_libpq(void)
 		failure = "connection did not recover after the COPY error";
 		goto cleanup;
 	}
+	for (unsigned int scenario = 0; scenario < 3; scenario++)
+	{
+		checks++;
+		if (!postgamma_bootstrap_extended_copy(connection, scenario))
+		{
+			failure = "extended COPY did not drain its synchronization responses";
+			goto cleanup;
+		}
+		checks++;
+		if (!postgamma_bootstrap_deadline(&deadline) ||
+			postgamma_private_libpq_query(
+				connection, "SELECT 1", deadline, &result) !=
+			POSTGAMMA_PRIVATE_LIBPQ_OK || !postgamma_bootstrap_result_is_one(&result))
+		{
+			failure = "connection did not recover after extended COPY";
+			goto cleanup;
+		}
+	}
 	status = postgamma_private_libpq_cancel(
 		connection, POSTGAMMA_BOOTSTRAP_REQUEST_GENERATION);
 	checks++;
@@ -254,8 +343,8 @@ cleanup:
 		checks++;
 		if (!connection_closed || !fixture_joined ||
 			fixture_telemetry.startup_packets != 1 ||
-			fixture_telemetry.query_packets != 5 ||
-			fixture_telemetry.copy_packets != 1 ||
+			fixture_telemetry.query_packets != 11 ||
+			fixture_telemetry.copy_packets != 4 ||
 			fixture_telemetry.copy_bytes_before_response !=
 				POSTGAMMA_BOOTSTRAP_COPY_PREFIX ||
 			fixture_telemetry.copy_bytes_received != POSTGAMMA_BOOTSTRAP_COPY_BYTES ||

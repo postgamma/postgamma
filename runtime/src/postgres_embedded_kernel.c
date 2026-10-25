@@ -292,6 +292,9 @@ embedded_instance_main(
 	if (status != 0)
 		goto fail;
 	kernel.execution_initialized = true;
+	status = postgamma_backend_state_context_prepare(kernel.role.postgres_backend_state);
+	if (status != 0)
+		goto fail;
 	kernel.previous_execution =
 		postgamma_execution_context_bind(&kernel.execution);
 	kernel.execution_bound = true;

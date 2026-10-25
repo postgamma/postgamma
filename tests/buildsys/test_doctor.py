@@ -19,6 +19,22 @@ import doctor  # noqa: E402
 
 
 class DoctorTests(unittest.TestCase):
+    def test_documentation_tool_failure_reports_the_underlying_diagnostic(self) -> None:
+        for code, output in (
+            (127, "doxygen: error while loading shared libraries: libclang.so: cannot open shared object file"),
+            (124, "command timed out after 10 seconds: /usr/bin/doxygen"),
+        ):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as temporary:
+                reporter = doctor.Reporter()
+                with mock.patch.object(doctor, "resolve_command", return_value=("/usr/bin/doxygen",)), mock.patch.object(
+                    doctor, "run", return_value=subprocess.CompletedProcess([], code, output),
+                ):
+                    doctor.inspect_tools({"docs"}, {}, Path(temporary), reporter)
+                finding = next(item for item in reporter.findings if item.key == "doxygen")
+                self.assertEqual(finding.status, "error")
+                self.assertIn(f"exit {code}", finding.detail)
+                self.assertIn(output, finding.detail)
+
     def test_workflow_parser_is_checked_only_in_the_relevant_profiles(self) -> None:
         for profile in ("foundation", "full-test", "release", "all", "workflow"):
             self.assertIn("workflow", doctor.PROFILE_GROUPS[profile])

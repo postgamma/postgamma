@@ -19,6 +19,9 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef POSTGAMMA_EVENT_TIMERS
+#include "postgamma/deadline_heap.h"
+#endif
 
 
 #define POSTGAMMA_NO_SLOT UINT32_MAX
@@ -38,7 +41,7 @@ typedef struct PostgammaBackendSlot
 	PostgammaWakeTarget *wake_target;
 	PostgammaBackendExecutionStart *start;
 	PostgammaBackendCompletion completion;
-	uint64_t	pending_signals;
+	PostgammaBackendInterruptState interrupts;
 	int			native_wake_signal;
 	uint32_t	next_completion;
 	uint32_t	next_runnable;
@@ -46,9 +49,12 @@ typedef struct PostgammaBackendSlot
 	uint32_t	last_worker;
 	uint64_t	queued_at_ns;
 	uint64_t	deadline_ns;
+#ifdef POSTGAMMA_EVENT_TIMERS
+	PostgammaDeadline alarm;
+	uint64_t	alarm_interval_ns;
+#endif
 	uint64_t	quantum_sequence;
 	uint64_t	schedule_epoch;
-	_Atomic bool pause_requested;
 	bool		paused;
 	bool		pooled;
 	bool		queued;
@@ -66,6 +72,13 @@ typedef struct PostgammaBackendSlot
 
 struct PostgammaBackendRegistry
 {
+#ifdef POSTGAMMA_EVENT_TIMERS
+	PostgammaThread *alarm_thread;
+	PostgammaCondition *alarm_condition;
+	PostgammaDeadlineHeap alarms;
+	uint64_t	alarm_wait_deadline;
+	bool		alarm_stopping;
+#endif
 	const PostgammaBackendProviderOps *provider;
 	uint32_t	capacity;
 	PostgammaMutex *mutex;
@@ -116,11 +129,74 @@ struct PostgammaBackendExecutionStart
 	void	   *main_argument;
 	PostgammaBackendCleanup cleanup_function;
 	void	   *cleanup_argument;
+	PostgammaBackendCleanup startup_failure_function;
 	PostgammaBackendCompletionNotify completion_notification;
 	void	   *completion_notification_argument;
 	size_t		startup_data_length;
 	unsigned char startup_data[];
 };
+
+
+/* Bound only while the registered execution owns its slot. */
+static _Thread_local PostgammaBackendExecutionStart *PostgammaCurrentBackendExecution;
+
+
+static PostgammaBackendSlot *
+current_execution_slot(PostgammaBackendRegistry *registry, PostgammaBackendId id)
+{
+	PostgammaBackendExecutionStart *start = PostgammaCurrentBackendExecution;
+
+	if (start == NULL || start->registry != registry || start->info.handle.id != id)
+		return NULL;
+	/* Completion/join cannot recycle this slot until main_function returns. */
+	return &registry->slots[start->slot_index];
+}
+
+const PostgammaBackendInterruptState *
+postgamma_backend_borrow_interrupts(
+	PostgammaBackendRegistry *registry, PostgammaBackendId id)
+{
+	PostgammaBackendSlot *slot = current_execution_slot(registry, id);
+
+	return slot == NULL ? NULL : &slot->interrupts;
+}
+
+/* Publish the payload before the summary observed by executor hot paths. */
+static void
+publish_pending_signals(PostgammaBackendSlot *slot, uint64_t pending)
+{
+	__atomic_fetch_or(&slot->interrupts.pending_signals, pending, __ATOMIC_RELEASE);
+	__atomic_fetch_or(&slot->interrupts.pending_events,
+		POSTGAMMA_BACKEND_EVENT_SIGNAL, __ATOMIC_RELEASE);
+}
+
+static uint64_t
+take_pending_signals(PostgammaBackendSlot *slot)
+{
+	/*
+	 * Acknowledge BEFORE draining. A racing publisher either contributes to
+	 * this drain or leaves the summary set for the next check. It may cause
+	 * one harmless empty dispatch, but cannot lose a signal. Do not clear
+	 * the independent pause bit while acknowledging signals.
+	 */
+	__atomic_fetch_and(&slot->interrupts.pending_events,
+		~POSTGAMMA_BACKEND_EVENT_SIGNAL, __ATOMIC_ACQUIRE);
+	return __atomic_exchange_n(&slot->interrupts.pending_signals, 0,
+		__ATOMIC_ACQUIRE);
+}
+
+/* Called under the registry lock, which serializes pause/resume writers. */
+static void
+set_pause_requested(PostgammaBackendSlot *slot, bool requested)
+{
+	__atomic_store_n(&slot->interrupts.pause_requested, requested, __ATOMIC_SEQ_CST);
+	if (requested)
+		__atomic_fetch_or(&slot->interrupts.pending_events,
+			POSTGAMMA_BACKEND_EVENT_PAUSE, __ATOMIC_RELEASE);
+	else
+		__atomic_fetch_and(&slot->interrupts.pending_events,
+			~POSTGAMMA_BACKEND_EVENT_PAUSE, __ATOMIC_RELEASE);
+}
 
 
 static PostgammaBackendId make_backend_id(uint32_t slot_index,
@@ -130,6 +206,10 @@ static bool decode_backend_id(PostgammaBackendId id,
 							  uint32_t *generation);
 static PostgammaCompatPid allocate_compat_pid(PostgammaBackendRegistry *registry);
 static void *backend_thread_main(void *argument);
+static void *backend_thread_start_failed(int status, void *argument);
+static void begin_backend_thread(PostgammaBackendExecutionStart *start);
+static void record_backend_stack_locked(PostgammaBackendRegistry *registry,
+										PostgammaBackendSlot *slot);
 static void *pooled_worker_main(void *argument);
 static int dedicated_provider_launch_locked(
 	PostgammaBackendRegistry *registry, PostgammaBackendSlot *slot,
@@ -141,6 +221,9 @@ static int pooled_provider_launch_locked(
 static int pooled_provider_join(PostgammaBackendSlot *slot);
 static int start_pooled_workers(PostgammaBackendRegistry *registry);
 static int stop_pooled_workers(PostgammaBackendRegistry *registry);
+#ifdef POSTGAMMA_EVENT_TIMERS
+static void *alarm_owner_main(void *argument);
+#endif
 static int enqueue_slot_locked(
 	PostgammaBackendRegistry *registry, PostgammaBackendSlot *slot);
 static PostgammaBackendSlot *dequeue_slot_for_worker_locked(
@@ -159,7 +242,7 @@ static void release_execution_token_locked(
 static void complete_backend_execution(
 	PostgammaBackendExecutionStart *start,
 	PostgammaBackendExitStatus exit_status, bool pooled_quantum,
-	uint32_t worker_index);
+	uint32_t worker_index, bool startup_failed);
 static PostgammaBackendExitStatus execute_backend(
 	PostgammaBackendExecutionStart *start, uint32_t carrier_index,
 	uint64_t quantum_sequence);
@@ -296,6 +379,34 @@ postgamma_backend_registry_create_with_provider(
 			return status;
 		}
 	}
+#ifdef POSTGAMMA_EVENT_TIMERS
+	/*
+	 * The timer service belongs to the registry, not to its first timed
+	 * request. Establish its resources before publishing a ready registry.
+	 * Arming a timer must not change the instance's native thread footprint.
+	 */
+	created->alarms.entries = calloc(capacity,
+		sizeof(*created->alarms.entries));
+	status = created->alarms.entries == NULL ? ENOMEM :
+		postgamma_condition_create(&created->alarm_condition);
+	if (status == 0)
+	{
+		PostgammaThreadAttributes attributes = {
+			.name = "pg-alarm", .role = POSTGAMMA_THREAD_ROLE_GENERAL,
+		};
+
+		created->alarms.capacity = capacity;
+		created->alarm_wait_deadline = UINT64_MAX;
+		status = postgamma_thread_create(&created->alarm_thread,
+			&attributes, alarm_owner_main, created);
+	}
+	if (status != 0)
+	{
+		if (postgamma_backend_registry_destroy(created) != 0)
+			abort();
+		return status;
+	}
+#endif
 	*registry = created;
 	return 0;
 }
@@ -334,7 +445,38 @@ postgamma_backend_registry_destroy(PostgammaBackendRegistry *registry)
 			return EBUSY;
 		}
 	}
+#ifdef POSTGAMMA_EVENT_TIMERS
+	registry->alarm_stopping = true;
+	if (registry->alarm_condition != NULL)
+		(void) postgamma_condition_signal(registry->alarm_condition);
+#endif
 	unlock_registry_or_abort(registry);
+#ifdef POSTGAMMA_EVENT_TIMERS
+	/* The notifier cannot outlive its registry, slots or wake descriptors. */
+	if (registry->alarm_thread != NULL)
+	{
+		status = postgamma_thread_join(registry->alarm_thread, NULL);
+		if (status != 0)
+			return status;
+		status = postgamma_thread_destroy(registry->alarm_thread);
+		if (status != 0)
+			return status;
+		registry->alarm_thread = NULL;
+	}
+	if (registry->alarm_condition != NULL)
+	{
+		status = postgamma_condition_destroy(registry->alarm_condition);
+		if (status != 0)
+			return status;
+		registry->alarm_condition = NULL;
+	}
+#endif
+#ifdef POSTGAMMA_EVENT_TIMERS
+	if (registry->alarms.count != 0)
+		abort();
+	free(registry->alarms.entries);
+	memset(&registry->alarms, 0, sizeof(registry->alarms));
+#endif
 	status = stop_pooled_workers(registry);
 	if (status != 0)
 		return status;
@@ -438,7 +580,12 @@ postgamma_backend_launch(PostgammaBackendRegistry *registry,
 	slot->state = POSTGAMMA_BACKEND_SLOT_STARTING;
 	slot->thread = NULL;
 	slot->start = start;
-	slot->pending_signals = 0;
+	slot->interrupts.pending_signals = 0;
+	slot->interrupts.pending_events = 0;
+#ifdef POSTGAMMA_EVENT_TIMERS
+	slot->alarm.at = 0;
+	slot->alarm_interval_ns = 0;
+#endif
 	slot->native_wake_signal = request->native_wake_signal;
 	slot->next_completion = POSTGAMMA_NO_SLOT;
 	slot->next_runnable = POSTGAMMA_NO_SLOT;
@@ -448,7 +595,7 @@ postgamma_backend_launch(PostgammaBackendRegistry *registry,
 	slot->deadline_ns = 0;
 	slot->quantum_sequence = 0;
 	slot->schedule_epoch = 0;
-	slot->pause_requested = false;
+	set_pause_requested(slot, false);
 	slot->paused = false;
 	slot->pooled = false;
 	slot->queued = false;
@@ -471,6 +618,7 @@ postgamma_backend_launch(PostgammaBackendRegistry *registry,
 	start->main_argument = request->main_argument;
 	start->cleanup_function = request->cleanup_function;
 	start->cleanup_argument = request->cleanup_argument;
+	start->startup_failure_function = request->startup_failure_function;
 	start->completion_notification = request->completion_notification;
 	start->completion_notification_argument =
 		request->completion_notification_argument;
@@ -493,6 +641,8 @@ postgamma_backend_launch(PostgammaBackendRegistry *registry,
 		slot->next_runnable = POSTGAMMA_NO_SLOT;
 		memset(&slot->handle, 0, sizeof(slot->handle));
 		slot->state = POSTGAMMA_BACKEND_SLOT_FREE;
+		if (postgamma_condition_broadcast(registry->condition) != 0)
+			abort();
 		unlock_registry_or_abort(registry);
 		return status;
 	}
@@ -638,7 +788,12 @@ postgamma_backend_completion_join(PostgammaBackendRegistry *registry,
 	slot->wake_target = NULL;
 	memset(&slot->handle, 0, sizeof(slot->handle));
 	memset(&slot->completion, 0, sizeof(slot->completion));
-	slot->pending_signals = 0;
+	slot->interrupts.pending_signals = 0;
+	slot->interrupts.pending_events = 0;
+#ifdef POSTGAMMA_EVENT_TIMERS
+	slot->alarm.at = 0;
+	slot->alarm_interval_ns = 0;
+#endif
 	slot->native_wake_signal = 0;
 	slot->next_runnable = POSTGAMMA_NO_SLOT;
 	slot->assigned_worker = POSTGAMMA_NO_SLOT;
@@ -647,7 +802,7 @@ postgamma_backend_completion_join(PostgammaBackendRegistry *registry,
 	slot->deadline_ns = 0;
 	slot->quantum_sequence = 0;
 	slot->schedule_epoch = 0;
-	slot->pause_requested = false;
+	set_pause_requested(slot, false);
 	slot->paused = false;
 	slot->pooled = false;
 	slot->queued = false;
@@ -744,12 +899,10 @@ postgamma_backend_signal(PostgammaBackendRegistry *registry,
 		{
 			if (signal_number != 0)
 			{
-				__atomic_fetch_or(&slot->pending_signals,
-							  UINT64_C(1) << (signal_number - 1),
-							  __ATOMIC_RELEASE);
+				publish_pending_signals(slot, UINT64_C(1) << (signal_number - 1));
 				if (signal_number == SIGQUIT || signal_number == SIGKILL)
 				{
-					slot->pause_requested = false;
+					set_pause_requested(slot, false);
 					(void) postgamma_condition_broadcast(registry->condition);
 				}
 				status = wake_backend_slot(registry, slot);
@@ -783,11 +936,12 @@ postgamma_backend_pause(PostgammaBackendRegistry *registry,
 		return ESRCH;
 	}
 	id = slot->handle.id;
-	slot->pause_requested = true;
+	set_pause_requested(slot, true);
 	status = wake_backend_slot(registry, slot);
 	while (status == 0 && slot->handle.id == id &&
-		   slot->state == POSTGAMMA_BACKEND_SLOT_RUNNING &&
-		   slot->pause_requested && !slot->paused)
+		   (slot->state == POSTGAMMA_BACKEND_SLOT_STARTING ||
+			slot->state == POSTGAMMA_BACKEND_SLOT_RUNNING) &&
+		   __atomic_load_n(&slot->interrupts.pause_requested, __ATOMIC_SEQ_CST) && !slot->paused)
 		status = postgamma_condition_wait(registry->condition, registry->mutex);
 	if (status == 0 &&
 		(slot->handle.id != id ||
@@ -822,7 +976,7 @@ postgamma_backend_resume(PostgammaBackendRegistry *registry,
 	}
 	id = slot->handle.id;
 	was_paused = slot->paused;
-	slot->pause_requested = false;
+	set_pause_requested(slot, false);
 	status = postgamma_condition_broadcast(registry->condition);
 	while (status == 0 && slot->handle.id == id &&
 		   slot->state == POSTGAMMA_BACKEND_SLOT_RUNNING && slot->paused)
@@ -849,6 +1003,10 @@ postgamma_backend_wait_while_paused(PostgammaBackendRegistry *registry,
 		!decode_backend_id(id, &slot_index, &generation) ||
 		slot_index >= registry->capacity)
 		return EINVAL;
+	slot = current_execution_slot(registry, id);
+	if (slot != NULL &&
+		!__atomic_load_n(&slot->interrupts.pause_requested, __ATOMIC_ACQUIRE))
+		return 0;
 	status = lock_registry(registry);
 	if (status != 0)
 		return status;
@@ -859,12 +1017,12 @@ postgamma_backend_wait_while_paused(PostgammaBackendRegistry *registry,
 		unlock_registry_or_abort(registry);
 		return ESTALE;
 	}
-	if (slot->pause_requested)
+	if (__atomic_load_n(&slot->interrupts.pause_requested, __ATOMIC_SEQ_CST))
 	{
 		slot->paused = true;
 		(void) postgamma_condition_broadcast(registry->condition);
 	}
-	while (status == 0 && slot->pause_requested &&
+	while (status == 0 && __atomic_load_n(&slot->interrupts.pause_requested, __ATOMIC_SEQ_CST) &&
 		   slot->state == POSTGAMMA_BACKEND_SLOT_RUNNING)
 		status = postgamma_condition_wait(registry->condition, registry->mutex);
 	if (slot->paused)
@@ -938,15 +1096,7 @@ postgamma_backend_notify(
 	else
 	{
 		if (runnable)
-		{
-			if (slot->schedule_epoch == UINT64_MAX)
-				status = EOVERFLOW;
-			else
-			{
-				slot->schedule_epoch++;
-				status = schedule_slot_locked(registry, slot);
-			}
-		}
+			status = schedule_slot_locked(registry, slot);
 		else
 		{
 			status = postgamma_wake_target_wake(slot->wake_target);
@@ -1131,6 +1281,113 @@ postgamma_backend_set_deadline(
 }
 
 
+#ifdef POSTGAMMA_EVENT_TIMERS
+static void *
+alarm_owner_main(void *argument)
+{
+	PostgammaBackendRegistry *registry = argument;
+
+	if (lock_registry(registry) != 0)
+		abort();
+	while (!registry->alarm_stopping)
+	{
+		uint64_t now = postgamma_monotonic_now_ns();
+		uint64_t next = UINT64_MAX;
+		int status;
+
+		while (registry->alarms.count != 0)
+		{
+			PostgammaDeadline *entry = registry->alarms.entries[0];
+			PostgammaBackendSlot *slot = (PostgammaBackendSlot *)
+				((char *) entry - offsetof(PostgammaBackendSlot, alarm));
+			uint64_t due = entry->at;
+			uint64_t interval = slot->alarm_interval_ns;
+			uint64_t following = 0;
+
+			if (slot->state != POSTGAMMA_BACKEND_SLOT_RUNNING)
+				abort();
+			if (due > now)
+			{
+				next = due;
+				break;
+			}
+			if (interval != 0)
+			{
+				uint64_t periods = (now - due) / interval;
+
+				if (periods < UINT64_MAX &&
+					periods + 1 <= (UINT64_MAX - due) / interval)
+					following = due + (periods + 1) * interval;
+			}
+			postgamma_deadline_set(&registry->alarms, entry, following);
+			publish_pending_signals(slot, UINT64_C(1) << (SIGALRM - 1));
+			if (wake_backend_slot(registry, slot) != 0)
+				abort();
+		}
+		registry->alarm_wait_deadline = next;
+		status = next == UINT64_MAX ?
+			postgamma_condition_wait(registry->alarm_condition, registry->mutex) :
+			postgamma_condition_timed_wait(registry->alarm_condition, registry->mutex, next);
+		if (status != 0 && status != ETIMEDOUT)
+			abort();
+	}
+	unlock_registry_or_abort(registry);
+	return NULL;
+}
+
+int
+postgamma_backend_set_alarm(PostgammaBackendRegistry *registry,
+	PostgammaBackendId id, uint64_t deadline_ns, uint64_t interval_ns)
+{
+	PostgammaBackendSlot *slot;
+	uint32_t index, generation;
+	int status;
+
+	if (registry == NULL || !decode_backend_id(id, &index, &generation) ||
+		index >= registry->capacity)
+		return EINVAL;
+	status = lock_registry(registry);
+	if (status != 0)
+		return status;
+	slot = &registry->slots[index];
+	if (registry->alarm_stopping || slot->generation != generation ||
+		slot->handle.id != id || slot->state != POSTGAMMA_BACKEND_SLOT_RUNNING)
+		status = ESTALE;
+	else
+	{
+		if (status == 0)
+		{
+			uint64_t previous_deadline = slot->alarm.at;
+			uint64_t previous_interval = slot->alarm_interval_ns;
+
+			postgamma_deadline_set(&registry->alarms, &slot->alarm, deadline_ns);
+			slot->alarm_interval_ns = interval_ns;
+			/* Later/canceled deadlines may wake early, but cannot miss an alarm. */
+			if (deadline_ns != 0 && deadline_ns < registry->alarm_wait_deadline)
+				status = postgamma_condition_signal(registry->alarm_condition);
+			if (status != 0)
+			{
+				/* The owner cannot observe a rejected arm while we hold its lock. */
+				postgamma_deadline_set(&registry->alarms, &slot->alarm, previous_deadline);
+				slot->alarm_interval_ns = previous_interval;
+			}
+		}
+	}
+	unlock_registry_or_abort(registry);
+	return status;
+}
+#endif
+
+bool
+postgamma_backend_interrupt_poll_required(
+	PostgammaBackendRegistry *registry, PostgammaBackendId id)
+{
+	PostgammaBackendSlot *slot = current_execution_slot(registry, id);
+
+	return slot == NULL || postgamma_backend_interrupts_pending(&slot->interrupts);
+}
+
+
 int
 postgamma_backend_take_pending_signals(PostgammaBackendRegistry *registry,
 									 PostgammaBackendId id,
@@ -1145,6 +1402,12 @@ postgamma_backend_take_pending_signals(PostgammaBackendRegistry *registry,
 		!decode_backend_id(id, &slot_index, &generation) ||
 		slot_index >= registry->capacity)
 		return EINVAL;
+	slot = current_execution_slot(registry, id);
+	if (slot != NULL)
+	{
+		*pending = take_pending_signals(slot);
+		return 0;
+	}
 	status = lock_registry(registry);
 	if (status != 0)
 		return status;
@@ -1156,7 +1419,7 @@ postgamma_backend_take_pending_signals(PostgammaBackendRegistry *registry,
 		unlock_registry_or_abort(registry);
 		return ESTALE;
 	}
-	*pending = __atomic_exchange_n(&slot->pending_signals, 0, __ATOMIC_ACQUIRE);
+	*pending = take_pending_signals(slot);
 	unlock_registry_or_abort(registry);
 	return 0;
 }
@@ -1189,7 +1452,7 @@ postgamma_backend_requeue_pending_signals(PostgammaBackendRegistry *registry,
 		unlock_registry_or_abort(registry);
 		return ESTALE;
 	}
-	__atomic_fetch_or(&slot->pending_signals, pending, __ATOMIC_RELEASE);
+	publish_pending_signals(slot, pending);
 	unlock_registry_or_abort(registry);
 	return 0;
 }
@@ -1357,40 +1620,37 @@ dedicated_provider_launch_locked(PostgammaBackendRegistry *registry,
 								 const PostgammaBackendLaunchRequest *request)
 {
 	PostgammaThreadAttributes attributes;
-	PostgammaThreadStackInfo stack_info;
+	PostgammaThread *thread = NULL;
 	int			status;
 
 	attributes.name = request->thread_name;
 	attributes.role = postgamma_backend_thread_role(request->execution_class);
 	attributes.stack_size = request->stack_size;
 	attributes.guard_size = request->guard_size;
-	status = postgamma_thread_create(&slot->thread, &attributes,
-								 backend_thread_main, slot->start);
+	/*
+	 * Reserve the slot while creating its carrier outside the registry lock.
+	 * active_count prevents destruction and STARTING prevents completion or
+	 * reuse.  The child waits for publication below before calling user code.
+	 */
+	slot->state = POSTGAMMA_BACKEND_SLOT_STARTING;
+	unlock_registry_or_abort(registry);
+	if (request->startup_failure_function != NULL)
+		status = postgamma_thread_create_async(&thread, &attributes,
+			backend_thread_main, backend_thread_start_failed, slot->start);
+	else
+		status = postgamma_thread_create(&thread, &attributes,
+			backend_thread_main, slot->start);
+	if (lock_registry(registry) != 0)
+		abort();
 	if (status != 0)
 		return status;
+	slot->thread = thread;
 
 	registry->telemetry.threads_started = true;
 	registry->telemetry.backend_threads_active++;
-	status = postgamma_thread_stack_info(slot->thread, &stack_info);
-	if (status != 0 || stack_info.role != attributes.role)
-		record_stack_failure(
-			&registry->telemetry.stack[request->execution_class].
-			observation_failures);
-	else
-	{
-		status = record_stack_launch_locked(
-			registry, request->execution_class, &stack_info);
-		if (status == 0)
-		{
-			slot->stack_observed = true;
-			slot->stack_reservation_bytes =
-				stack_info.configured_stack_size;
-		}
-		else
-			record_stack_failure(
-				&registry->telemetry.stack[request->execution_class].
-				accounting_failures);
-	}
+	/* Asynchronous carriers record their stack after validating it themselves. */
+	if (request->startup_failure_function == NULL)
+		record_backend_stack_locked(registry, slot);
 	if (request->execution_class == POSTGAMMA_BACKEND_CLASS_CLIENT)
 	{
 		registry->telemetry.client_threads_started++;
@@ -1402,6 +1662,10 @@ dedicated_provider_launch_locked(PostgammaBackendRegistry *registry,
 		registry->telemetry.parallel_threads_started++;
 	else
 		registry->telemetry.dedicated_threads_started++;
+	if (request->startup_failure_function == NULL)
+		slot->state = POSTGAMMA_BACKEND_SLOT_RUNNING;
+	if (postgamma_condition_broadcast(registry->condition) != 0)
+		abort();
 	return 0;
 }
 
@@ -1647,12 +1911,18 @@ schedule_slot_locked(
 {
 	int			status;
 
+	/* Signals and ordinary wakes must also invalidate a pending idle decision. */
+	if (slot->schedule_epoch == UINT64_MAX)
+		return EOVERFLOW;
+	slot->schedule_epoch++;
 	status = postgamma_wake_target_wake(slot->wake_target);
 	if (status != 0)
 		return status;
 	if (!slot->pooled)
 	{
-		if (slot->native_wake_signal != 0)
+		/* The wake fd and pending bits already retain signals during startup. */
+		if (slot->state == POSTGAMMA_BACKEND_SLOT_RUNNING &&
+			slot->native_wake_signal != 0)
 			return postgamma_thread_signal(
 				slot->thread, slot->native_wake_signal);
 		return 0;
@@ -1673,14 +1943,58 @@ static void *
 backend_thread_main(void *argument)
 {
 	PostgammaBackendExecutionStart *start = argument;
-	PostgammaBackendExitStatus exit_status = execute_backend(start, 0, 1);
+	PostgammaBackendExitStatus exit_status;
+
+	begin_backend_thread(start);
+	exit_status = execute_backend(start, 0, 1);
 
 	if (exit_status.kind == POSTGAMMA_BACKEND_EXIT_YIELD)
 	{
 		exit_status.kind = POSTGAMMA_BACKEND_EXIT_PANIC;
 		exit_status.code = EPROTO;
 	}
-	complete_backend_execution(start, exit_status, false, 0);
+	complete_backend_execution(start, exit_status, false, 0, false);
+	return NULL;
+}
+
+
+static void
+begin_backend_thread(PostgammaBackendExecutionStart *start)
+{
+	PostgammaBackendRegistry *registry = start->registry;
+	PostgammaBackendSlot *slot = &registry->slots[start->slot_index];
+
+	if (lock_registry(registry) != 0)
+		abort();
+	/* The creator publishes the handle before any completion can reclaim it. */
+	while (slot->state == POSTGAMMA_BACKEND_SLOT_STARTING && slot->thread == NULL)
+		if (postgamma_condition_wait(registry->condition, registry->mutex) != 0)
+			abort();
+	if (slot->state == POSTGAMMA_BACKEND_SLOT_STARTING)
+	{
+		record_backend_stack_locked(registry, slot);
+		slot->state = POSTGAMMA_BACKEND_SLOT_RUNNING;
+		if (postgamma_condition_broadcast(registry->condition) != 0)
+			abort();
+	}
+	if (slot->start != start || slot->state != POSTGAMMA_BACKEND_SLOT_RUNNING)
+		abort();
+	unlock_registry_or_abort(registry);
+}
+
+
+static void *
+backend_thread_start_failed(int status, void *argument)
+{
+	PostgammaBackendExecutionStart *start = argument;
+	PostgammaBackendExecutionStart *previous = PostgammaCurrentBackendExecution;
+	PostgammaBackendExitStatus exit_status = {POSTGAMMA_BACKEND_EXIT_FATAL, 1};
+
+	begin_backend_thread(start);
+	start->info.stack_status = status;
+	PostgammaCurrentBackendExecution = start;
+	complete_backend_execution(start, exit_status, false, 0, true);
+	PostgammaCurrentBackendExecution = previous;
 	return NULL;
 }
 
@@ -1780,7 +2094,7 @@ pooled_worker_main(void *argument)
 		exit_status = execute_backend(
 			start, worker->index + 1, slot->quantum_sequence);
 		complete_backend_execution(
-			start, exit_status, true, worker->index);
+			start, exit_status, true, worker->index, false);
 		/* Make accidental carrier-state dependencies visible on the next bind. */
 		errno = (int) (EDOM + (worker->index % 3));
 	}
@@ -1794,14 +2108,17 @@ execute_backend(
 	uint64_t quantum_sequence)
 {
 	PostgammaBackendExitStatus exit_status;
+	PostgammaBackendExecutionStart *previous = PostgammaCurrentBackendExecution;
 
 	start->info.carrier_index = carrier_index;
 	start->info.quantum_sequence = quantum_sequence;
 	start->info.stack_status = postgamma_thread_current_stack_info(
 		&start->info.stack_info);
+	PostgammaCurrentBackendExecution = start;
 	exit_status = start->main_function(
 		&start->info, start->startup_data, start->startup_data_length,
 		start->main_argument);
+	PostgammaCurrentBackendExecution = previous;
 	if (exit_status.kind < POSTGAMMA_BACKEND_EXIT_NORMAL ||
 		exit_status.kind > POSTGAMMA_BACKEND_EXIT_UNEXPECTED_RETURN)
 	{
@@ -1816,7 +2133,7 @@ static void
 complete_backend_execution(
 	PostgammaBackendExecutionStart *start,
 	PostgammaBackendExitStatus exit_status, bool pooled_quantum,
-	uint32_t worker_index)
+	uint32_t worker_index, bool startup_failed)
 {
 	PostgammaBackendRegistry *registry = start->registry;
 	PostgammaBackendSlot *slot = &registry->slots[start->slot_index];
@@ -1825,11 +2142,13 @@ complete_backend_execution(
 	void	   *completion_notification_argument =
 		start->completion_notification_argument;
 	int			cleanup_status;
+	PostgammaBackendCleanup cleanup = startup_failed ?
+		start->startup_failure_function : start->cleanup_function;
 
 	if (exit_status.kind != POSTGAMMA_BACKEND_EXIT_YIELD &&
-		start->cleanup_function != NULL)
+		cleanup != NULL)
 	{
-		cleanup_status = start->cleanup_function(
+		cleanup_status = cleanup(
 			&start->info, start->cleanup_argument);
 		if (cleanup_status != 0)
 		{
@@ -1897,9 +2216,13 @@ complete_backend_execution(
 		registry->telemetry.blocked_sessions--;
 		slot->blocked = false;
 	}
+#ifdef POSTGAMMA_EVENT_TIMERS
+	/* Remove the old generation before completion can publish slot reuse. */
+	postgamma_deadline_set(&registry->alarms, &slot->alarm, 0);
+#endif
 	slot->completion.handle = slot->handle;
 	slot->completion.exit_status = exit_status;
-	slot->pause_requested = false;
+	set_pause_requested(slot, false);
 	slot->paused = false;
 	slot->queued = false;
 	slot->reschedule_requested = false;
@@ -1980,6 +2303,28 @@ update_minimum(size_t *minimum, size_t candidate)
 {
 	if (*minimum == 0 || candidate < *minimum)
 		*minimum = candidate;
+}
+
+
+static void
+record_backend_stack_locked(PostgammaBackendRegistry *registry,
+							PostgammaBackendSlot *slot)
+{
+	PostgammaThreadStackInfo stack_info;
+	PostgammaBackendClass backend_class = slot->handle.execution_class;
+
+	if (postgamma_thread_stack_info(slot->thread, &stack_info) != 0 ||
+		stack_info.role != postgamma_backend_thread_role(backend_class))
+		record_stack_failure(
+			&registry->telemetry.stack[backend_class].observation_failures);
+	else if (record_stack_launch_locked(registry, backend_class, &stack_info) != 0)
+		record_stack_failure(
+			&registry->telemetry.stack[backend_class].accounting_failures);
+	else
+	{
+		slot->stack_observed = true;
+		slot->stack_reservation_bytes = stack_info.configured_stack_size;
+	}
 }
 
 

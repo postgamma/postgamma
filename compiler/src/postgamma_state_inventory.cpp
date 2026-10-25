@@ -13,21 +13,28 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ParentMapContext.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/FrontendActions.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Index/USRGeneration.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SHA256.h"
+#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -79,6 +86,9 @@ llvm::cl::opt<bool> SuppressCompilerWarnings(
     "suppress-compiler-warnings",
     llvm::cl::desc("Suppress warnings inherited from a non-Clang compile database"),
     llvm::cl::init(true), llvm::cl::cat(InventoryCategory));
+llvm::cl::opt<bool> AuditPreparation(
+    "audit-preparation", llvm::cl::desc("Audit template uses in transformed C"),
+    llvm::cl::init(false), llvm::cl::cat(InventoryCategory));
 
 std::string normalizeAbsolutePath(llvm::StringRef value) {
   if (value.empty())
@@ -385,6 +395,190 @@ const VarDecl *staticInitializerOwner(const DeclRefExpr *reference,
   return owners.size() == 1 ? *owners.begin() : nullptr;
 }
 
+// This is an allow-list of expression shapes, not of PostgreSQL symbols.
+// In particular, an address passed to an arbitrary function is still an escape.
+struct TemplateUse {
+  std::string kind = "unconverted";
+  std::string function;
+  int64_t slot = -1;
+};
+
+// Clang 21 generalized asm strings and newer SourceManagers use FileEntryRef.
+[[maybe_unused]] std::string assemblyText(const StringLiteral *text) { return text->getString().str(); }
+[[maybe_unused]] std::string assemblyText(const std::string &text) { return text; }
+template <typename T> auto fileName(const T &file) -> decltype(file.getName()) {
+  return file.getName();
+}
+template <typename T> auto fileName(const T *file) -> decltype(file->getName()) {
+  return file->getName();
+}
+
+TemplateUse templateUse(const DeclRefExpr *reference, ASTContext &context) {
+  if (reference->isNonOdrUse() == NOUR_Unevaluated)
+    return {"unevaluated", "", -1};
+  if (const VarDecl *owner = staticInitializerOwner(reference, context)) {
+    const auto *function = dyn_cast<FunctionDecl>(owner->getDeclContext());
+    return {"static_initializer", function ? function->getNameAsString() : "", -1};
+  }
+  DynTypedNode node = DynTypedNode::create(*reference);
+  const Expr *address = nullptr;
+  TemplateUse result;
+  for (unsigned depth = 0; depth < 128; ++depth) {
+    auto parents = context.getParents(node);
+    if (parents.size() != 1)
+      break;
+    const DynTypedNode &parent = parents[0];
+    if (parent.get<TypeOfExprType>() != nullptr)
+      return {"unevaluated", "", -1};
+    if (const auto *trait = parent.get<UnaryExprOrTypeTraitExpr>()) {
+      if (!trait->getTypeOfArgument()->isVariablyModifiedType())
+        return {"unevaluated", "", -1};
+      break;
+    }
+    if (const auto *unary = parent.get<UnaryOperator>()) {
+      if (unary->getOpcode() == UO_AddrOf &&
+          unary->getSubExpr()->IgnoreParenImpCasts() == reference)
+        address = unary;
+      else
+        break;
+    } else if (const auto *call = parent.get<CallExpr>()) {
+      const FunctionDecl *callee = call->getDirectCallee();
+      if (address == nullptr || callee == nullptr || call->getNumArgs() < 2 ||
+          call->getArg(1)->IgnoreParenImpCasts() != address)
+        break;
+      std::string name = callee->getNameAsString();
+      if (name == "postgamma_backend_state_address_by_id") {
+        const auto *id = dyn_cast<StringLiteral>(call->getArg(0)->IgnoreParenImpCasts());
+        if (id != nullptr)
+          return {"named_resolver_template", id->getString().str(), -1};
+        break;
+      }
+      if (name != "postgamma_backend_state_address_cached" &&
+          name != "postgamma_backend_state_direct_address" &&
+          name != "postgamma_backend_state_checked_bridge" &&
+          name != "postgamma_backend_state_address" &&
+          name != "postgamma_backend_state_address_relocated_cached" &&
+          name != "postgamma_backend_state_address_relocated")
+        break;
+      Expr::EvalResult value;
+      if (!call->getArg(0)->EvaluateAsInt(value, context))
+        break;
+      return {"resolver_template", name, value.Val.getInt().getSExtValue()};
+    } else if (const auto *variable = parent.get<VarDecl>()) {
+      if (variable->hasGlobalStorage()) {
+        result.kind = "static_initializer";
+        if (const auto *function = dyn_cast<FunctionDecl>(variable->getDeclContext()))
+          result.function = function->getNameAsString();
+        return result;
+      }
+      break;
+    } else if (const auto *function = parent.get<FunctionDecl>()) {
+      if (address != nullptr && result.kind == "provider_return")
+        return {result.kind, function->getNameAsString(), -1};
+      break;
+    } else if (parent.get<ReturnStmt>() != nullptr && address != nullptr) {
+      result.kind = "provider_return";
+    } else if (const auto *expression = parent.get<Expr>()) {
+      if (!isa<ParenExpr>(expression) && !isa<ImplicitCastExpr>(expression) &&
+          !isa<InitListExpr>(expression))
+        break;
+    } else if (parent.get<CompoundStmt>() == nullptr &&
+               parent.get<TypeLoc>() == nullptr && parent.get<Type>() == nullptr) {
+      break;
+    }
+    node = parent;
+  }
+  return {};
+}
+
+// This is a sufficient proof, not a replacement for Clang's initializer.
+// In particular, a semantic zero is not necessarily an all-zero object image
+// (negative floating zero, padding, member pointers and target pointer ABIs).
+bool hasZeroBytes(const APValue &value, QualType type, ASTContext &context) {
+  if (value.isInt() && type->isIntegralOrEnumerationType())
+    return value.getInt().isZero() &&
+           (type->isBooleanType() ||
+            context.getTypeSize(type) == value.getInt().getBitWidth());
+  if (value.isLValue() && type->isPointerType())
+    return value.isNullPointer() && context.getTargetNullPointerValue(type) == 0;
+  if (value.isFloat() && type->isRealFloatingType()) {
+    const llvm::APInt bits = value.getFloat().bitcastToAPInt();
+    return bits.isZero() && context.getTypeSize(type) == bits.getBitWidth() &&
+           (bits.getBitWidth() == 32 || bits.getBitWidth() == 64);
+  }
+  if (value.isArray()) {
+    const auto *array = context.getAsConstantArrayType(type);
+    if (array == nullptr)
+      return false;
+    for (unsigned i = 0; i < value.getArrayInitializedElts(); ++i)
+      if (!hasZeroBytes(value.getArrayInitializedElt(i), array->getElementType(),
+                        context))
+        return false;
+    return !value.hasArrayFiller() ||
+           hasZeroBytes(value.getArrayFiller(), array->getElementType(), context);
+  }
+  // Records/unions/vectors need a separate layout and padding proof.
+  return false;
+}
+
+struct PreparationFacts {
+  std::string target;
+  std::string language;
+  bool evaluated = false;
+  bool zero_bytes = false;
+  std::string zero_reason;
+  bool ordinary_symbol = false;
+
+  auto key() const {
+    return std::tie(target, language, evaluated, zero_bytes, zero_reason,
+                    ordinary_symbol);
+  }
+
+  llvm::json::Object json() const {
+    return llvm::json::Object{{"target", target}, {"language", language},
+            {"constant_evaluated", evaluated}, {"zero_bytes", zero_bytes},
+            {"zero_reason", zero_reason}, {"ordinary_symbol", ordinary_symbol}};
+  }
+};
+
+PreparationFacts preparationFacts(const VarDecl *declaration,
+                                  ASTContext &context) {
+  PreparationFacts facts;
+  const auto &target = context.getTargetInfo();
+  facts.target = target.getTriple().str();
+  facts.language = context.getLangOpts().CPlusPlus ? "c++" : "c";
+  facts.ordinary_symbol = !declaration->hasAttr<AliasAttr>() &&
+                          !declaration->hasAttr<WeakAttr>() &&
+                          !declaration->hasAttr<WeakRefAttr>() &&
+                          !declaration->hasAttr<AsmLabelAttr>();
+  if (!declaration->hasInit()) {
+    facts.zero_reason = "implicit_zero_storage";
+    return facts;
+  }
+  if (!declaration->hasConstantInitialization()) {
+    facts.zero_reason = "nonconstant_initializer";
+    return facts;
+  }
+  const APValue *value = declaration->evaluateValue();
+  facts.evaluated = value != nullptr && value->hasValue();
+  if (!facts.evaluated) {
+    facts.zero_reason = "constant_evaluation_unavailable";
+    return facts;
+  }
+  const auto arch = target.getTriple().getArch();
+  if (target.getCharWidth() != 8 ||
+      !(arch == llvm::Triple::x86 || arch == llvm::Triple::x86_64 ||
+        arch == llvm::Triple::aarch64 || arch == llvm::Triple::aarch64_be ||
+        arch == llvm::Triple::wasm32 || arch == llvm::Triple::wasm64)) {
+    facts.zero_reason = "target_representation_unproved";
+    return facts;
+  }
+  facts.zero_bytes = hasZeroBytes(*value, declaration->getType(), context);
+  facts.zero_reason = facts.zero_bytes ? "constant_zero_object_representation"
+                                       : "nonzero_or_unproved_object_representation";
+  return facts;
+}
+
 struct DefinitionRecord {
   std::string id;
   std::string name;
@@ -395,6 +589,7 @@ struct DefinitionRecord {
   std::string definition_kind;
   std::string source_kind;
   std::string definition_path;
+  std::string definition_sha256;
   unsigned line = 0;
   unsigned column = 0;
   uint64_t size = 0;
@@ -410,6 +605,7 @@ struct DefinitionRecord {
   bool has_initializer = false;
   bool constant_initializer = false;
   std::string initializer_class;
+  PreparationFacts preparation;
   std::set<std::string> declaration_paths;
   std::set<std::string> translation_units;
 };
@@ -429,11 +625,13 @@ struct UseRecord {
   std::string macro_kind;
   bool in_static_initializer = false;
   std::string static_initializer_owner_id;
+  TemplateUse template_use;
 
   auto key() const {
     return std::make_tuple(id, source_kind, path, offset, length, use_kind, macro_kind,
                            translation_unit, in_static_initializer,
-                           static_initializer_owner_id);
+                           static_initializer_owner_id, template_use.kind,
+                           template_use.function, template_use.slot);
   }
 };
 
@@ -446,6 +644,22 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
         definition_domain_(std::move(definition_domain)) {}
 
   void run(const MatchFinder::MatchResult &result) override {
+    if (AuditPreparation) {
+      if (const auto *assembly = result.Nodes.getNodeAs<GCCAsmStmt>("assembly"))
+        collectOpaque(assemblyText(assembly->getAsmString()),
+                      assembly->isSimple() &&
+                          !hasNoSymbolReference(assemblyText(assembly->getAsmString()),
+                                                result.Context->getTargetInfo()),
+                      *result.SourceManager);
+      if (const auto *assembly = result.Nodes.getNodeAs<FileScopeAsmDecl>("file-assembly"))
+        collectOpaque(assemblyText(assembly->getAsmString()), true, *result.SourceManager);
+      if (const auto *alias = result.Nodes.getNodeAs<NamedDecl>("alias")) {
+        if (const auto *attribute = alias->getAttr<AliasAttr>())
+          collectOpaque(attribute->getAliasee(), false, *result.SourceManager);
+        if (const auto *attribute = alias->getAttr<AsmLabelAttr>())
+          collectOpaque(attribute->getLabel(), false, *result.SourceManager);
+      }
+    }
     if (const auto *declaration =
             result.Nodes.getNodeAs<VarDecl>("state-declaration"))
       collectDefinition(declaration, *result.Context, *result.SourceManager);
@@ -455,6 +669,39 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
               result.Nodes.getNodeAs<VarDecl>("state-variable"))
         collectUse(reference, declaration, *result.Context,
                    *result.SourceManager);
+    }
+  }
+
+  void collectInputs(const SourceManager &manager, ASTContext &context) {
+    if (!AuditPreparation)
+      return;
+    auto unit = mainTranslationUnit(manager, source_root_, generated_root_);
+    if (!unit)
+      return;
+    audited_units_.insert(identityPath(*unit));
+    for (auto it = manager.fileinfo_begin(); it != manager.fileinfo_end(); ++it) {
+      llvm::SmallString<256> absolute;
+      // ClangTool changes the VFS working directory for each compile command.
+      // std::filesystem::absolute would resolve relative system includes
+      // against the tool's own cwd instead (notably GCC's C++ headers).
+      if (manager.getFileManager().getVirtualFileSystem().getRealPath(
+              fileName(it->first), absolute)) {
+        definition_conflicts_[fileName(it->first).str()].insert("cannot resolve audit input");
+        continue;
+      }
+      std::string path = normalizeAbsolutePath(absolute);
+      bool invalid = false;
+      llvm::StringRef buffer = manager.getBufferData(manager.translateFile(it->first), &invalid);
+      if (invalid) {
+        definition_conflicts_[path].insert("audit input buffer unavailable");
+        continue;
+      }
+      llvm::SHA256 hash;
+      hash.update(buffer);
+      std::string value = llvm::toHex(hash.final(), true);
+      if (inputs_.count(path) && inputs_[path] != value)
+        definition_conflicts_[path].insert("input changed during audit");
+      inputs_[path] = value;
     }
   }
 
@@ -498,6 +745,11 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
           {"in_static_initializer", record.in_static_initializer},
           {"static_initializer_owner_id",
            record.static_initializer_owner_id}};
+      if (AuditPreparation)
+        value["template_use"] = llvm::json::Object{
+            {"kind", record.template_use.kind},
+            {"function", record.template_use.function},
+            {"slot", record.template_use.slot}};
       if (known_ids.count(record.id) != 0) {
         ++emitted_use_count;
         ++use_counts[record.id][record.use_kind];
@@ -544,6 +796,7 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
           {"definition_kind", record.definition_kind},
           {"definition_source_kind", record.source_kind},
           {"definition_path", record.definition_path},
+          {"definition_sha256", record.definition_sha256},
           {"line", static_cast<int64_t>(record.line)},
           {"column", static_cast<int64_t>(record.column)},
           {"size", static_cast<int64_t>(record.size)},
@@ -559,6 +812,7 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
           {"has_initializer", record.has_initializer},
           {"constant_initializer", record.constant_initializer},
           {"initializer_class", record.initializer_class},
+          {"preparation", record.preparation.json()},
           {"declaration_paths", std::move(declaration_paths)},
           {"translation_units", std::move(translation_units)},
           {"use_count", total_uses},
@@ -592,6 +846,20 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
              {"function_static_count", function_static_count},
              {"static_initializer_use_count", initializer_use_count},
              {"by_storage", std::move(storage_summary)}}}};
+    if (AuditPreparation) {
+      llvm::json::Object inputs;
+      for (const auto &[path, hash] : inputs_)
+        inputs[path] = hash;
+      llvm::json::Array units, opaque;
+      for (const auto &unit : audited_units_)
+        units.push_back(unit);
+      for (const auto &[unit, text, unbounded] : opaque_)
+        opaque.push_back(llvm::json::Object{{"translation_unit", unit},
+                                          {"text", text}, {"unbounded", unbounded}});
+      document["preparation_audit"] = llvm::json::Object{
+          {"inputs", std::move(inputs)}, {"translation_units", std::move(units)},
+          {"opaque_references", std::move(opaque)}};
+    }
 
     std::error_code error;
     llvm::raw_fd_ostream stream(output, error);
@@ -605,6 +873,26 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
   }
 
  private:
+  // Prove only complete operand-free instruction strings. Unknown instructions,
+  // directives, labels and symbol construction retain the opaque-use barrier.
+  // Extended-asm operands are still visited as ordinary AST expressions.
+  static bool hasNoSymbolReference(llvm::StringRef text, const TargetInfo &target) {
+    if (text.trim().empty())
+      return true;
+    if (!target.getTriple().isX86())
+      return false;
+    llvm::SmallVector<llvm::StringRef, 4> words;
+    llvm::SplitString(text, words, " \t\r\n;");
+    return (words.size() == 1 && (words[0] == "nop" || words[0] == "pause")) ||
+           (words.size() == 2 && words[0] == "rep" && words[1] == "nop");
+  }
+
+  void collectOpaque(llvm::StringRef text, bool unbounded,
+                     const SourceManager &manager) {
+    auto unit = mainTranslationUnit(manager, source_root_, generated_root_);
+    if (unit)
+      opaque_.emplace(identityPath(*unit), text.str(), unbounded);
+  }
   void collectDefinition(const VarDecl *declaration, ASTContext &context,
                          const SourceManager &source_manager) {
     if (!isMutableStaticStorage(declaration) ||
@@ -646,6 +934,9 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
     const Expr *initializer = declaration->getInit();
     std::string definition_kind =
         definitionKindName(declaration->isThisDeclarationADefinition());
+    llvm::SHA256 source_hash;
+    source_hash.update(source_manager.getBufferData(source_manager.getFileID(location)));
+    std::string definition_sha256 = llvm::toHex(source_hash.final(), true);
     PresumedLoc presumed = source_manager.getPresumedLoc(location);
     DefinitionRecord record{
         id,
@@ -657,6 +948,7 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
         definition_kind,
         definition_location->kind,
         definition_location->path,
+        definition_sha256,
         presumed.isValid() ? presumed.getLine() : 0,
         presumed.isValid() ? presumed.getColumn() : 0,
         size,
@@ -672,6 +964,7 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
         initializer != nullptr,
         declaration->hasConstantInitialization(),
         initializer == nullptr ? "implicit_zero" : initializer->getStmtClassName(),
+        preparationFacts(declaration, context),
         {identityPath(*definition_location)},
         {identityPath(*translation_unit)}};
 
@@ -690,6 +983,7 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
         existing.definition_kind = definition_kind;
         existing.source_kind = definition_location->kind;
         existing.definition_path = definition_location->path;
+        existing.definition_sha256 = definition_sha256;
         existing.line = presumed.isValid() ? presumed.getLine() : 0;
         existing.column = presumed.isValid() ? presumed.getColumn() : 0;
         existing.storage_class = storageClassName(declaration->getStorageClass());
@@ -698,6 +992,14 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
         existing.initializer_class = initializer == nullptr
                                          ? "implicit_zero"
                                          : initializer->getStmtClassName();
+        existing.preparation = preparationFacts(declaration, context);
+      } else if (definitionKindRank(definition_kind) ==
+                     definitionKindRank(existing.definition_kind) &&
+                 (existing.preparation.key() !=
+                      preparationFacts(declaration, context).key() ||
+                  (existing.definition_path == definition_location->path &&
+                   existing.definition_sha256 != definition_sha256))) {
+        definition_conflicts_[id].insert("initializer or target facts differ");
       }
     }
   }
@@ -745,7 +1047,8 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
                      classifyUse(reference, context),
                      macro_kind,
                      initializer_owner != nullptr,
-                     std::move(initializer_owner_id)};
+                     std::move(initializer_owner_id),
+                     AuditPreparation ? templateUse(reference, context) : TemplateUse{}};
     if (use_keys_.insert(record.key()).second)
       uses_.push_back(std::move(record));
   }
@@ -757,6 +1060,9 @@ class MutableStateCollector : public MatchFinder::MatchCallback {
   std::vector<UseRecord> uses_;
   std::set<decltype(std::declval<UseRecord>().key())> use_keys_;
   std::map<std::string, std::set<std::string>> definition_conflicts_;
+  std::map<std::string, std::string> inputs_;
+  std::set<std::string> audited_units_;
+  std::set<std::tuple<std::string, std::string, bool>> opaque_;
 };
 
 class InventoryAction : public ASTFrontendAction {
@@ -772,7 +1078,18 @@ class InventoryAction : public ASTFrontendAction {
         declRefExpr(to(varDecl(hasGlobalStorage()).bind("state-variable")))
             .bind("state-reference"),
         &collector_);
+    if (AuditPreparation) {
+      finder_.addMatcher(asmStmt().bind("assembly"), &collector_);
+      finder_.addMatcher(fileScopeAsmDecl().bind("file-assembly"), &collector_);
+      finder_.addMatcher(namedDecl(anyOf(hasAttr(attr::Alias), hasAttr(attr::AsmLabel)))
+                            .bind("alias"), &collector_);
+    }
     return finder_.newASTConsumer();
+  }
+
+  void EndSourceFileAction() override {
+    collector_.collectInputs(getCompilerInstance().getSourceManager(),
+                             getCompilerInstance().getASTContext());
   }
 
  private:

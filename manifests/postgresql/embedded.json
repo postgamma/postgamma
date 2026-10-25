@@ -314,9 +314,9 @@
       "scope": "__file__",
       "probe_kind": "call",
       "probe": "abort",
-      "expected_matches": 2,
+      "expected_matches": 7,
       "classification": "required_for_embedded_kernel",
-      "rationale": "Thread setup failures must propagate through the instance lifecycle rather than aborting the host."
+      "rationale": "Resource allocation and stack-observation failures return to the caller. These sentinels guard invalid synchronization state or failed restoration of the host signal mask; startup failure tests exercise the recoverable paths."
     },
     {
       "id": "runtime.signal.execution-runtime-aborts",
@@ -326,9 +326,9 @@
       "scope": "__file__",
       "probe_kind": "call",
       "probe": "abort",
-      "expected_matches": 21,
+      "expected_matches": 34,
       "classification": "required_for_embedded_kernel",
-      "rationale": "Every defensive scheduler, role-registry, and completion-delivery abort remains explicitly inventoried; executable lifecycle gates must prove that no valid embedded workload can reach these internal-corruption sentinels."
+      "rationale": "Every defensive scheduler, role-registry, and completion-delivery abort remains explicitly inventoried. Four startup-publication sentinels validate the asynchronous thread handle handshake before a child can run or complete. Three optional alarm-owner sentinels cover unexpected registry-lock, wake-delivery and condition-wait failures; notifier allocation and startup failures return to the caller. Executable lifecycle and alarm-race gates must prove that valid embedded workloads do not reach these internal-corruption sentinels."
     },
     {
       "id": "embedded.initdb.unbound-exit-abort",
@@ -647,7 +647,7 @@
       "category": "thread_stack",
       "source_root": "project",
       "source_file": "runtime/src/thread_runtime.c",
-      "scope": "postgamma_thread_create",
+      "scope": "create_thread",
       "probe_kind": "call",
       "probe": "pthread_create",
       "expected_matches": 1,
@@ -659,7 +659,7 @@
       "category": "thread_stack",
       "source_root": "project",
       "source_file": "runtime/src/thread_runtime.c",
-      "scope": "postgamma_thread_create",
+      "scope": "create_thread",
       "probe_kind": "call",
       "probe": "pthread_attr_setstacksize",
       "expected_matches": 1,
@@ -671,7 +671,7 @@
       "category": "thread_stack",
       "source_root": "project",
       "source_file": "runtime/src/thread_runtime.c",
-      "scope": "postgamma_thread_create",
+      "scope": "create_thread",
       "probe_kind": "call",
       "probe": "pthread_attr_setguardsize",
       "expected_matches": 1,

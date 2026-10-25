@@ -130,7 +130,7 @@ def relocation_bridge(
         [
             "\t};",
             "",
-            "\treturn postgamma_backend_state_address_relocated(",
+            "\treturn postgamma_backend_state_address_relocated_cached(",
             f"\t\t{owner_runtime['enum']}, &({owner['name']}), targets,",
             "\t\tsizeof(targets) / sizeof(targets[0]));",
             "}",
@@ -213,7 +213,7 @@ def compile_plan(
         name = candidate["name"]
         if runtime_slot["relocations"]:
             replacement_text = (
-                f"POSTGAMMA_BACKEND_STATE_RELOCATED_VALUE({name}, "
+                f"POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE({runtime_slot['enum']}, {name}, "
                 f"{relocation_bridge_name(identifier)})"
             )
         else:

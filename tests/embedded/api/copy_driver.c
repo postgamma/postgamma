@@ -432,7 +432,13 @@ execute_reuse_probe(pgm_connection *connection, const char *expected)
 		memcmp(value.data, expected, value.size) == 0;
 
 	if (!ok)
+	{
+		fprintf(stderr, "reuse result: present=%d kind=%d rows=%zu columns=%zu\n",
+			result != NULL, result != NULL ? (int) pgm_result_kind(result) : -1,
+			result != NULL ? pgm_result_row_count(result) : 0,
+			result != NULL ? pgm_result_column_count(result) : 0);
 		(void) report_failure("connection reuse probe", status, error);
+	}
 	pgm_error_free(error);
 	pgm_result_free(result);
 	return ok;

@@ -117,7 +117,7 @@ test_role_and_execution_allocation_failures(void)
 		assert(object_is_zero(&role, sizeof(role)));
 	}
 	assert(postgamma_role_context_init(&role, &instance) == 0);
-	for (size_t index = 1; index <= 3; index++)
+	for (size_t index = 1; index <= 4; index++)
 	{
 		memset(&execution, 0xa5, sizeof(execution));
 		arm_failure(ALLOCATION_CALLOC, index);

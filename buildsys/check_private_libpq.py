@@ -136,15 +136,15 @@ def validate_driver_report(document: dict[str, Any], iterations: int) -> dict[st
     if (
         document["status"] != 1
         or document["warmup_status"] != 1
-        or document["warmup_checks"] < 14
+        or document["warmup_checks"] < 20
         or document["iterations"] != iterations
         or document["completed_iterations"] != iterations
-        or document["checks"] < 14
-        or document["total_checks"] < iterations * 14
+        or document["checks"] < 20
+        or document["total_checks"] < iterations * 20
         or document["queue_capacity"] != 64
         or document["startup_packets"] != 1
-        or document["query_packets"] != 5
-        or document["copy_packets"] != 1
+        or document["query_packets"] != 11
+        or document["copy_packets"] != 4
         or document["copy_bytes_before_response"] != 128
         or document["copy_bytes_received"] != 4096
         or document["simultaneous_queue_saturation"] != 1

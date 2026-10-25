@@ -16,15 +16,15 @@ class PrivateLibpqCheckTests(unittest.TestCase):
         return {
             "status": 1,
             "warmup_status": 1,
-            "warmup_checks": 14,
+            "warmup_checks": 20,
             "iterations": iterations,
             "completed_iterations": iterations,
-            "checks": 14,
-            "total_checks": iterations * 14,
+            "checks": 20,
+            "total_checks": iterations * 20,
             "queue_capacity": 64,
             "startup_packets": 1,
-            "query_packets": 5,
-            "copy_packets": 1,
+            "query_packets": 11,
+            "copy_packets": 4,
             "copy_bytes_before_response": 128,
             "copy_bytes_received": 4096,
             "simultaneous_queue_saturation": 1,
@@ -60,6 +60,15 @@ class PrivateLibpqCheckTests(unittest.TestCase):
     def test_rejects_missing_duplex_saturation(self) -> None:
         report = self.driver_report()
         report["simultaneous_queue_saturation"] = 0
+        with self.assertRaisesRegex(
+            check_private_libpq.PrivateLibpqCheckError, "incomplete"
+        ):
+            check_private_libpq.validate_driver_report(report, 25)
+
+    def test_rejects_missing_extended_copy_recovery(self) -> None:
+        report = self.driver_report()
+        report.update(warmup_checks=14, checks=14, total_checks=350,
+                      query_packets=5, copy_packets=1)
         with self.assertRaisesRegex(
             check_private_libpq.PrivateLibpqCheckError, "incomplete"
         ):

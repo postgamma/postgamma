@@ -174,7 +174,8 @@ one command, use:
 
 The script detects apt, dnf/yum, or zypper systems, installs the host packages
 and checksum-pinned test toolchain, initializes both source dependencies, and
-runs `complete-source-check` as the current regular user. It refuses root and
+runs `complete-source-check`, including Doxygen API generation and the strict
+MkDocs website build, as the current regular user. It refuses root and
 never creates an account; only package, swap, and process-limit setup use sudo.
 On hosts with less than 3 GiB of memory it uses one build job. On hosts with less than 4 GiB,
 it ensures that 4 GiB of swap is active and temporarily enables swap use while
@@ -247,7 +248,7 @@ reproducible build products; change the adapters, manifests, transformer, or
 runtime sources instead of editing either directory directly.
 
 The build target compiles the threaded tree but does not run the complete test
-suite. Before submitting threading changes, validate both pristine and
+suite. Before submitting threading changes, validate both reference and
 threaded PostgreSQL, the transformation, sanitizer runtime, and thread
 isolation contracts:
 
@@ -269,7 +270,7 @@ assertion, TAP, and injection-point tests; ICU is disabled by default. The
 pinned PostgreSQL checkout remains at its recorded commit. Reports are written
 to `build/reports/upstream-canary-<sha>-weekly.json`.
 
-The weekly suite includes pristine and threaded `check-world`, runtime
+The weekly suite includes reference and threaded `check-world`, runtime
 sanitizers, and one hour of thread-isolation stress. Use `make upstream-daily`
 for the shorter build and runtime checks. Both commands accept `PG_BRANCH`
 (default `master`), `PG_REPOSITORY`, and `JOBS`; for example:
@@ -381,7 +382,7 @@ PyYAML dependency is used by workflow validation and `make script-test`; it is
 not included in the product. `scripts/full-test.sh` installs it in its managed
 toolchain automatically, and `make doctor-workflow` checks its availability.
 
-This validates pristine and threaded PostgreSQL, exercises the embedded
+This validates reference and threaded PostgreSQL, exercises the embedded
 runtime, compares a versioned SQL corpus with PostgreSQL 19, runs the Python
 integration suite, packages the static SDK and local wheel, builds the
 documentation in strict mode, and writes a hash-bound receipt to `build/dist/`.

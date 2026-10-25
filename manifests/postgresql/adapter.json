@@ -304,6 +304,12 @@
   "generated_support": {
     "copies": [
       {
+        "id": "runtime.server-compile-flags",
+        "source_root": "project",
+        "source": "runtime/server_compile_flags.mk",
+        "target": "src/Makefile.postgamma"
+      },
+      {
         "id": "runtime.guc-header",
         "source_root": "project",
         "source": "runtime/include/postgamma/guc_runtime.h",
@@ -386,6 +392,12 @@
         "source_root": "project",
         "source": "runtime/include/postgamma/backend_execution_runtime.h",
         "target": "src/include/postgamma/backend_execution_runtime.h"
+      },
+      {
+        "id": "runtime.deadline-heap-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/deadline_heap.h",
+        "target": "src/include/postgamma/deadline_heap.h"
       },
       {
         "id": "runtime.instance-header",
@@ -626,6 +638,24 @@
         "source_root": "project",
         "source": "runtime/src/postgres_backend_runtime.c",
         "target": "src/backend/postmaster/postgamma_backend_runtime.c"
+      },
+      {
+        "id": "runtime.memory-block-runtime-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/memory_block_runtime.h",
+        "target": "src/include/postgamma/memory_block_runtime.h"
+      },
+      {
+        "id": "runtime.memory-pool-runtime-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/memory_pool_runtime.h",
+        "target": "src/include/postgamma/memory_pool_runtime.h"
+      },
+      {
+        "id": "runtime.postgres-memory-block-impl-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/postgres_memory_block_impl.h",
+        "target": "src/include/postgamma/postgres_memory_block_impl.h"
       }
     ],
     "edits": [
@@ -634,7 +664,7 @@
         "path": "src/include/c.h",
         "mode": "insert_after",
         "match": "#define C_H",
-        "content": "\n\n/* POSTGAMMA GENERATED BACKEND STATE SUPPORT */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#include \"postgamma/guc_runtime.h\"\n#else\n#define POSTGAMMA_GUC_VALUE(original) (original)\n#define POSTGAMMA_BACKEND_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_BACKEND_STATE_RELOCATED_VALUE(original, bridge) (original)\n#endif\n\n/* POSTGAMMA GENERATED FRONTEND TOOL STATE SUPPORT */\n#ifdef POSTGAMMA_FRONTEND_TOOL\n#include \"postgamma/tool_state_runtime.h\"\n#else\n#define POSTGAMMA_TOOL_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_TOOL_STATE_RELOCATED_VALUE(original, bridge) (original)\n#define POSTGAMMA_TOOL_STATE_RELOCATED_INLINE_VALUE( \\\n\toriginal, slot, targets, target_count) (original)\n#endif\n\n/* Shared source selects its state owner from the active compile domain. */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_BACKEND_STATE_VALUE(POSTGAMMA_BACKEND_STATE_SLOT_##id, original)\n#elif defined(POSTGAMMA_FRONTEND_TOOL)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_TOOL_STATE_VALUE(POSTGAMMA_TOOL_STATE_SLOT_##id, original)\n#else\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) (original)\n#endif",
+        "content": "\n\n/* POSTGAMMA GENERATED BACKEND STATE SUPPORT */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#include \"postgamma/guc_runtime.h\"\n#else\n#define POSTGAMMA_GUC_VALUE(original) (original)\n#define POSTGAMMA_BACKEND_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_BACKEND_STATE_RELOCATED_VALUE(original, bridge) (original)\n#define POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE(slot, original, bridge) (original)\n#endif\n\n/* POSTGAMMA GENERATED FRONTEND TOOL STATE SUPPORT */\n#ifdef POSTGAMMA_FRONTEND_TOOL\n#include \"postgamma/tool_state_runtime.h\"\n#else\n#define POSTGAMMA_TOOL_STATE_VALUE(slot, original) (original)\n#define POSTGAMMA_TOOL_STATE_RELOCATED_VALUE(original, bridge) (original)\n#define POSTGAMMA_TOOL_STATE_RELOCATED_INLINE_VALUE( \\\n\toriginal, slot, targets, target_count) (original)\n#endif\n\n/* Shared source selects its state owner from the active compile domain. */\n#if defined(POSTGAMMA_BACKEND) && !defined(FRONTEND)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_BACKEND_STATE_VALUE(POSTGAMMA_BACKEND_STATE_SLOT_##id, original)\n#elif defined(POSTGAMMA_FRONTEND_TOOL)\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) \\\n\tPOSTGAMMA_TOOL_STATE_VALUE(POSTGAMMA_TOOL_STATE_SLOT_##id, original)\n#else\n#define POSTGAMMA_CONTEXT_STATE_VALUE(id, original) (original)\n#endif",
         "expected_matches": 1,
         "reject_if_present": "/* POSTGAMMA GENERATED BACKEND STATE SUPPORT */"
       },
@@ -661,9 +691,9 @@
         "path": "src/include/miscadmin.h",
         "mode": "replace",
         "match": "#define CHECK_FOR_INTERRUPTS() \\\ndo { \\\n\tif (INTERRUPTS_PENDING_CONDITION()) \\\n\t\tProcessInterrupts(); \\\n} while(0)",
-        "content": "#define CHECK_FOR_INTERRUPTS() \\\ndo { \\\n\tpostgamma_dispatch_pending_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION()) \\\n\t\tProcessInterrupts(); \\\n} while(0)",
+        "content": "#define CHECK_FOR_INTERRUPTS() \\\ndo { \\\n\tpostgamma_check_for_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION()) \\\n\t\tProcessInterrupts(); \\\n} while(0)",
         "expected_matches": 1,
-        "reject_if_present": "postgamma_dispatch_pending_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION())"
+        "reject_if_present": "postgamma_check_for_signals(); \\\n\tif (INTERRUPTS_PENDING_CONDITION())"
       },
       {
         "id": "generated-header.route-lwlock-array-through-role-state",
@@ -706,18 +736,9 @@
         "path": "src/backend/storage/ipc/waiteventset.c",
         "mode": "replace",
         "match": "\t\trc = WaitEventSetWaitBlock(set, cur_timeout,\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);",
-        "content": "\t\trc = WaitEventSetWaitBlock(set,\n\t\t\t\t\t\t\t\t   postgamma_backend_adjust_wait_timeout(cur_timeout),\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);\n\t\trc = postgamma_backend_filter_wake_events(occurred_events, rc);\n\t\tpostgamma_dispatch_pending_signals();",
+        "content": "\t\t{\n\t\t\tbool\t\ttimer_wait_expired;\n\n\t\t\trc = WaitEventSetWaitBlock(set,\n\t\t\t\t\t\t\t\t   postgamma_backend_adjust_wait_timeout(cur_timeout),\n\t\t\t\t\t\t\t\t   occurred_events, nevents - returned_events);\n\t\t\t/* Signal handlers may disarm, rearm, or wait on the timer. */\n\t\t\ttimer_wait_expired = postgamma_backend_timeout_wait_expired(rc);\n\t\t\trc = postgamma_backend_filter_wake_events(occurred_events, rc);\n\t\t\tpostgamma_dispatch_pending_signals();\n\t\t\t/* Retry through the original loop to preserve the caller deadline. */\n\t\t\tif (timer_wait_expired && set->latch != NULL)\n\t\t\t\trc = 0;\n\t\t}",
         "expected_matches": 1,
         "reject_if_present": "postgamma_backend_adjust_wait_timeout(cur_timeout)"
-      },
-      {
-        "id": "wait.retry-after-role-timeout",
-        "path": "src/backend/storage/ipc/waiteventset.c",
-        "mode": "insert_before",
-        "match": "\t\tif (rc == -1)\n\t\t\tbreak;\t\t\t\t/* timeout occurred */",
-        "content": "\t\tif (postgamma_backend_timeout_wait_expired(rc) && set->latch != NULL)\n\t\t\tcontinue;\n\n",
-        "expected_matches": 1,
-        "reject_if_present": "postgamma_backend_timeout_wait_expired(rc)"
       },
       {
         "id": "locale.keep-environment-instance-owned",
@@ -859,7 +880,7 @@
         "path": "src/backend/common.mk",
         "mode": "insert_before",
         "match": "subsysfilename = objfiles.txt",
-        "content": "# POSTGAMMA GENERATED SERVER COMPILATION DOMAIN\noverride CPPFLAGS += -DPOSTGAMMA_BACKEND\n\n",
+        "content": "# POSTGAMMA GENERATED SERVER COMPILATION DOMAIN\noverride CPPFLAGS += -DPOSTGAMMA_BACKEND\nifeq ($(POSTGAMMA_SERVER_LOCAL_EXEC_TLS),1)\noverride CPPFLAGS += -DPOSTGAMMA_SERVER_LOCAL_EXEC_TLS\nendif\nifeq ($(POSTGAMMA_PREPARED_ROLE_STATE),1)\noverride CPPFLAGS += -DPOSTGAMMA_PREPARED_ROLE_STATE\nendif\nifeq ($(POSTGAMMA_DIRECT_ROLE_STATE),1)\noverride CPPFLAGS += -DPOSTGAMMA_DIRECT_ROLE_STATE\nendif\n\ninclude $(top_srcdir)/src/Makefile.postgamma\n\n",
         "expected_matches": 1,
         "reject_if_present": "# POSTGAMMA GENERATED SERVER COMPILATION DOMAIN"
       },
@@ -877,18 +898,18 @@
         "path": "src/common/Makefile",
         "mode": "replace",
         "match": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@",
-        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@",
+        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND $(if $(filter 1,$(POSTGAMMA_SERVER_LOCAL_EXEC_TLS)),-DPOSTGAMMA_SERVER_LOCAL_EXEC_TLS) -c $< -o $@",
         "expected_matches": 1,
-        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@"
+        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND"
       },
       {
         "id": "build.mark-port-server-objects",
         "path": "src/port/Makefile",
         "mode": "replace",
         "match": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@",
-        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@",
+        "content": "%_srv.o: %.c %.o\n\t$(CC) $(CFLAGS) $(subst -DFRONTEND,, $(CPPFLAGS)) -DPOSTGAMMA_BACKEND $(if $(filter 1,$(POSTGAMMA_SERVER_LOCAL_EXEC_TLS)),-DPOSTGAMMA_SERVER_LOCAL_EXEC_TLS) -c $< -o $@",
         "expected_matches": 1,
-        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND -c $< -o $@"
+        "reject_if_present": "$(CPPFLAGS)) -DPOSTGAMMA_BACKEND"
       },
       {
         "id": "build.link-private-runtime",
@@ -916,6 +937,42 @@
         "content": "\nLIBS += -pthread",
         "expected_matches": 1,
         "reject_if_present": "LIBS += -pthread"
+      },
+      {
+        "id": "memory.aset-private-backing",
+        "path": "src/backend/utils/mmgr/aset.c",
+        "mode": "insert_after",
+        "match": "#include \"utils/memutils_memorychunk.h\"",
+        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
+      },
+      {
+        "id": "memory.generation-private-backing",
+        "path": "src/backend/utils/mmgr/generation.c",
+        "mode": "insert_after",
+        "match": "#include \"utils/memutils_memorychunk.h\"",
+        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
+      },
+      {
+        "id": "memory.slab-private-backing",
+        "path": "src/backend/utils/mmgr/slab.c",
+        "mode": "insert_after",
+        "match": "#include \"utils/memutils_memorychunk.h\"",
+        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
+      },
+      {
+        "id": "memory.bump-private-backing",
+        "path": "src/backend/utils/mmgr/bump.c",
+        "mode": "insert_after",
+        "match": "#include \"utils/memutils_memorychunk.h\"",
+        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
+        "expected_matches": 1,
+        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
       }
     ]
   },

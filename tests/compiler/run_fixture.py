@@ -11,6 +11,8 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 
+from state_preparation_fixture import check as check_state_preparation
+
 
 def run(arguments: list[str], *, cwd: Path, expected: int = 0) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
@@ -62,6 +64,7 @@ def main() -> int:
     if build.exists():
         shutil.rmtree(build)
     build.mkdir(parents=True)
+    check_state_preparation(run, state_tool, fixtures, build)
 
     scan_path = build / "scan.json"
     plan_one = build / "plan-one.json"

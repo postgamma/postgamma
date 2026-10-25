@@ -94,7 +94,11 @@ class BackendQuantumPlanTests(unittest.TestCase):
         source = (
             PROJECT_ROOT / "runtime/src/postgres_backend_runtime.c"
         ).read_text(encoding="utf-8")
-        self.assertIn("pq_buffer_remaining_data() > 0", source)
+        prepare_yield = source.split("postgamma_quantum_prepare_yield(", 1)[1]
+        prepare_yield = prepare_yield.split(
+            "postgamma_postgres_quantum_yield_ready(", 1
+        )[0]
+        self.assertIn("pq_buffer_remaining_data() > 0", prepare_yield)
 
     def test_advisory_lock_accessor_uses_role_local_state(self) -> None:
         edit = next(

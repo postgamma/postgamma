@@ -184,6 +184,18 @@ def filesystem_trace_command(
     ]
 
 
+def filesystem_trace_events(trace: str, exit_status: int) -> list[str]:
+    """Keep all records except expected exits that older strace emits with -qq."""
+    expected_exit = re.compile(
+        rf"(?:\d+\s+|\[pid\s+\d+\]\s+)?\+\+\+ exited with {exit_status} \+\+\+"
+    )
+    return [
+        line
+        for line in trace.splitlines()
+        if line.strip() and not expected_exit.fullmatch(line.strip())
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--make", default="make")
@@ -358,14 +370,20 @@ def main() -> int:
             )
             file_host_safety = audit_trace(file_trace_text, file_driver)
             stream_host_safety = audit_trace(stream_trace_text, stream_driver)
-            if filesystem_trace_text.strip() or STREAM_SENTINEL in stream_trace_text:
+            filesystem_events = filesystem_trace_events(filesystem_trace_text, 0)
+            filesystem_control_events = filesystem_trace_events(
+                filesystem_control_trace_text,
+                filesystem_control_completed.returncode,
+            )
+            if filesystem_events or STREAM_SENTINEL in stream_trace_text:
                 raise LogicalManagementCheckError(
                     "the in-memory archive sentinel reached the filesystem"
                 )
             if (
                 filesystem_control_completed.returncode not in {0, 1}
-                or not filesystem_control_trace_text.strip()
-                or STREAM_SENTINEL not in filesystem_control_trace_text
+                or not any(
+                    STREAM_SENTINEL in event for event in filesystem_control_events
+                )
             ):
                 raise LogicalManagementCheckError(
                     "the filesystem sentinel trace positive control did not fire"
@@ -374,9 +392,7 @@ def main() -> int:
             stream_capacity = int(stream_marker["channel_capacity"])
             dump_calls = int(stream_marker["dump_calls"])
             restore_calls = int(stream_marker["restore_calls"])
-            sentinel_control_events = len(
-                filesystem_control_trace_text.splitlines()
-            )
+            sentinel_control_events = len(filesystem_control_events)
 
         write_text(args.file_stdout.resolve(), file_completed.stdout)
         write_text(args.file_stderr.resolve(), file_completed.stderr)
@@ -407,9 +423,7 @@ def main() -> int:
                 "dump_callback_calls": dump_calls,
                 "restore_callback_calls": restore_calls,
                 "host_diagnostic_leak_count": 0,
-                "stream_sentinel_filesystem_opens": len(
-                    filesystem_trace_text.splitlines()
-                ),
+                "stream_sentinel_filesystem_opens": len(filesystem_events),
                 "sentinel_positive_control_events": sentinel_control_events,
             },
             "inputs": input_identity(

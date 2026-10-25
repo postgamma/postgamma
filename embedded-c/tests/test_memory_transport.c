@@ -11,7 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 
 
 #define TEST_GENERATION UINT64_C(41)
@@ -103,6 +105,39 @@ join_before(pthread_t thread, int seconds)
 }
 
 
+static void
+wait_for_thread_exit(long thread_id)
+{
+	char path[64];
+	struct timespec delay = {0, PROCESS_BASELINE_SAMPLE_NS};
+	int64_t deadline = deadline_after(PROCESS_BASELINE_TIMEOUT_NS);
+	int length = snprintf(path, sizeof(path), "/proc/self/task/%ld", thread_id);
+
+	assert(thread_id > 0 && length > 0 && (size_t) length < sizeof(path));
+	for (;;)
+	{
+		int64_t now;
+
+		if (access(path, F_OK) != 0)
+		{
+			if (errno == ENOENT)
+				return;
+			fprintf(stderr, "cannot inspect warm-up thread %ld: %s\n",
+					thread_id, strerror(errno));
+			abort();
+		}
+		assert(postgamma_memory_clock_now(&now) == POSTGAMMA_MEMORY_STATUS_OK);
+		if (now >= deadline)
+		{
+			fprintf(stderr, "warm-up thread %ld did not exit before baseline\n",
+					thread_id);
+			abort();
+		}
+		assert(nanosleep(&delay, NULL) == 0);
+	}
+}
+
+
 static int
 count_directory(const char *path)
 {
@@ -148,7 +183,17 @@ wait_for_process_baseline(int baseline_descriptors, int baseline_threads,
 			stable_samples = 0;
 		assert(postgamma_memory_clock_now(&now) ==
 			   POSTGAMMA_MEMORY_STATUS_OK);
-		assert(now < deadline);
+		if (now >= deadline)
+		{
+			fprintf(stderr,
+					"process resources did not return to baseline: "
+					"expected descriptors=%d threads=%d; "
+					"observed descriptors=%d threads=%d; stable samples=%d/%d\n",
+					baseline_descriptors, baseline_threads,
+					*final_descriptors, *final_threads,
+					stable_samples, PROCESS_BASELINE_STABLE_SAMPLES);
+			abort();
+		}
 		assert(nanosleep(&delay, NULL) == 0);
 	}
 }
@@ -866,7 +911,9 @@ write_report(const char *path,
 static void *
 warm_thread_runtime(void *argument)
 {
-	(void) argument;
+	long *thread_id = argument;
+
+	*thread_id = syscall(SYS_gettid);
 	return NULL;
 }
 
@@ -884,10 +931,14 @@ main(int argc, char **argv)
 	int			final_descriptors;
 	int			final_threads;
 	pthread_t	warm_thread;
+	long		warm_thread_id = 0;
 
 	assert(argc == 1 || (argc == 3 && strcmp(argv[1], "--report") == 0));
-	assert(pthread_create(&warm_thread, NULL, warm_thread_runtime, NULL) == 0);
+	assert(pthread_create(&warm_thread, NULL, warm_thread_runtime,
+						  &warm_thread_id) == 0);
 	join_before(warm_thread, 2);
+	/* Joining can precede procfs removal; sanitizer helper threads may remain. */
+	wait_for_thread_exit(warm_thread_id);
 	postgamma_memory_global_telemetry(&baseline);
 	baseline_descriptors = count_directory("/proc/self/fd");
 	baseline_threads = count_directory("/proc/self/task");

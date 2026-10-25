@@ -34,12 +34,6 @@
 #endif
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#define POSTGAMMA_UNLIKELY(condition) __builtin_expect(!!(condition), 0)
-#else
-#define POSTGAMMA_UNLIKELY(condition) (condition)
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -94,6 +88,7 @@ typedef struct PostgammaExecutionContext
 	void	   *postgres_guc_control;
 	void	   *postgres_backend_state;
 	void	   *postgres_extension_state;
+	void	  **backend_state_addresses;
 	uint64_t	connection_id;
 	PostgammaExecutionExitHandler exit_handler;
 	void	   *exit_handler_argument;
@@ -124,6 +119,11 @@ struct PostgammaPathRuntime *postgamma_instance_context_path_runtime(
 	const PostgammaInstanceContext *context);
 int postgamma_role_context_init(PostgammaRoleContext *context,
 								PostgammaInstanceContext *instance);
+#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
+struct PostgammaMemoryPool;
+int postgamma_role_context_init_in_pool(PostgammaRoleContext *context,
+	PostgammaInstanceContext *instance, struct PostgammaMemoryPool *pool);
+#endif
 void postgamma_role_context_destroy(PostgammaRoleContext *context);
 int postgamma_execution_context_init(PostgammaExecutionContext *context,
 								 PostgammaInstanceContext *instance,

@@ -18,6 +18,9 @@ readonly GIT_URL="https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}
 readonly IPC_RUN_VERSION=0.94
 readonly IPC_RUN_SHA256=2eb336c91a2b7ea61f98e5b2282d91020d39a484f16041e2365ffd30f8a5605b
 readonly IPC_RUN_URL="https://cpan.metacpan.org/authors/id/T/TO/TODDR/IPC-Run-${IPC_RUN_VERSION}.tar.gz"
+readonly RUNTIME_PYTHON_VERSION=3.11.16
+readonly RUNTIME_PYTHON_SHA256=91bcdebfdde239a003ae93738a7fce0f9230fee5c4bc2b86f6e6e8c6f98aabe8
+readonly RUNTIME_PYTHON_URL="https://www.python.org/ftp/python/${RUNTIME_PYTHON_VERSION}/Python-${RUNTIME_PYTHON_VERSION}.tar.xz"
 readonly TOOLCHAIN_LOCK_RELATIVE=buildsys/toolchains/full-test-linux-64.lock
 readonly REQUIRED_NOFILE=1048576
 
@@ -30,9 +33,12 @@ for argument in "$@"; do
 	--prepare-only)
 		mode=prepare
 		;;
+	--artifacts-only)
+		mode=artifacts
+		;;
 	-h | --help)
 		cat <<'EOF'
-Usage: ./scripts/full-test.sh [--plan | --prepare-only]
+Usage: ./scripts/full-test.sh [--plan | --prepare-only | --artifacts-only]
 
 Provision a supported x86-64 Linux host and run complete-source-check as the
 current unprivileged user.  --plan prints the detected installation plan
@@ -40,13 +46,18 @@ without changing the host.  --prepare-only installs and verifies the
 environment but does not start the test. Privileged package, swap, and
 process-limit commands use sudo without changing the identity that runs builds
 and tests.
+--artifacts-only tests an exported SDK and wheel without rebuilding the kernel.
 
 Useful environment overrides:
   POSTGAMMA_JOBS             nested build concurrency (default: memory-aware)
   POSTGAMMA_WORK_ROOT        managed source/build directory
   POSTGAMMA_STATE_ROOT       reusable user-owned toolchain directory
   POSTGAMMA_TOOLCHAIN        checksum-pinned toolchain prefix
-  POSTGAMMA_GIT_PREFIX       locally built Git prefix
+  POSTGAMMA_GIT_PREFIX       fallback Git prefix (system Git 2.28+ is reused)
+  POSTGAMMA_TEST_ARTIFACTS    exported artifact directory for --artifacts-only
+  POSTGAMMA_RUNTIME_PYTHON   existing Python with the wheel ABI and host libraries
+  POSTGAMMA_PYTHON_SOURCE_URL
+                             optional mirror of the pinned Python source archive
   POSTGAMMA_REPOSITORY       main repository used outside a checkout
   POSTGAMMA_REPOSITORY_FALLBACK
                              optional fallback main repository
@@ -157,22 +168,22 @@ esac
 
 apt_packages=(
 	bash bison build-essential ca-certificates coreutils curl diffutils file
-	findutils flex git libcurl4-openssl-dev libreadline-dev patch perl pkg-config
+	findutils flex git libreadline-dev patch perl pkg-config
 	strace tar util-linux xz-utils zlib1g-dev
 )
 rpm_legacy_packages=(
 	bash bison ca-certificates coreutils curl diffutils file findutils flex gcc
-	gcc-c++ git libcurl-devel make patch perl pkgconfig readline-devel strace tar
+	gcc-c++ git make patch perl pkgconfig readline-devel strace tar
 	util-linux which xz zlib-devel
 )
 rpm_packages=(
 	bash bison ca-certificates coreutils curl diffutils file findutils flex gcc
-	gcc-c++ git libcurl-devel make patch perl pkgconf-pkg-config readline-devel
+	gcc-c++ git make patch perl pkgconf-pkg-config readline-devel
 	strace tar util-linux which xz zlib-devel
 )
 zypper_packages=(
 	bash bison ca-certificates coreutils curl diffutils file findutils flex gcc
-	gcc-c++ git libcurl-devel make patch perl pkgconf-pkg-config readline-devel
+	gcc-c++ git make patch perl pkgconf-pkg-config readline-devel
 	strace tar util-linux which xz zlib-devel
 )
 
@@ -190,6 +201,14 @@ rpm)
 zypper) packages=("${zypper_packages[@]}") ;;
 esac
 
+documentation_repository=
+if [[ "$mode" != artifacts ]]; then
+	packages+=(doxygen)
+	case "$os_id:${os_version%%.*}" in
+	rocky:9) documentation_repository=crb ;;
+	esac
+fi
+
 ((EUID != 0)) || fail "do not run as root; switch to a regular user and run ./$SCRIPT_NAME"
 
 test_user=$(id -un)
@@ -201,6 +220,7 @@ else
 	default_work_root=$(pwd -P)/build/full-test
 fi
 work_root=${POSTGAMMA_WORK_ROOT:-$default_work_root}
+test_artifacts=${POSTGAMMA_TEST_ARTIFACTS:-$work_root/artifacts}
 state_root=${POSTGAMMA_STATE_ROOT:-$work_root/state}
 if [[ -n "$checkout_root" ]]; then
 	source_dir=$checkout_root
@@ -221,9 +241,19 @@ swap_mode=${POSTGAMMA_CREATE_SWAP:-auto}
 swap_swappiness=${POSTGAMMA_SWAP_SWAPPINESS:-60}
 session_timeout=${SESSION_EXECUTOR_TIMEOUT_SECONDS:-3600}
 session_request_timeout=${SESSION_EXECUTOR_REQUEST_TIMEOUT_SECONDS:-300}
+events_timeout=${RUNTIME_EVENTS_TIMEOUT_SECONDS:-1200}
+events_request_timeout=${RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS:-300}
 logical_management_timeout=${LOGICAL_MANAGEMENT_TIMEOUT_SECONDS:-1800}
 
 require_safe_absolute_path POSTGAMMA_WORK_ROOT "$work_root"
+require_safe_absolute_path POSTGAMMA_TEST_ARTIFACTS "$test_artifacts"
+if [[ "$mode" == artifacts ]]; then
+	case "$test_artifacts/" in
+	"$work_root/build/"* | "$work_root/run/"* | "$work_root/source/"* | "$work_root/input/"*)
+		fail "POSTGAMMA_TEST_ARTIFACTS must be outside directories recreated by full-test" ;;
+	esac
+	[[ -f "$test_artifacts/manifest.json" ]] || fail "artifact directory omits manifest.json: $test_artifacts"
+fi
 require_safe_absolute_path POSTGAMMA_STATE_ROOT "$state_root"
 require_safe_absolute_path POSTGAMMA_TOOLCHAIN "$toolchain"
 require_safe_absolute_path POSTGAMMA_GIT_PREFIX "$git_prefix"
@@ -248,6 +278,8 @@ fi
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "POSTGAMMA_JOBS must be a positive integer"
 [[ "$session_timeout" =~ ^[1-9][0-9]*$ ]] || fail "SESSION_EXECUTOR_TIMEOUT_SECONDS must be a positive integer"
 [[ "$session_request_timeout" =~ ^[1-9][0-9]*$ ]] || fail "SESSION_EXECUTOR_REQUEST_TIMEOUT_SECONDS must be a positive integer"
+[[ "$events_timeout" =~ ^[1-9][0-9]*$ ]] || fail "RUNTIME_EVENTS_TIMEOUT_SECONDS must be a positive integer"
+[[ "$events_request_timeout" =~ ^[1-9][0-9]*$ ]] || fail "RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS must be a positive integer"
 [[ "$logical_management_timeout" =~ ^[1-9][0-9]*$ ]] || fail "LOGICAL_MANAGEMENT_TIMEOUT_SECONDS must be a positive integer"
 case "$swap_mode" in
 auto | yes | no) ;;
@@ -262,11 +294,19 @@ if [[ "$mode" == plan ]]; then
 	printf 'package_family=%s\n' "$package_family"
 	printf 'package_manager=%s\n' "$package_manager"
 	printf 'packages=%s\n' "${packages[*]}"
+	printf 'documentation_repository=%s\n' "${documentation_repository:-enabled}"
+	printf 'package_policy=install-missing-preserve-installed\n'
+	printf 'product_dependencies=system\n'
+	printf 'build_tools=isolated\n'
+	printf 'runtime_python=%s\n' "${POSTGAMMA_RUNTIME_PYTHON:-system-matching-ABI-or-local-build}"
+	printf 'runtime_python_fallback=%s/runtime-python\n' "$state_root"
+	printf 'artifact_output=%s\n' "$work_root/artifacts"
 	printf 'execution_user=%s\n' "$test_user"
 	printf 'work_root=%s\n' "$work_root"
 	printf 'state_root=%s\n' "$state_root"
 	printf 'toolchain=%s\n' "$toolchain"
 	printf 'workflow_requirements=buildsys/requirements.txt\n'
+	printf 'documentation_requirements=docs/requirements.txt\n'
 	printf 'git_prefix=%s\n' "$git_prefix"
 	printf 'perl_modules=%s\n' "$perl_modules"
 	printf 'jobs=%s\n' "$jobs"
@@ -274,6 +314,8 @@ if [[ "$mode" == plan ]]; then
 	printf 'swap_swappiness=%s\n' "$swap_swappiness"
 	printf 'session_executor_timeout_seconds=%s\n' "$session_timeout"
 	printf 'session_executor_request_timeout_seconds=%s\n' "$session_request_timeout"
+	printf 'runtime_events_timeout_seconds=%s\n' "$events_timeout"
+	printf 'runtime_events_request_timeout_seconds=%s\n' "$events_request_timeout"
 	printf 'logical_management_timeout_seconds=%s\n' "$logical_management_timeout"
 	if [[ -n "$checkout_root" ]]; then
 		printf 'source=current-checkout\n'
@@ -316,25 +358,90 @@ run_privileged()
 	"$sudo_command" -n -- "$@"
 }
 
+snapshot_packages()
+{
+	case "$package_family" in
+	apt)
+		dpkg-query -W -f='${db:Status-Status}\t${binary:Package}\t${Version}\n' |
+			awk -F '\t' '$1 == "installed" { print $2 "\t" $3 }' | sort
+		;;
+	*) rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort ;;
+	esac
+}
+
 install_packages()
 {
+	local package name version installed_names
+	local directory
+	local -a missing=()
+	mkdir -p "$work_root/run/packages"
+	directory=$(mktemp -d "$work_root/run/packages/transaction.XXXXXX")
+	snapshot_packages >"$directory/before.tsv"
 	if [[ ${POSTGAMMA_SKIP_PACKAGES:-0} == 1 ]]; then
 		log "skipping operating-system packages by request"
 		return
 	fi
-	log "installing ${package_family} dependencies with ${package_manager}"
+	for package in "${packages[@]}"; do
+		if ! awk -F '\t' -v name="$package" '
+			{ sub(/:[^:]+$/, "", $1); if ($1 == name) found = 1 }
+			END { exit !found }' "$directory/before.tsv"; then
+			missing+=("$package")
+		fi
+	done
+	if [[ -z ${missing[*]-} ]]; then
+		log "reusing installed operating-system dependencies"
+		return
+	fi
+	log "installing missing dependencies without replacing installed packages: ${missing[*]}"
 	case "$package_family" in
 	apt)
 		run_privileged env DEBIAN_FRONTEND=noninteractive apt-get update
-		run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+		# --no-upgrade alone does not protect dependencies pulled in by a new
+		# package. Pin every installed version for this transaction only.
+		while IFS=$'\t' read -r name version; do
+			printf 'Package: %s\nPin: version %s\nPin-Priority: 1001\n\n' "$name" "$version"
+			printf 'Package: %s\nPin: version *\nPin-Priority: -1\n\n' "$name"
+		done <"$directory/before.tsv" >"$directory/preferences"
+		if ! run_privileged env DEBIAN_FRONTEND=noninteractive apt-get \
+			-o "Dir::Etc::preferences=$directory/preferences" \
+			--no-remove --no-install-recommends install -y "${missing[@]}"; then
+			fail "cannot install prerequisites while preserving installed packages; see $directory/before.tsv; provide matching development packages or a matching distribution repository"
+		fi
 		;;
 	rpm)
-		run_privileged "$package_manager" install -y "${packages[@]}"
+		installed_names=$(cut -f1 "$directory/before.tsv" | sort -u | paste -sd, -)
+		local -a install_options=(
+			--exclude="$installed_names" --setopt="protected_packages=$installed_names"
+			--setopt=obsoletes=0
+		)
+		# Rocky 9 ships Doxygen in its configured, normally disabled CRB repo.
+		# Enable it only for this missing-package transaction, not persistently.
+		if [[ -n "$documentation_repository" && " ${missing[*]} " == *" doxygen "* ]]; then
+			install_options=("--enablerepo=$documentation_repository" "${install_options[@]}")
+		fi
+		if ! run_privileged "$package_manager" "${install_options[@]}" install -y "${missing[@]}"; then
+			fail "cannot install prerequisites while preserving installed packages; see $directory/before.tsv; provide matching development packages or a matching distribution repository"
+		fi
 		;;
 	zypper)
-		run_privileged zypper --non-interactive install -y "${packages[@]}"
+		# A private lock file protects installed solvables without leaving
+		# persistent locks in the user's package manager configuration.
+		cp /etc/zypp/zypp.conf "$directory/zypp.conf"
+		if [[ -f /etc/zypp/locks ]]; then cp /etc/zypp/locks "$directory/locks"; fi
+		while IFS=$'\t' read -r name version; do
+			printf '\ntype: package\nmatch_type: exact\nsolvable_name: %s\n\n' "$name"
+		done <"$directory/before.tsv" >>"$directory/locks"
+		printf '\n[main]\nlocksfile.path = %s\nlocksfile.apply = true\n' "$directory/locks" >>"$directory/zypp.conf"
+		if ! run_privileged env "ZYPP_CONF=$directory/zypp.conf" \
+			zypper --non-interactive install --no-recommends -y "${missing[@]}"; then
+			fail "cannot install prerequisites while preserving installed packages; see $directory/before.tsv"
+		fi
 		;;
 	esac
+	snapshot_packages >"$directory/after.tsv"
+	if [[ -n $(comm -23 "$directory/before.tsv" "$directory/after.tsv") ]]; then
+		fail "installed packages changed during provisioning; inspect $directory/before.tsv and $directory/after.tsv"
+	fi
 }
 
 download_file()
@@ -463,6 +570,7 @@ reset_managed_directory()
 	fi
 	printf 'managed by %s\n' "$SCRIPT_NAME" >"$marker"
 	mkdir -p "$work_root/input" "$work_root/run"
+	rm -f -- "$work_root/artifact-check.json"
 }
 
 stage_local_repository()
@@ -591,11 +699,97 @@ install_toolchain()
 	fi
 }
 
-install_workflow_dependencies()
+runtime_python_works()
 {
-	log "installing workflow validation dependencies in the managed toolchain"
+	env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT -u PYTHONPATH -u PYTHONHOME \
+		"$1" -I -c '
+import asyncio, pip, sys, zlib
+from pathlib import Path
+if f"{sys.version_info.major}.{sys.version_info.minor}" != sys.argv[1]:
+    raise SystemExit("runtime Python does not match the wheel ABI")
+prefix = Path(sys.argv[2]).resolve()
+for line in Path("/proc/self/maps").read_text().splitlines():
+    fields = line.split(maxsplit=5)
+    if len(fields) == 6 and fields[5].startswith("/"):
+        if Path(fields[5]).resolve().is_relative_to(prefix):
+            raise SystemExit("runtime Python loads a managed toolchain library")
+' "$2" "$toolchain"
+}
+
+install_runtime_python()
+{
+	local abi candidate
+	local prefix=$state_root/runtime-python
+	local source=$tools_root/runtime-python-${RUNTIME_PYTHON_VERSION}
+	local archive=$tools_root/Python-${RUNTIME_PYTHON_VERSION}.tar.xz
+	local marker=$prefix/.postgamma-runtime-python
+	abi=$("$toolchain/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+	if [[ -n ${POSTGAMMA_RUNTIME_PYTHON:-} ]]; then
+		runtime_python=$(command -v "$POSTGAMMA_RUNTIME_PYTHON") || fail "runtime Python not found: $POSTGAMMA_RUNTIME_PYTHON"
+		runtime_python_works "$runtime_python" "$abi" || fail "runtime Python needs ABI $abi, pip, and host libraries"
+		return
+	fi
+	for candidate in "/usr/bin/python$abi" /usr/bin/python3; do
+		if [[ -x "$candidate" ]] && runtime_python_works "$candidate" "$abi" >/dev/null 2>&1; then
+			runtime_python=$candidate
+			log "reusing system runtime Python $runtime_python"
+			return
+		fi
+	done
+	runtime_python=$prefix/bin/python$abi
+	if [[ -f "$marker" && $(cat "$marker") == "$RUNTIME_PYTHON_SHA256" ]] &&
+		runtime_python_works "$runtime_python" "$abi" >/dev/null 2>&1; then
+		log "reusing locally built runtime Python $runtime_python"
+		return
+	fi
+	[[ "$abi" == "${RUNTIME_PYTHON_VERSION%.*}" ]] || fail "update the pinned runtime Python to match toolchain ABI $abi"
+	if [[ -e "$prefix" ]]; then
+		[[ -f "$prefix/.postgamma-managed" ]] || fail "refusing to replace unmarked runtime Python: $prefix"
+		rm -rf -- "$prefix"
+	fi
+	mkdir -p "$prefix" "$tools_root"
+	printf 'managed by %s\n' "$SCRIPT_NAME" >"$prefix/.postgamma-managed"
+	rm -f "$marker"
+	if [[ ! -f "$archive" ]] || ! printf '%s  %s\n' "$RUNTIME_PYTHON_SHA256" "$archive" | sha256sum --check --status; then
+		download_file "$archive.download" "${POSTGAMMA_PYTHON_SOURCE_URL:-$RUNTIME_PYTHON_URL}" "Python $RUNTIME_PYTHON_VERSION"
+		printf '%s  %s\n' "$RUNTIME_PYTHON_SHA256" "$archive.download" | sha256sum --check --status || fail "Python checksum mismatch"
+		mv -f "$archive.download" "$archive"
+	fi
+	if [[ -d "$source" ]]; then
+		[[ -f "$source/.postgamma-managed" ]] || fail "refusing to replace unmarked Python source: $source"
+		rm -rf -- "$source"
+	fi
+	mkdir -p "$source"
+	printf 'managed by %s\n' "$SCRIPT_NAME" >"$source/.postgamma-managed"
+	tar -xJf "$archive" --strip-components=1 --directory "$source"
+	log "building runtime Python $RUNTIME_PYTHON_VERSION against host libraries"
+	(
+		unset LD_LIBRARY_PATH LD_PRELOAD LD_AUDIT PYTHONPATH PYTHONHOME
+		unset LIBRARY_PATH CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH CPPFLAGS LDFLAGS
+		unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR CONFIG_SITE
+		export PATH=/usr/bin:/bin
+		export CC=$system_bridge/bin/postgamma-cc CFLAGS=-O2
+		cd "$source"
+		./configure --prefix="$prefix" --disable-test-modules --with-ensurepip=install
+		# CPython's install recipe otherwise uses every CPU for compileall.
+		sed -i 's/-j0 -d /-j1 -d /g' Makefile
+		"$toolchain/bin/make" -j"$jobs"
+		"$toolchain/bin/make" -j1 altinstall
+	)
+	runtime_python_works "$runtime_python" "$abi" || fail "locally built Python does not meet the runtime contract"
+	printf '%s\n' "$RUNTIME_PYTHON_SHA256" >"$marker"
+}
+
+install_validation_dependencies()
+{
+	local -a requirements=(--requirement "$source_dir/buildsys/requirements.txt")
+
+	if [[ "$mode" != artifacts ]]; then
+		requirements+=(--requirement "$source_dir/docs/requirements.txt")
+	fi
+	log "installing validation dependencies in the managed toolchain"
 	"$toolchain/bin/python3" -m pip install --disable-pip-version-check \
-		--requirement "$source_dir/buildsys/requirements.txt"
+		"${requirements[@]}"
 }
 
 install_git()
@@ -606,6 +800,16 @@ install_git()
 	local ownership_marker=${git_prefix}.postgamma-managed
 	local system_cc
 	local -a make_arguments
+	local system_git git_version
+	system_git=$(command -v git)
+	git_version=$("$system_git" --version)
+	if [[ "$git_version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] &&
+		((BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 28))); then
+		git_executable=$system_git
+		log "reusing $git_version ($system_git)"
+		return
+	fi
+	git_executable=$git_prefix/bin/git
 
 	mkdir -p "$tools_root"
 	if [[ -f "$marker" && $(cat "$marker") == "$GIT_VERSION" ]] &&
@@ -614,6 +818,13 @@ install_git()
 		printf 'managed by %s\n' "$SCRIPT_NAME" >"$ownership_marker"
 		return
 	fi
+	# Only old Git needs the source fallback. Its headers must match the
+	# system libcurl; never upgrade the host's HTTPS libraries to build Git.
+	case "$package_family" in
+	apt) packages=(libcurl4-openssl-dev) ;;
+	*) packages=(libcurl-devel) ;;
+	esac
+	install_packages
 	if [[ -e "$git_prefix" ]]; then
 		[[ -f "$ownership_marker" ]] || fail "refusing to replace unmarked Git directory: $git_prefix"
 		rm -rf -- "$git_prefix"
@@ -691,7 +902,7 @@ install_perl_modules()
 
 install_compiler_wrappers()
 {
-	local wrapper=$toolchain/bin/postgamma-clang-driver-no-rpath
+	local wrapper=$toolchain/bin/postgamma-ast-clangxx
 	local system_cc system_cxx system_ld
 	local bridge_marker=$system_bridge/.postgamma-system-cc
 	system_cc=$(command -v cc)
@@ -705,12 +916,16 @@ install_compiler_wrappers()
 	ln -sfn "$system_cc" "$system_bridge/bin/cc"
 	ln -sfn "$system_cxx" "$system_bridge/bin/c++"
 	ln -sfn "$system_ld" "$system_bridge/bin/ld"
+	# The shipped kernel and SDK are C. Their compiler uses host headers and
+	# libraries. C++17 tooling retains its private standard library so old
+	# systems do not need a libstdc++ upgrade to run the build tools.
+	cat >"$system_bridge/bin/postgamma-cc" <<EOF
+#!/bin/sh
+exec $toolchain/bin/clang --no-default-config --sysroot=/ --gcc-toolchain=/usr "\$@"
+EOF
+	chmod 0755 "$system_bridge/bin/postgamma-cc"
 	cat >"$wrapper" <<EOF
 #!/bin/sh
-case "\${0##*/}" in
-*clangxx*) driver=$toolchain/bin/clang++ ;;
-*) driver=$toolchain/bin/clang ;;
-esac
 link=yes
 for argument do
 	case "\$argument" in
@@ -718,18 +933,16 @@ for argument do
 	esac
 done
 if test "\$link" = yes; then
-	exec "\$driver" --no-default-config \\
+	exec $toolchain/bin/clang++ --no-default-config \\
 		--sysroot=$toolchain/x86_64-conda-linux-gnu/sysroot \\
 		-isystem $toolchain/include \\
-		-L$toolchain/lib -Wl,-rpath-link,$toolchain/lib "\$@"
+		-L$toolchain/lib -Wl,-rpath,$toolchain/lib "\$@"
 fi
-exec "\$driver" --no-default-config \\
+exec $toolchain/bin/clang++ --no-default-config \\
 	--sysroot=$toolchain/x86_64-conda-linux-gnu/sysroot \\
 	-isystem $toolchain/include "\$@"
 EOF
 	chmod 0755 "$wrapper"
-	ln -sfn "${wrapper##*/}" "$toolchain/bin/postgamma-clang-no-rpath"
-	ln -sfn "${wrapper##*/}" "$toolchain/bin/postgamma-clangxx-no-rpath"
 }
 
 raise_open_file_limit()
@@ -757,12 +970,21 @@ write_runner()
 	local build_dir=$work_root/build
 	local strace
 	strace=$(command -v strace)
+	# Keep Git and its helpers on their own runtime dependencies, including when
+	# a child build temporarily changes LD_LIBRARY_PATH.
+	mkdir -p "$work_root/run/bin"
+	cat >"$work_root/run/bin/git" <<EOF
+#!/usr/bin/env bash
+unset LD_LIBRARY_PATH
+exec $(printf '%q' "$git_executable") "\$@"
+EOF
+	chmod 0755 "$work_root/run/bin/git"
 	cat >"$runner" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
 runner_mode=\${1:-run}
 case "\$runner_mode" in
-run | preflight) ;;
+run | preflight | artifacts) ;;
 *) printf 'unknown runner mode: %s\\n' "\$runner_mode" >&2; exit 2 ;;
 esac
 unset LANGUAGE LC_ADDRESS LC_COLLATE LC_CTYPE LC_IDENTIFICATION \
@@ -773,16 +995,15 @@ export USER=$(printf '%q' "$test_user")
 export LOGNAME=$(printf '%q' "$test_user")
 export LC_ALL=C
 export LANG=C
-export PATH=$(printf '%q' "$system_bridge/bin:$git_prefix/bin:$toolchain/bin:/usr/local/bin:/usr/bin:/bin")
-export LD_LIBRARY_PATH=$(printf '%q' "$toolchain/lib")
-export LIBRARY_PATH=$(printf '%q' "$toolchain/lib")
-export PKG_CONFIG_PATH=$(printf '%q' "$toolchain/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig")
-export CPPFLAGS=$(printf '%q' "-I$toolchain/include")
-export LDFLAGS=$(printf '%q' "-L$toolchain/lib")
+export PATH=$(printf '%q' "$work_root/run/bin:$system_bridge/bin:$toolchain/bin:/usr/local/bin:/usr/bin:/bin")
+unset LD_LIBRARY_PATH LD_PRELOAD LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_RUN_PATH
+unset LIBRARY_PATH CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH GCC_EXEC_PREFIX COMPILER_PATH
+unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR CPPFLAGS LDFLAGS
+unset PYTHONPATH PYTHONHOME
 export LLVM_CONFIG=$(printf '%q' "$toolchain/bin/llvm-config")
-export CLANGXX=$(printf '%q' "$toolchain/bin/postgamma-clangxx-no-rpath")
-export CC=$(printf '%q' "$toolchain/bin/postgamma-clang-no-rpath")
-export CXX=$(printf '%q' "$toolchain/bin/postgamma-clangxx-no-rpath")
+export CLANGXX=$(printf '%q' "$toolchain/bin/postgamma-ast-clangxx")
+export CC=$(printf '%q' "$system_bridge/bin/postgamma-cc")
+export CXX=$(printf '%q' "$toolchain/bin/postgamma-ast-clangxx")
 export AR=$(printf '%q' "$toolchain/bin/ar")
 export NM=$(printf '%q' "$toolchain/bin/nm")
 export READELF=$(printf '%q' "$toolchain/bin/readelf")
@@ -795,16 +1016,18 @@ export PYTHON=$(printf '%q' "$toolchain/bin/python3")
 export PYTHONNOUSERSITE=1
 unset CONDA_PREFIX CONDA_DEFAULT_ENV MAKEFLAGS
 cd $(printf '%q' "$source_dir")
-"\$MAKE" source-init \\
-	PYTHON="\$PYTHON" \\
-	PG_REPOSITORY=$(printf '%q' "${PG_REPOSITORY:-}") \\
-	PG_REPOSITORY_FALLBACK=$(printf '%q' "${PG_REPOSITORY_FALLBACK:-}") \\
-	PGVECTOR_REPOSITORY=$(printf '%q' "${PGVECTOR_REPOSITORY:-}") \\
-	PGVECTOR_REPOSITORY_FALLBACK=$(printf '%q' "${PGVECTOR_REPOSITORY_FALLBACK:-}")
+if [[ "\$runner_mode" != artifacts ]]; then
+	"\$MAKE" source-init \\
+		PYTHON="\$PYTHON" \\
+		PG_REPOSITORY=$(printf '%q' "${PG_REPOSITORY:-}") \\
+		PG_REPOSITORY_FALLBACK=$(printf '%q' "${PG_REPOSITORY_FALLBACK:-}") \\
+		PGVECTOR_REPOSITORY=$(printf '%q' "${PGVECTOR_REPOSITORY:-}") \\
+		PGVECTOR_REPOSITORY_FALLBACK=$(printf '%q' "${PGVECTOR_REPOSITORY_FALLBACK:-}")
+fi
 unset PG_REPOSITORY PG_REPOSITORY_FALLBACK \\
 	PGVECTOR_REPOSITORY PGVECTOR_REPOSITORY_FALLBACK
 if [[ "\$runner_mode" == preflight ]]; then
-	exec "\$MAKE" -j1 doctor-full-test doctor-python \\
+	exec "\$MAKE" -j1 doctor-full-test doctor-python doctor-docs \\
 		BUILD_DIR=$(printf '%q' "$build_dir") \\
 		JOBS=$(printf '%q' "$jobs") \\
 		PYTHON="\$PYTHON" MAKE="\$MAKE" CC="\$CC" CXX="\$CXX" \\
@@ -812,58 +1035,81 @@ if [[ "\$runner_mode" == preflight ]]; then
 		STRACE="\$STRACE" \\
 		PG_CONFIGURE_ARGS=$(printf '%q' "${POSTGAMMA_PG_CONFIGURE_ARGS:---without-icu}")
 fi
-exec "\$MAKE" -j1 complete-source-check \\
-	BUILD_DIR=$(printf '%q' "$build_dir") \\
-	JOBS=$(printf '%q' "$jobs") \\
-	SESSION_EXECUTOR_TIMEOUT_SECONDS=$(printf '%q' "$session_timeout") \\
-	SESSION_EXECUTOR_REQUEST_TIMEOUT_SECONDS=$(printf '%q' "$session_request_timeout") \\
-	LOGICAL_MANAGEMENT_TIMEOUT_SECONDS=$(printf '%q' "$logical_management_timeout") \\
-	PYTHON="\$PYTHON" MAKE="\$MAKE" CC="\$CC" CXX="\$CXX" \\
-	AR="\$AR" NM="\$NM" READELF="\$READELF" OBJCOPY="\$OBJCOPY" \\
-	STRACE="\$STRACE" \\
-	PG_CONFIGURE_ARGS=$(printf '%q' "${POSTGAMMA_PG_CONFIGURE_ARGS:---without-icu}")
+if [[ "\$runner_mode" == run ]]; then
+	"\$MAKE" -j1 complete-source-check static-sdk-package \\
+		BUILD_DIR=$(printf '%q' "$build_dir") \\
+		JOBS=$(printf '%q' "$jobs") \\
+		SESSION_EXECUTOR_TIMEOUT_SECONDS=$(printf '%q' "$session_timeout") \\
+		SESSION_EXECUTOR_REQUEST_TIMEOUT_SECONDS=$(printf '%q' "$session_request_timeout") \\
+		RUNTIME_EVENTS_TIMEOUT_SECONDS=$(printf '%q' "$events_timeout") \\
+		RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS=$(printf '%q' "$events_request_timeout") \\
+		LOGICAL_MANAGEMENT_TIMEOUT_SECONDS=$(printf '%q' "$logical_management_timeout") \\
+		PYTHON="\$PYTHON" MAKE="\$MAKE" CC="\$CC" CXX="\$CXX" \\
+		AR="\$AR" NM="\$NM" READELF="\$READELF" OBJCOPY="\$OBJCOPY" \\
+		STRACE="\$STRACE" \\
+		PG_CONFIGURE_ARGS=$(printf '%q' "${POSTGAMMA_PG_CONFIGURE_ARGS:---without-icu}")
+	artifact_arguments=(--artifacts $(printf '%q' "$work_root/artifacts") --export-build $(printf '%q' "$build_dir"))
+else
+	artifact_arguments=(--artifacts $(printf '%q' "$test_artifacts"))
+fi
+exec "\$PYTHON" buildsys/check_full_test_artifacts.py \\
+	--root $(printf '%q' "$source_dir") "\${artifact_arguments[@]}" \\
+	--cc "\$CC" --readelf "\$READELF" --python $(printf '%q' "$runtime_python") \\
+	--forbidden-prefix $(printf '%q' "$toolchain") \\
+	--work-root $(printf '%q' "$work_root/run/artifact-check") \\
+	--output $(printf '%q' "$work_root/artifact-check.json")
 EOF
 	chmod 0755 "$runner"
 }
 
+reset_managed_directory
 install_packages
 prepare_swap
-reset_managed_directory
 stage_repository_inputs
 prepare_source
 install_toolchain
-install_workflow_dependencies
+install_validation_dependencies
 install_git
 install_perl_modules
 install_compiler_wrappers
+install_runtime_python
 raise_open_file_limit
 write_runner
 
-log "verifying the provisioned environment as $test_user"
-"$work_root/run/complete-source-check.sh" preflight
+if [[ "$mode" != artifacts ]]; then
+	log "verifying the provisioned environment as $test_user"
+	"$work_root/run/complete-source-check.sh" preflight
+fi
 
 if [[ "$mode" == prepare ]]; then
 	log "environment prepared at $work_root"
 	exit 0
 fi
 
-log "starting complete-source-check with JOBS=$jobs; this can take several hours"
+runner_mode=run
+if [[ "$mode" == artifacts ]]; then
+	runner_mode=artifacts
+	log "testing the existing SDK and wheel from $test_artifacts"
+else
+	log "starting complete-source-check and packaged artifact checks with JOBS=$jobs; this can take several hours"
+fi
 log "build directory: $work_root/build"
 log "log: $work_root/full-test.log"
 set +e
 if command -v ionice >/dev/null 2>&1; then
-	nice -n 10 ionice -c 2 -n 7 "$work_root/run/complete-source-check.sh" \
+	nice -n 10 ionice -c 2 -n 7 "$work_root/run/complete-source-check.sh" "$runner_mode" \
 		2>&1 | tee "$work_root/full-test.log"
 	status=${PIPESTATUS[0]}
 else
-	nice -n 10 "$work_root/run/complete-source-check.sh" \
+	nice -n 10 "$work_root/run/complete-source-check.sh" "$runner_mode" \
 		2>&1 | tee "$work_root/full-test.log"
 	status=${PIPESTATUS[0]}
 fi
 set -e
 if ((status == 0)); then
-	log "complete-source-check passed"
+	if [[ "$runner_mode" == run ]]; then log "complete-source-check passed"; fi
+	log "packaged artifact checks passed"
 else
-	log "complete-source-check failed with exit code $status"
+	log "$runner_mode validation failed with exit code $status"
 fi
 exit "$status"

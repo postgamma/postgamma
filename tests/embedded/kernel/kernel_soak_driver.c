@@ -194,6 +194,15 @@ main(int argument_count, char **arguments)
 		(entrypoints->capabilities & POSTGAMMA_KERNEL_CAP_MEMORY_PROTOCOL) == 0)
 		return fail_cycle("validate kernel entrypoints", 0, seed, EPROTO);
 
+	/* Keep the host resource baseline independent of warmup thread teardown. */
+	status = postgamma_kernel_process_contract_capture(&current);
+	if (status != 0 ||
+		!postgamma_kernel_process_contract_restored(
+			&current, &current, arguments[1], arguments[2], "initial", true))
+		return fail_cycle(
+			"capture initial host contract", 0, seed,
+			status != 0 ? status : EPROTO);
+
 	random_state = seed;
 	prepare_fault_order(&random_state, fault_order);
 	fprintf(stderr,
@@ -234,12 +243,16 @@ main(int argument_count, char **arguments)
 		if (status != 0)
 			return fail_cycle("warm fault lifecycle", 0, seed, status);
 	}
-	status = postgamma_kernel_process_contract_capture(&baseline);
-	if (status != 0 ||
-		!postgamma_kernel_process_contract_restored(
-			&baseline, &baseline, arguments[1], arguments[2], "baseline", true))
-		return fail_cycle(
-			"capture clean baseline", 0, seed, status != 0 ? status : EPROTO);
+	/*
+	 * pthread_join can finish before the exiting task disappears from /proc.
+	 * Wait for the original host resources before recording warmed allocator
+	 * and mapping metrics; a transient extra task must not become the baseline.
+	 */
+	status = postgamma_kernel_process_contract_wait(
+		&current, &baseline, arguments[1], arguments[2], "warmup",
+		deadline_after(TEST_TIMEOUT_NS));
+	if (status != 0)
+		return fail_cycle("warmup quiescence", 0, seed, status);
 	mapping_peak = baseline.host.mappings;
 	virtual_memory_peak_kib = baseline.host.virtual_memory_kib;
 	resident_memory_peak_kib = baseline.host.resident_memory_kib;

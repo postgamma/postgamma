@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -311,7 +312,7 @@ def _record_digest(content: bytes) -> str:
 def _zip_info(name: str, mode: int) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
     info.compress_type = zipfile.ZIP_DEFLATED
-    info.external_attr = (mode & 0xFFFF) << 16
+    info.external_attr = (stat.S_IFREG | (mode & 0o777)) << 16
     info.create_system = 3
     return info
 
