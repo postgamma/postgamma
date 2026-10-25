@@ -18,6 +18,7 @@
 #include "postgres.h"
 
 #include <float.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,6 +29,7 @@
 
 #include "postgamma/instance_runtime.h"
 #include "postgamma/postgres_backend_runtime.h"
+#include "postgamma/memory_block_runtime.h"
 
 
 typedef struct PostgammaGucControlState
@@ -60,6 +62,13 @@ static const PostgammaBuiltinGucDescriptor PostgammaBuiltinGucs[] =
 };
 
 
+/* ConfigureNames and these descriptors are immutable compiled-in metadata. */
+static pthread_once_t PostgammaGucCatalogOnce = PTHREAD_ONCE_INIT;
+static const PostgammaBuiltinGucDescriptor *PostgammaGucsByIndex[lengthof(PostgammaBuiltinGucs)];
+static int PostgammaGucCatalogCount;
+static const char *PostgammaGucCatalogInvalidName;
+
+
 static const PostgammaBuiltinGucDescriptor *
 postgamma_find_descriptor(const char *name)
 {
@@ -79,6 +88,46 @@ postgamma_find_descriptor(const char *name)
 			return &PostgammaBuiltinGucs[middle];
 	}
 	return NULL;
+}
+
+
+static void
+postgamma_initialize_guc_catalog(void)
+{
+	int			index;
+
+	while (ConfigureNames[PostgammaGucCatalogCount].name != NULL)
+		PostgammaGucCatalogCount++;
+	if (PostgammaGucCatalogCount != lengthof(PostgammaBuiltinGucs))
+		return;
+	for (index = 0; index < PostgammaGucCatalogCount; index++)
+	{
+		const PostgammaBuiltinGucDescriptor *descriptor =
+			postgamma_find_descriptor(ConfigureNames[index].name);
+
+		if (descriptor == NULL || descriptor->vartype != ConfigureNames[index].vartype)
+		{
+			PostgammaGucCatalogInvalidName = ConfigureNames[index].name;
+			return;
+		}
+		PostgammaGucsByIndex[index] = descriptor;
+	}
+}
+
+
+static const PostgammaBuiltinGucDescriptor *const *
+postgamma_builtin_guc_catalog(void)
+{
+	/* Never leave pthread_once through PostgreSQL's nonlocal error path. */
+	if (pthread_once(&PostgammaGucCatalogOnce, postgamma_initialize_guc_catalog) != 0)
+		postgamma_runtime_contract_violation();
+	if (PostgammaGucCatalogCount != lengthof(PostgammaBuiltinGucs))
+		elog(FATAL, "PostGamma catalog has %zu built-in GUCs, PostgreSQL compiled %d",
+			 lengthof(PostgammaBuiltinGucs), PostgammaGucCatalogCount);
+	if (PostgammaGucCatalogInvalidName != NULL)
+		elog(FATAL, "PostGamma catalog does not match built-in GUC %s",
+			 PostgammaGucCatalogInvalidName);
+	return PostgammaGucsByIndex;
 }
 
 
@@ -279,17 +328,6 @@ postgamma_guc_is_instance_shared(
 }
 
 
-static int
-postgamma_builtin_guc_count(void)
-{
-	int			count = 0;
-
-	while (ConfigureNames[count].name != NULL)
-		count++;
-	return count;
-}
-
-
 /*
  * PostgreSQL omits PGC_POSTMASTER values from GUC snapshots because a child
  * process inherits both built-in and extension storage from the postmaster.
@@ -322,21 +360,12 @@ postgamma_guc_state_requires_transfer(const struct config_generic *guc)
 void
 postgamma_initialize_builtin_guc_values(void)
 {
-	int			count = postgamma_builtin_guc_count();
+	const PostgammaBuiltinGucDescriptor *const *catalog = postgamma_builtin_guc_catalog();
 	int			index;
 
-	if (count != lengthof(PostgammaBuiltinGucs))
-		elog(FATAL, "PostGamma catalog has %zu built-in GUCs, PostgreSQL compiled %d",
-			 lengthof(PostgammaBuiltinGucs), count);
-	for (index = 0; index < count; index++)
+	for (index = 0; index < lengthof(PostgammaBuiltinGucs); index++)
 	{
-		const PostgammaBuiltinGucDescriptor *descriptor =
-			postgamma_find_descriptor(ConfigureNames[index].name);
-
-		if (descriptor == NULL)
-			elog(FATAL, "PostGamma catalog does not contain built-in GUC %s",
-				 ConfigureNames[index].name);
-		postgamma_copy_guc_value(descriptor, &ConfigureNames[index]);
+		postgamma_copy_guc_value(catalog[index], &ConfigureNames[index]);
 	}
 }
 
@@ -382,25 +411,46 @@ postgamma_server_execution_context_bootstrap(void)
 		postgamma_threaded_server_completion_notify;
 	status = postgamma_instance_runtime_create(&runtime, &options);
 	if (status != 0)
-		elog(FATAL, "could not create PostGamma instance runtime: %s",
-			 strerror(status));
+	{
+		fprintf(stderr, "could not create PostGamma instance runtime: error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
 	status = postgamma_instance_context_init(&PostgammaBootstrapInstanceContext);
 	if (status != 0)
-		elog(FATAL, "could not create PostGamma instance context: %s",
-			 strerror(status));
+	{
+		fprintf(stderr, "could not create PostGamma instance context: error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
 	postgamma_instance_context_attach_runtime(
 		&PostgammaBootstrapInstanceContext, runtime);
 	status = postgamma_role_context_init(&PostgammaBootstrapRoleContext,
 								   &PostgammaBootstrapInstanceContext);
 	if (status != 0)
-		elog(FATAL, "could not create PostGamma role context: %s",
-			 strerror(status));
+	{
+		fprintf(stderr, "could not create PostGamma role context: error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
 	status = postgamma_execution_context_init(&PostgammaBootstrapExecutionContext,
 									 &PostgammaBootstrapInstanceContext,
 									 &PostgammaBootstrapRoleContext);
 	if (status != 0)
-		elog(FATAL, "could not create PostGamma execution context: %s",
-			 strerror(status));
+	{
+		fprintf(stderr, "could not create PostGamma execution context: error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
+	status = postgamma_backend_state_context_prepare(
+		PostgammaBootstrapRoleContext.postgres_backend_state);
+	if (status != 0)
+	{
+		/* elog needs a bound role; preparation failed before that boundary. */
+		postgamma_execution_context_destroy(&PostgammaBootstrapExecutionContext);
+		postgamma_role_context_destroy(&PostgammaBootstrapRoleContext);
+		postgamma_instance_context_detach_runtime(&PostgammaBootstrapInstanceContext, runtime);
+		postgamma_instance_context_destroy(&PostgammaBootstrapInstanceContext);
+		(void) postgamma_instance_runtime_destroy(runtime);
+		fprintf(stderr, "could not prepare PostGamma role state: error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
 	previous = postgamma_execution_context_bind(&PostgammaBootstrapExecutionContext);
 	if (previous != NULL)
 		elog(FATAL, "unexpected previous PostGamma execution context");
@@ -413,6 +463,7 @@ postgamma_bind_builtin_guc_variables(void)
 {
 	PostgammaExecutionContext *execution = postgamma_execution_context_require();
 	PostgammaGucControlState *control = execution->postgres_guc_control;
+	const PostgammaBuiltinGucDescriptor *const *catalog;
 	struct config_generic **configure_names;
 	int			count;
 	int			index;
@@ -429,24 +480,16 @@ postgamma_bind_builtin_guc_variables(void)
 	execution->postgres_guc_control = control;
 	configure_names = postgamma_guc_control_slot_address_internal(
 		control, POSTGAMMA_GUC_CONFIGURE_NAMES_SLOT);
-	count = postgamma_builtin_guc_count();
-	if (count != lengthof(PostgammaBuiltinGucs))
-		elog(FATAL, "PostGamma catalog has %zu built-in GUCs, PostgreSQL compiled %d",
-			 lengthof(PostgammaBuiltinGucs), count);
-	*configure_names = malloc((count + 1) * sizeof(ConfigureNames[0]));
+	catalog = postgamma_builtin_guc_catalog();
+	count = lengthof(PostgammaBuiltinGucs);
+	*configure_names = postgamma_memory_block_malloc((count + 1) * sizeof(ConfigureNames[0]));
 	if (*configure_names == NULL)
 		elog(FATAL, "out of memory cloning PostgreSQL built-in GUC table");
 	memcpy(*configure_names, ConfigureNames,
 		   (count + 1) * sizeof(ConfigureNames[0]));
 	for (index = 0; index < count; index++)
 	{
-		const PostgammaBuiltinGucDescriptor *descriptor =
-			postgamma_find_descriptor(ConfigureNames[index].name);
-
-		if (descriptor == NULL)
-			elog(FATAL, "PostGamma catalog does not contain built-in GUC %s",
-				 ConfigureNames[index].name);
-		postgamma_rebind_guc_value(descriptor, &(*configure_names)[index]);
+		postgamma_rebind_guc_value(catalog[index], &(*configure_names)[index]);
 	}
 }
 
@@ -470,6 +513,7 @@ postgamma_seed_inherited_guc_shadow(PostgammaInstanceContext *shared_instance)
 {
 	PostgammaExecutionContext *execution = postgamma_execution_context_require();
 	PostgammaGucControlState *control = execution->postgres_guc_control;
+	const PostgammaBuiltinGucDescriptor *const *catalog;
 	struct config_generic **configure_names;
 	int			count;
 	int			index;
@@ -482,10 +526,8 @@ postgamma_seed_inherited_guc_shadow(PostgammaInstanceContext *shared_instance)
 		control, POSTGAMMA_GUC_CONFIGURE_NAMES_SLOT);
 	if (*configure_names == NULL)
 		postgamma_runtime_contract_violation();
-	count = postgamma_builtin_guc_count();
-	if (count != lengthof(PostgammaBuiltinGucs))
-		elog(FATAL, "PostGamma catalog has %zu built-in GUCs, PostgreSQL compiled %d",
-			 lengthof(PostgammaBuiltinGucs), count);
+	catalog = postgamma_builtin_guc_catalog();
+	count = lengthof(PostgammaBuiltinGucs);
 	for (index = 0; index < count; index++)
 	{
 		char		value_buffer[64];
@@ -494,12 +536,8 @@ postgamma_seed_inherited_guc_shadow(PostgammaInstanceContext *shared_instance)
 		int			set_result;
 		void	   *source;
 		struct config_generic *target = &(*configure_names)[index];
-		const PostgammaBuiltinGucDescriptor *descriptor =
-			postgamma_find_descriptor(target->name);
+		const PostgammaBuiltinGucDescriptor *descriptor = catalog[index];
 
-		if (descriptor == NULL)
-			elog(FATAL, "PostGamma catalog does not contain built-in GUC %s",
-				 target->name);
 		if (!postgamma_guc_is_instance_shared(descriptor) ||
 			target->context != PGC_INTERNAL)
 			continue;
@@ -563,7 +601,7 @@ postgamma_destroy_builtin_guc_variables(PostgammaExecutionContext *execution)
 		return;
 	configure_names = postgamma_guc_control_slot_address_internal(
 		control, POSTGAMMA_GUC_CONFIGURE_NAMES_SLOT);
-	free(*configure_names);
+	postgamma_memory_block_free(*configure_names);
 	*configure_names = NULL;
 	free(control);
 	execution->postgres_guc_control = NULL;

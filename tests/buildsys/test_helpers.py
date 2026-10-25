@@ -889,6 +889,31 @@ class BackendStatePolicyTests(unittest.TestCase):
         self.assertIn("POSTGAMMA_BACKEND_STATE_OWNER_ROLE", descriptors)
         self.assertIn("internal:fixture.c:fixture.c::pointer", descriptors)
 
+    def test_external_relocations_use_the_same_initializer_as_source_accesses(self) -> None:
+        slot = generate_backend_state_runtime.Slot(
+            identifier="external:list_head", name="list_head", canonical_type="List",
+            owner="role", enum_name="POSTGAMMA_BACKEND_STATE_SLOT_LIST", index=0,
+            local_index=0, offset=0, size=16, alignment=8, copy_template=True,
+            relocations=["external:list_head"],
+        )
+        layout = generate_backend_state_runtime.emit_layout_header(
+            [slot], {"role": 16, "instance": 0, "session": 0},
+            {"role": 1, "instance": 0, "session": 0},
+        )
+        bridge = generate_backend_state_runtime.relocation_bridge_name(slot.identifier)
+        self.assertIn(f"void *{bridge}(void);", layout)
+        self.assertIn(
+            f"POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE({slot.enum_name}, list_head, {bridge})",
+            layout,
+        )
+        entry = {"id": slot.identifier, "name": slot.name, "enum": slot.enum_name,
+                 "relocations": slot.relocations}
+        generated_bridge = generate_backend_state_plan.relocation_bridge(
+            entry, entry, {slot.identifier: entry}
+        )
+        self.assertIn(f"{{{slot.enum_name}, &(list_head)}}", generated_bridge)
+        self.assertIn("return postgamma_backend_state_address_relocated_cached(", generated_bridge)
+
     def test_instance_owner_is_a_generated_runtime_slot(self) -> None:
         catalog = self.catalog()
         policy = self.policy()

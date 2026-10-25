@@ -599,6 +599,70 @@ postgamma_bootstrap_wait_for_close(PostgammaBootstrapProtocolFixture *fixture)
 }
 
 
+static int
+postgamma_bootstrap_extended_copy(
+	PostgammaBootstrapProtocolFixture *fixture, unsigned int scenario)
+{
+	const char *messages = "PBDES";
+	PostgammaBootstrapWireBuffer empty = {{0}, 0};
+	unsigned char payload[256];
+	unsigned char type;
+	uint32_t	length;
+
+	for (const char *expected = messages; *expected != '\0'; expected++)
+	{
+		if (postgamma_bootstrap_read_header(fixture, &type, &length) != 0 ||
+			type != (unsigned char) *expected || length > sizeof(payload) ||
+			postgamma_bootstrap_read_exact(fixture, payload, length) != 0)
+			return -1;
+		if (type == 'E' &&
+			(postgamma_bootstrap_send_message(fixture, '1', &empty) != 0 ||
+			 postgamma_bootstrap_send_message(fixture, '2', &empty) != 0 ||
+			 postgamma_bootstrap_send_message(fixture, 'n', &empty) != 0 ||
+			 postgamma_bootstrap_send_copy_start(fixture) != 0))
+			return -1;
+	}
+	fixture->telemetry.query_packets++;
+	/* Scenario zero cancels before COPY consumes the original Sync. */
+	if (scenario == 0 &&
+		(postgamma_bootstrap_send_diagnostic(
+			fixture, 'E', "ERROR", "57014", "early COPY cancellation", "") != 0 ||
+		 postgamma_bootstrap_send_ready(fixture) != 0))
+		return -1;
+	if (postgamma_bootstrap_read_header(fixture, &type, &length) != 0 ||
+		type != (scenario == 2 ? 'c' : 'f') || length > sizeof(payload) ||
+		postgamma_bootstrap_read_exact(fixture, payload, length) != 0 ||
+		postgamma_bootstrap_read_header(fixture, &type, &length) != 0 ||
+		type != 'S' || length != 0)
+		return -1;
+	if (scenario == 1 && postgamma_bootstrap_send_diagnostic(
+			fixture, 'E', "ERROR", "57014", "late COPY cancellation", "") != 0)
+		return -1;
+	if (scenario == 2)
+	{
+		PostgammaBootstrapWireBuffer command = {{0}, 0};
+
+		if (postgamma_bootstrap_buffer_string(&command, "COPY 0") != 0 ||
+			postgamma_bootstrap_send_message(fixture, 'C', &command) != 0)
+			return -1;
+	}
+	/* The second ReadyForQuery must not leak into the following SELECT. */
+	if (postgamma_bootstrap_send_ready(fixture) != 0 ||
+		postgamma_bootstrap_read_header(fixture, &type, &length) != 0 ||
+		type != 'C' || length != 2 ||
+		postgamma_bootstrap_read_exact(fixture, payload, length) != 0 ||
+		payload[0] != 'P' || payload[1] != '\0' ||
+		postgamma_bootstrap_read_header(fixture, &type, &length) != 0 ||
+		type != 'S' || length != 0 ||
+		postgamma_bootstrap_send_message(fixture, '3', &empty) != 0 ||
+		postgamma_bootstrap_send_ready(fixture) != 0)
+		return -1;
+	fixture->telemetry.copy_packets++;
+	return postgamma_bootstrap_read_query(fixture, "SELECT 1") != 0 ||
+		postgamma_bootstrap_send_result(fixture) != 0 ? -1 : 0;
+}
+
+
 static void *
 postgamma_bootstrap_fixture_main(void *argument)
 {
@@ -618,6 +682,9 @@ postgamma_bootstrap_fixture_main(void *argument)
 		postgamma_bootstrap_read_copy(fixture) != 0 ||
 		postgamma_bootstrap_read_query(fixture, "SELECT 1") != 0 ||
 		postgamma_bootstrap_send_result(fixture) != 0 ||
+		postgamma_bootstrap_extended_copy(fixture, 0) != 0 ||
+		postgamma_bootstrap_extended_copy(fixture, 1) != 0 ||
+		postgamma_bootstrap_extended_copy(fixture, 2) != 0 ||
 		postgamma_bootstrap_wait_for_close(fixture) != 0 ? -1 : 0;
 	if (fixture->status == 0)
 		(void) snprintf(

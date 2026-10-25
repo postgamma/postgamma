@@ -13,11 +13,30 @@
 
 #include "postgamma/guc_runtime.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 
 POSTGAMMA_THREAD_LOCAL PostgammaExecutionContext *PostgammaCurrentExecutionContext = NULL;
+static void *const PostgammaUnboundBackendStateAddresses[
+	POSTGAMMA_BACKEND_STATE_SLOT_COUNT == 0 ? 1 : POSTGAMMA_BACKEND_STATE_SLOT_COUNT];
+POSTGAMMA_THREAD_LOCAL void *const *PostgammaCurrentBackendStateAddresses =
+	PostgammaUnboundBackendStateAddresses;
+
+#ifdef POSTGAMMA_DIRECT_ROLE_STATE
+POSTGAMMA_THREAD_LOCAL unsigned char *PostgammaCurrentPreparedRoleState = NULL;
+
+static void
+postgamma_validate_prepared_view(const PostgammaExecutionContext *context)
+{
+	void *expected = context == NULL ? NULL :
+		postgamma_backend_state_context_ready_data(context->role->postgres_backend_state);
+
+	if (PostgammaCurrentPreparedRoleState != expected || (context != NULL && expected == NULL))
+		postgamma_runtime_contract_violation();
+}
+#endif
 
 
 void
@@ -151,6 +170,15 @@ postgamma_instance_context_path_runtime(const PostgammaInstanceContext *context)
 int
 postgamma_role_context_init(PostgammaRoleContext *context,
 							PostgammaInstanceContext *instance)
+#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
+{
+	return postgamma_role_context_init_in_pool(context, instance, NULL);
+}
+
+int
+postgamma_role_context_init_in_pool(PostgammaRoleContext *context,
+	PostgammaInstanceContext *instance, struct PostgammaMemoryPool *pool)
+#endif
 {
 	void	   *backend_state = NULL;
 	int			status;
@@ -159,8 +187,21 @@ postgamma_role_context_init(PostgammaRoleContext *context,
 		instance->magic != POSTGAMMA_INSTANCE_CONTEXT_MAGIC)
 		postgamma_runtime_contract_violation();
 	memset(context, 0, sizeof(*context));
+#ifdef POSTGAMMA_ROLE_CACHE_BYTES
+#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
+	if (pool != NULL)
+		status = postgamma_backend_state_context_init_in_pool(
+			POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state, pool);
+	else
+#endif
+	status = postgamma_backend_state_role_acquire(instance->postgres_backend_state, &backend_state);
+#elif defined(POSTGAMMA_PRIVATE_MEMORY_BLOCKS)
+	status = postgamma_backend_state_context_init_in_pool(
+		POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state, pool);
+#else
 	status = postgamma_backend_state_context_init(
 		POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state);
+#endif
 	if (status != 0)
 		return status;
 	context->magic = POSTGAMMA_ROLE_CONTEXT_MAGIC;
@@ -190,6 +231,7 @@ postgamma_execution_context_init(PostgammaExecutionContext *context,
 								 PostgammaRoleContext *role)
 {
 	void	   *backend_state = NULL;
+	void	  **addresses;
 	int			status;
 
 	if (context == NULL || instance == NULL || role == NULL ||
@@ -199,14 +241,22 @@ postgamma_execution_context_init(PostgammaExecutionContext *context,
 		postgamma_runtime_contract_violation();
 
 	memset(context, 0, sizeof(*context));
+	addresses = calloc(POSTGAMMA_BACKEND_STATE_SLOT_COUNT == 0 ? 1 :
+					   POSTGAMMA_BACKEND_STATE_SLOT_COUNT, sizeof(*addresses));
+	if (addresses == NULL)
+		return ENOMEM;
 	status = postgamma_backend_state_context_init(
 		POSTGAMMA_BACKEND_STATE_OWNER_SESSION, &backend_state);
 	if (status != 0)
+	{
+		free(addresses);
 		return status;
+	}
 	context->magic = POSTGAMMA_EXECUTION_CONTEXT_MAGIC;
 	context->instance = instance;
 	context->role = role;
 	context->postgres_backend_state = backend_state;
+	context->backend_state_addresses = addresses;
 	return 0;
 }
 
@@ -221,6 +271,7 @@ postgamma_execution_context_destroy(PostgammaExecutionContext *context)
 		context->postgres_extension_state != NULL)
 		postgamma_runtime_contract_violation();
 	postgamma_backend_state_context_destroy(&context->postgres_backend_state);
+	free(context->backend_state_addresses);
 	memset(context, 0, sizeof(*context));
 }
 
@@ -256,9 +307,19 @@ postgamma_execution_context_bind(PostgammaExecutionContext *context)
 		context->instance->magic != POSTGAMMA_INSTANCE_CONTEXT_MAGIC ||
 		context->role == NULL ||
 		context->role->magic != POSTGAMMA_ROLE_CONTEXT_MAGIC ||
-		context->role->instance != context->instance)
+		context->role->instance != context->instance ||
+		context->backend_state_addresses == NULL ||
+		PostgammaCurrentBackendStateAddresses != (previous == NULL ?
+			PostgammaUnboundBackendStateAddresses : previous->backend_state_addresses))
 		postgamma_runtime_contract_violation();
+	postgamma_backend_state_context_before_bind(context->role->postgres_backend_state);
+#ifdef POSTGAMMA_DIRECT_ROLE_STATE
+	postgamma_validate_prepared_view(previous);
+	PostgammaCurrentPreparedRoleState =
+		postgamma_backend_state_context_ready_data(context->role->postgres_backend_state);
+#endif
 	PostgammaCurrentExecutionContext = context;
+	PostgammaCurrentBackendStateAddresses = context->backend_state_addresses;
 	return previous;
 }
 
@@ -267,14 +328,28 @@ void
 postgamma_execution_context_restore(PostgammaExecutionContext *expected_current,
 									PostgammaExecutionContext *previous)
 {
-	if (PostgammaCurrentExecutionContext != expected_current)
+	if (PostgammaCurrentExecutionContext != expected_current ||
+		PostgammaCurrentBackendStateAddresses != (expected_current == NULL ?
+			PostgammaUnboundBackendStateAddresses : expected_current->backend_state_addresses))
 		postgamma_runtime_contract_violation();
 	if (previous != NULL &&
 		(previous->magic != POSTGAMMA_EXECUTION_CONTEXT_MAGIC ||
 		 previous->instance == NULL || previous->role == NULL ||
-		 previous->role->instance != previous->instance))
+		 previous->instance->magic != POSTGAMMA_INSTANCE_CONTEXT_MAGIC ||
+		 previous->role->magic != POSTGAMMA_ROLE_CONTEXT_MAGIC ||
+		 previous->role->instance != previous->instance ||
+		 previous->backend_state_addresses == NULL))
 		postgamma_runtime_contract_violation();
+	if (previous != NULL)
+		postgamma_backend_state_context_before_bind(previous->role->postgres_backend_state);
+#ifdef POSTGAMMA_DIRECT_ROLE_STATE
+	postgamma_validate_prepared_view(expected_current);
+	PostgammaCurrentPreparedRoleState = previous == NULL ? NULL :
+		postgamma_backend_state_context_ready_data(previous->role->postgres_backend_state);
+#endif
 	PostgammaCurrentExecutionContext = previous;
+	PostgammaCurrentBackendStateAddresses = previous == NULL ?
+		PostgammaUnboundBackendStateAddresses : previous->backend_state_addresses;
 }
 
 

@@ -547,6 +547,8 @@ def inspect_tools(
         tools[key] = command
         version = run([*command, *version_arguments], timeout=10.0)
         detail = first_line(version.stdout) if version.returncode == 0 else command[0]
+        if version.returncode != 0:
+            detail += f" (exit {version.returncode}): {concise_failure(version.stdout)}"
         minimum = MINIMUM_TOOL_VERSIONS.get(key)
         actual = numeric_version(version.stdout) if minimum else None
         compatible = (

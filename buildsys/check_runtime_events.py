@@ -70,7 +70,8 @@ def fields(line: str) -> dict[str, str]:
 
 
 def parse_marker(
-    stdout: str, *, expected_connections: int, trace: bool
+    stdout: str, *, expected_connections: int, trace: bool,
+    request_timeout_seconds: int = 30,
 ) -> dict[str, str | int]:
     lines = [line for line in stdout.splitlines() if line.startswith(f"{MARKER} ")]
     if len(lines) != 1:
@@ -82,6 +83,8 @@ def parse_marker(
     expected_trace = "true" if trace else "false"
     if values.get("trace") != expected_trace:
         raise EventsCheckError(f"event marker trace is not {expected_trace}")
+    if values.get("request_timeout_ms") != str(request_timeout_seconds * 1000):
+        raise EventsCheckError("event marker request timeout differs from the budget")
     try:
         connections = int(values.get("connections", ""))
         fd_growth = int(values.get("fd_growth", ""))
@@ -305,10 +308,18 @@ def main() -> int:
     parser.add_argument("--stdout", required=True, type=Path)
     parser.add_argument("--stderr", required=True, type=Path)
     parser.add_argument("--trace", required=True, type=Path)
+    parser.add_argument("--timeout-seconds", type=int, default=300)
+    parser.add_argument("--request-timeout-seconds", type=int, default=30)
     parser.add_argument("--strace", default="strace")
     parser.add_argument("--input", action="append", default=[], type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
+    if args.timeout_seconds <= 0:
+        parser.error("timeout-seconds must be positive")
+    if not 0 < args.request_timeout_seconds <= ((1 << 63) - 1) // 1000:
+        parser.error(
+            "request-timeout-seconds must fit a positive int64 millisecond budget"
+        )
 
     generated = (args.stdout, args.stderr, args.trace, args.output)
     for path in generated:
@@ -354,9 +365,11 @@ def main() -> int:
                 str(prefix / "bin" / "postgres"),
                 str(prefix),
                 "create",
+                str(args.request_timeout_seconds),
             ]
             normal = run_checked(
-                base_command, environment=environment, timeout=300.0, check=False
+                base_command, environment=environment,
+                timeout=args.timeout_seconds, check=False,
             )
             write_text(args.stdout.resolve(), normal.stdout)
             write_text(args.stderr.resolve(), normal.stderr)
@@ -366,7 +379,8 @@ def main() -> int:
                     f"stdout:\n{normal.stdout}\nstderr:\n{normal.stderr}"
                 )
             normal_marker = parse_marker(
-                normal.stdout, expected_connections=NORMAL_CONNECTIONS, trace=False
+                normal.stdout, expected_connections=NORMAL_CONNECTIONS, trace=False,
+                request_timeout_seconds=args.request_timeout_seconds,
             )
             normal_runtime = parse_runtime(
                 normal.stderr, expected_connections=NORMAL_CONNECTIONS
@@ -381,9 +395,7 @@ def main() -> int:
                 "trace=process,signal,network,chdir,fchdir,umask,setitimer",
                 str(driver),
                 str(temporary_path / "trace-data"),
-                str(prefix / "bin" / "postgres"),
-                str(prefix),
-                "create",
+                *base_command[2:],
                 "trace",
             ]
             traced = run_checked(
@@ -395,7 +407,8 @@ def main() -> int:
                     f"stdout:\n{traced.stdout}\nstderr:\n{traced.stderr}"
                 )
             trace_marker = parse_marker(
-                traced.stdout, expected_connections=TRACE_CONNECTIONS, trace=True
+                traced.stdout, expected_connections=TRACE_CONNECTIONS, trace=True,
+                request_timeout_seconds=args.request_timeout_seconds,
             )
             trace_runtime = parse_runtime(
                 traced.stderr, expected_connections=TRACE_CONNECTIONS
@@ -408,6 +421,11 @@ def main() -> int:
             "status": "pass",
             "postgresql_major": 19,
             "library": str(library),
+            "timeouts": {
+                "normal_seconds": args.timeout_seconds,
+                "trace_seconds": 180,
+                "request_seconds": args.request_timeout_seconds,
+            },
             "driver": str(driver),
             "normal": {"marker": normal_marker, "runtime": normal_runtime},
             "trace": {"marker": trace_marker, "runtime": trace_runtime},

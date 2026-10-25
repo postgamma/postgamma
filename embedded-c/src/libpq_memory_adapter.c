@@ -76,6 +76,7 @@ struct PostgammaPrivateLibpqOperation
 	bool		result_policy_active;
 	bool		copy_finish_sent;
 	bool		copy_remote_terminated;
+	bool		copy_sync_pending;
 };
 
 struct PostgammaPrivateLibpqConnection
@@ -121,6 +122,9 @@ static PostgammaPrivateLibpqStatus postgamma_private_operation_start_internal(
 	uint16_t result_format,
 	const PostgammaPrivateResultPolicy *result_policy,
 	PostgammaPrivateLibpqOperation **operation);
+
+static PostgammaPrivateLibpqStatus postgamma_private_copy_sync_bound(
+	PostgammaPrivateLibpqOperation *operation);
 
 
 static bool
@@ -1627,7 +1631,8 @@ postgamma_private_libpq_operation_progress(
 			status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
 			break;
 		}
-		postgamma_private_dispatch_notifications(connection);
+		if (!operation->copy_sync_pending)
+			postgamma_private_dispatch_notifications(connection);
 		flush_status = PQflush(postgres);
 		if (flush_status < 0)
 		{
@@ -1636,6 +1641,15 @@ postgamma_private_libpq_operation_progress(
 		}
 		operation->wait_events = POSTGAMMA_MEMORY_WAIT_READABLE |
 			(flush_status == 1 ? POSTGAMMA_MEMORY_WAIT_WRITABLE : 0);
+		if (operation->copy_sync_pending)
+		{
+			status = postgamma_private_copy_sync_bound(operation);
+			if (status != POSTGAMMA_PRIVATE_LIBPQ_OK ||
+				(operation->copy_sync_pending &&
+				 postgres->asyncStatus == PGASYNC_BUSY))
+				break;
+			postgamma_private_dispatch_notifications(connection);
+		}
 		if (PQisBusy(postgres))
 			break;
 		postgres_result = PQgetResult(postgres);
@@ -1773,6 +1787,60 @@ postgamma_private_libpq_operation_ready(
 
 
 static PostgammaPrivateLibpqStatus
+postgamma_private_copy_sync_bound(PostgammaPrivateLibpqOperation *operation)
+{
+	PGconn	   *postgres = operation->connection->postgres_connection;
+
+	/*
+	 * An early COPY error can leave the query's original Sync unread.  Both
+	 * that Sync and PQputCopyEnd's Sync then produce ReadyForQuery.  Neither
+	 * is the end of our exchange until the following CloseComplete arrives.
+	 * Parse other frames through libpq one at a time so it cannot consume an
+	 * intermediate ReadyForQuery and retire the command queue prematurely.
+	 */
+	while (operation->copy_sync_pending &&
+		   postgres->asyncStatus == PGASYNC_BUSY)
+	{
+		size_t		available = (size_t) (postgres->inEnd - postgres->inStart);
+		uint32_t	wire_length;
+		uint32_t	length;
+		char		type;
+		int			saved_end;
+		int			start = postgres->inStart;
+
+		if (available < 5)
+			break;
+		type = postgres->inBuffer[start];
+		memcpy(&wire_length, postgres->inBuffer + start + 1, sizeof(wire_length));
+		length = pg_ntoh32(wire_length);
+		if (length < 4 || length > INT_MAX - 1)
+			return POSTGAMMA_PRIVATE_LIBPQ_PROTOCOL_ERROR;
+		if (available < (size_t) length + 1)
+			break;
+		if (type == PqMsg_ReadyForQuery || type == PqMsg_CloseComplete)
+		{
+			if ((type == PqMsg_ReadyForQuery && length != 5) ||
+				(type == PqMsg_CloseComplete && length != 4))
+				return POSTGAMMA_PRIVATE_LIBPQ_PROTOCOL_ERROR;
+			pqParseDone(postgres, start + (int) length + 1);
+			if (type == PqMsg_CloseComplete)
+				operation->copy_sync_pending = false;
+			continue;
+		}
+		saved_end = postgres->inEnd;
+		postgres->inEnd = start + (int) length + 1;
+		(void) PQisBusy(postgres);
+		postgres->inEnd = saved_end;
+		if (postgres->status == CONNECTION_BAD)
+			return POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+		if (postgres->inStart == start)
+			break;
+	}
+	return POSTGAMMA_PRIVATE_LIBPQ_OK;
+}
+
+
+static PostgammaPrivateLibpqStatus
 postgamma_private_copy_input_pump_bound(
 	PostgammaPrivateLibpqOperation *operation, int *flush_status,
 	bool allow_remote_termination)
@@ -1782,13 +1850,24 @@ postgamma_private_copy_input_pump_bound(
 
 	if (!PQconsumeInput(postgres))
 		return POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
-	postgamma_private_dispatch_notifications(connection);
+	if (!operation->copy_sync_pending)
+		postgamma_private_dispatch_notifications(connection);
 	if (postgres->inEnd > postgres->inStart &&
 		postgres->inBuffer[postgres->inStart] == PqMsg_ErrorResponse)
 		operation->copy_remote_terminated = true;
 	*flush_status = PQflush(postgres);
 	if (*flush_status < 0)
 		return POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+	if (operation->copy_sync_pending)
+	{
+		PostgammaPrivateLibpqStatus status =
+			postgamma_private_copy_sync_bound(operation);
+
+		if (status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+			return status;
+		if (!operation->copy_sync_pending || postgres->asyncStatus != PGASYNC_BUSY)
+			postgamma_private_dispatch_notifications(connection);
+	}
 	operation->wait_events = POSTGAMMA_MEMORY_WAIT_READABLE |
 		(*flush_status == 1 ? POSTGAMMA_MEMORY_WAIT_WRITABLE : 0);
 	return operation->copy_remote_terminated && !allow_remote_termination ?
@@ -2037,12 +2116,38 @@ postgamma_private_libpq_copy_finish(
 		goto restore;
 	if (!operation->copy_finish_sent)
 	{
+		PGconn	   *postgres = connection->postgres_connection;
+		bool		extended = postgres->cmd_queue_head != NULL &&
+			postgres->cmd_queue_head->queryclass != PGQUERY_SIMPLE;
+
 		if (PQputCopyEnd(connection->postgres_connection, failure_message) != 1)
 		{
 			status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
 			goto restore;
 		}
 		operation->copy_finish_sent = true;
+		if (extended)
+		{
+			/*
+			 * Close the unnamed portal owned by this completed COPY, then
+			 * Sync.  CloseComplete distinguishes its final ReadyForQuery
+			 * from a possible response to the pre-COPY Sync.  No SQL or
+			 * extra blocking round trip is needed.
+			 */
+			if (pqPutMsgStart(PqMsg_Close, postgres) < 0 ||
+				pqPutc('P', postgres) < 0 || pqPuts("", postgres) < 0 ||
+				pqPutMsgEnd(postgres) < 0 ||
+				pqPutMsgStart(PqMsg_Sync, postgres) < 0 ||
+				pqPutMsgEnd(postgres) < 0)
+			{
+				(void) postgamma_memory_endpoint_abort(
+					connection->endpoint, connection->generation,
+					POSTGAMMA_MEMORY_ABORT_PROTOCOL);
+				status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+				goto restore;
+			}
+			operation->copy_sync_pending = true;
+		}
 	}
 	flush_status = PQflush(connection->postgres_connection);
 	if (flush_status < 0)

@@ -127,6 +127,13 @@ typedef struct PostgammaBackendLaunchRequest
 	void	   *main_argument;
 	PostgammaBackendCleanup cleanup_function;
 	void	   *cleanup_argument;
+	/*
+	 * Opt into asynchronous dedicated startup. If stack discovery fails,
+	 * this replaces cleanup_function; main_function is never entered.
+	 * The failure is reported as a FATAL completion, or PANIC if cleanup
+	 * fails. The callback may inspect start_info->stack_status.
+	 */
+	PostgammaBackendCleanup startup_failure_function;
 	int			native_wake_signal;
 	PostgammaBackendCompletionNotify completion_notification;
 	void	   *completion_notification_argument;
@@ -188,6 +195,33 @@ typedef struct PostgammaBackendTelemetry
 
 typedef struct PostgammaBackendRegistry PostgammaBackendRegistry;
 
+/*
+ * Stable, registry-owned storage borrowed by an executing backend. Writers
+ * use atomic operations; the owner may read it until its cleanup returns.
+ * It must never be retained across a yield or completion/join boundary.
+ * Plain scalar declarations keep this private header usable from C and C++.
+ */
+typedef struct PostgammaBackendInterruptState
+{
+	uint64_t	pending_signals;
+	bool		pause_requested;
+	/* Signal publication and pause requests have independent acknowledgement. */
+	unsigned	pending_events;
+} PostgammaBackendInterruptState;
+
+#define POSTGAMMA_BACKEND_EVENT_SIGNAL 1U
+#define POSTGAMMA_BACKEND_EVENT_PAUSE 2U
+
+static inline bool
+postgamma_backend_interrupts_pending(const PostgammaBackendInterruptState *state)
+{
+	return __atomic_load_n(&state->pending_events, __ATOMIC_ACQUIRE) != 0;
+}
+
+/* Only the currently executing registry/id pair may acquire this borrow. */
+const PostgammaBackendInterruptState *postgamma_backend_borrow_interrupts(
+	PostgammaBackendRegistry *registry, PostgammaBackendId id);
+
 int postgamma_backend_registry_create(PostgammaBackendRegistry **registry,
 									  uint32_t capacity);
 int postgamma_backend_registry_create_with_provider(
@@ -238,9 +272,18 @@ int postgamma_backend_set_blocked(PostgammaBackendRegistry *registry,
 							  PostgammaBackendId id, bool blocked);
 int postgamma_backend_set_deadline(PostgammaBackendRegistry *registry,
 							   PostgammaBackendId id, uint64_t deadline_ns);
+#ifdef POSTGAMMA_EVENT_TIMERS
+/* Experimental instance-owned alarm delivery; zero cancels future delivery. */
+int postgamma_backend_set_alarm(PostgammaBackendRegistry *registry,
+	PostgammaBackendId id, uint64_t deadline_ns, uint64_t interval_ns);
+#endif
 int postgamma_backend_take_pending_signals(PostgammaBackendRegistry *registry,
 										 PostgammaBackendId id,
 										 uint64_t *pending);
+
+/* Unknown or unbound executions conservatively require the full poll. */
+bool postgamma_backend_interrupt_poll_required(
+	PostgammaBackendRegistry *registry, PostgammaBackendId id);
 int postgamma_backend_requeue_pending_signals(PostgammaBackendRegistry *registry,
 										PostgammaBackendId id,
 										uint64_t pending);

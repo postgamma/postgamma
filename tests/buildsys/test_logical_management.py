@@ -52,6 +52,62 @@ class LogicalManagementTests(unittest.TestCase):
         self.assertIn("trace=file", filesystem)
         self.assertIn(check_logical_management.STREAM_SENTINEL, filesystem)
 
+    def test_filesystem_trace_accepts_empty_and_normal_exit_records(self) -> None:
+        for trace in (
+            "",
+            " \n\t\n",
+            "30457 +++ exited with 0 +++\n30447 +++ exited with 0 +++\n",
+            "[pid 30457] +++ exited with 0 +++\n+++ exited with 0 +++\n",
+        ):
+            with self.subTest(trace=trace):
+                self.assertEqual(
+                    check_logical_management.filesystem_trace_events(trace, 0), []
+                )
+
+    def test_filesystem_trace_keeps_every_other_record(self) -> None:
+        sentinel = check_logical_management.STREAM_SENTINEL
+        for record in (
+            f'30457 open("{sentinel}", O_RDONLY) = 3',
+            f'30457 openat(AT_FDCWD, "{sentinel}", O_RDONLY) = -1 ENOENT',
+            f'30457 stat("{sentinel}", 0x7ffd20fdeac0) = -1 ENOENT',
+            f'30457 open("{sentinel}", O_RDONLY <unfinished ...>',
+            '30457 <... open resumed>) = -1 ENOENT',
+            '30457 open("+++ exited with 0 +++", O_RDONLY) = 3',
+            "30457 +++ exited with 1 +++",
+            "30457 +++ killed by SIGSEGV +++",
+            "30457 --- SIGTERM {si_signo=SIGTERM} ---",
+            "30457 +++ exited with 0 +++ unexpected text",
+            "unknown trace record",
+        ):
+            with self.subTest(record=record):
+                self.assertEqual(
+                    check_logical_management.filesystem_trace_events(
+                        f"{record}\n30447 +++ exited with 0 +++\n", 0
+                    ),
+                    [record],
+                )
+
+    def test_filesystem_positive_control_counts_access_not_exit(self) -> None:
+        access = (
+            f'30474 stat("{check_logical_management.STREAM_SENTINEL}", '
+            "0x7ffd20fdeac0) = -1 ENOENT (No such file or directory)\n"
+        )
+        for status in (0, 1):
+            with self.subTest(status=status):
+                exit_record = f"30474 +++ exited with {status} +++\n"
+                self.assertEqual(
+                    check_logical_management.filesystem_trace_events(
+                        access + exit_record, status
+                    ),
+                    [access.rstrip("\n")],
+                )
+                self.assertEqual(
+                    check_logical_management.filesystem_trace_events(
+                        exit_record, status
+                    ),
+                    [],
+                )
+
     def test_parses_complete_stream_marker(self) -> None:
         marker = (
             "POSTGAMMA_LOGICAL_STREAM pid=42 archive_bytes=68025 "

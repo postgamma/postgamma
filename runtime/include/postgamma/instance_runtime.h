@@ -81,6 +81,11 @@ int postgamma_instance_runtime_create(
 	PostgammaInstanceRuntime **runtime,
 	const PostgammaInstanceRuntimeOptions *options);
 int postgamma_instance_runtime_destroy(PostgammaInstanceRuntime *runtime);
+#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
+struct PostgammaMemoryPool;
+struct PostgammaMemoryPool *postgamma_instance_runtime_memory_pool(
+	PostgammaInstanceRuntime *runtime);
+#endif
 uint64_t postgamma_instance_runtime_generation(
 	const PostgammaInstanceRuntime *runtime);
 PostgammaRuntimeProfile postgamma_instance_runtime_profile(

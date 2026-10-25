@@ -6,9 +6,11 @@ import argparse
 import csv
 import email.parser
 import hashlib
+import importlib.util
 import io
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -61,6 +63,54 @@ def scenario_marker(
 
 
 class PythonWheelTests(unittest.TestCase):
+    def test_archive_records_regular_file_types_and_executable_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage = root / "stage"
+            executable = stage / "postgamma/_resources/bin/postgres"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o755)
+            module = stage / "postgamma/__init__.py"
+            module.write_text("")
+            module.chmod(0o644)
+            wheel = root / "fixture.whl"
+            build_backend._build_archive(stage, wheel)
+            with zipfile.ZipFile(wheel) as archive:
+                for info in archive.infolist():
+                    with self.subTest(member=info.filename):
+                        self.assertEqual(info.create_system, 3)
+                        self.assertTrue(stat.S_ISREG(info.external_attr >> 16))
+                        expected = 0o755 if info.filename.endswith("/bin/postgres") else 0o644
+                        self.assertEqual(stat.S_IMODE(info.external_attr >> 16), expected)
+                check_python_wheel.validate_record(
+                    archive, {info.filename: info for info in archive.infolist()},
+                )
+
+    @unittest.skipUnless(importlib.util.find_spec("pip"), "requires pip")
+    def test_pip_install_preserves_the_packaged_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage = root / "stage"
+            executable = stage / "postgamma/_resources/bin/postgres"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nprintf 'packaged executable ran\\n'\n")
+            executable.chmod(0o755)
+            (stage / "postgamma/__init__.py").write_text("")
+            build_backend._stage_metadata(stage / build_backend.DIST_INFO)
+            wheel = root / f"postgamma-{build_backend.VERSION}-{build_backend._wheel_tag()}.whl"
+            build_backend._build_archive(stage, wheel)
+            site = root / "installed"
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "--isolated", "--disable-pip-version-check",
+                 "install", "--no-index", "--no-deps", "--no-compile", "--target", str(site), str(wheel)],
+                cwd=root, text=True, capture_output=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            installed = site / executable.relative_to(stage)
+            self.assertTrue(os.access(installed, os.X_OK))
+            self.assertEqual(subprocess.check_output([str(installed)], text=True), "packaged executable ran\n")
+
     def test_failed_child_reports_its_traceback_and_preserves_complete_logs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

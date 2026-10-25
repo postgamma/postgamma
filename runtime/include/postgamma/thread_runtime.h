@@ -37,6 +37,7 @@ typedef struct PostgammaCondition PostgammaCondition;
 typedef struct PostgammaWakeTarget PostgammaWakeTarget;
 
 typedef void *(*PostgammaThreadMain) (void *argument);
+typedef void *(*PostgammaThreadStartFailure) (int status, void *argument);
 
 typedef enum PostgammaThreadRole
 {
@@ -78,6 +79,17 @@ int postgamma_thread_create(PostgammaThread **thread,
 							const PostgammaThreadAttributes *attributes,
 							PostgammaThreadMain main_function,
 							void *argument);
+/*
+ * Return after native creation without waiting for stack discovery. On the
+ * child, run main_function only after successful validation, otherwise run
+ * start_failure. The caller owns and must join either outcome. start_failure
+ * must be non-NULL and must not enter code requiring a validated stack.
+ */
+int postgamma_thread_create_async(PostgammaThread **thread,
+								 const PostgammaThreadAttributes *attributes,
+								 PostgammaThreadMain main_function,
+								 PostgammaThreadStartFailure start_failure,
+								 void *argument);
 int postgamma_thread_join(PostgammaThread *thread, void **result);
 int postgamma_thread_destroy(PostgammaThread *thread);
 bool postgamma_thread_is_current(const PostgammaThread *thread);

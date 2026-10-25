@@ -171,21 +171,36 @@ postgamma_discard_syslogger_startup_data(
 }
 
 int
-postgamma_prepare_syslogger_pipe_state(void)
+postgamma_prepare_syslogger_pipe_state(int *descriptor)
 {
 	int			inherited_descriptor = POSTGAMMA_SYSLOGGER_PIPE_STATE[0];
 	int			prepared_descriptor;
 
-	if (!postgamma_syslogger_descriptor_is_valid(inherited_descriptor))
+	if (descriptor == NULL || !postgamma_syslogger_descriptor_is_valid(inherited_descriptor))
 		return EINVAL;
 	prepared_descriptor =
 		postgamma_syslogger_duplicate_descriptor(inherited_descriptor);
 	if (!postgamma_syslogger_descriptor_is_valid(prepared_descriptor))
 		return errno != 0 ? errno : EIO;
-	POSTGAMMA_SYSLOGGER_PIPE_STATE[0] = prepared_descriptor;
+	*descriptor = prepared_descriptor;
+	return 0;
+}
+
+void
+postgamma_install_syslogger_pipe_state(int descriptor)
+{
+	if (!postgamma_syslogger_descriptor_is_valid(descriptor))
+		postgamma_runtime_contract_violation();
+	POSTGAMMA_SYSLOGGER_PIPE_STATE[0] = descriptor;
 	POSTGAMMA_SYSLOGGER_PIPE_STATE[1] =
 		POSTGAMMA_SYSLOGGER_INVALID_DESCRIPTOR;
-	return 0;
+}
+
+void
+postgamma_discard_syslogger_pipe(int descriptor)
+{
+	if (postgamma_syslogger_descriptor_is_valid(descriptor))
+		postgamma_syslogger_close_descriptor(descriptor);
 }
 
 void

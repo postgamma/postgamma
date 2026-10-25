@@ -41,8 +41,24 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_virtual_signals_and_timers_keep_session_state_off_the_host(self) -> None:
         self.run_make("virtual-signal")
 
+    def test_postgresql_deadlines_cancel_rearm_and_preserve_native_alarms(self) -> None:
+        self.run_make("timeout")
+
+    def test_guc_metadata_is_validated_once_and_published_to_all_carriers(self) -> None:
+        self.run_make("guc-catalog")
+
+    def test_backend_interrupts_poll_without_locking_and_reject_stale_bindings(self) -> None:
+        self.run_make("backend-interrupts")
+
+    def test_backend_startup_releases_the_registry_and_rolls_back_failures(self) -> None:
+        self.run_make("backend-startup")
+
+    def test_memory_pool_bounds_reuse_and_releases_idle_instance_storage(self) -> None:
+        self.run_make("memory-pool")
+
     def test_adapter_checks_execute_with_ndebug(self) -> None:
-        for name in ("session-locale", "external-process", "virtual-signal"):
+        for name in ("session-locale", "external-process", "virtual-signal", "timeout",
+                     "backend-interrupts", "backend-startup", "guc-catalog", "memory-pool"):
             with self.subTest(adapter=name):
                 self.run_make(name, "CFLAGS=-DNDEBUG")
 
@@ -65,6 +81,35 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("check failed: calls == 2", result.stderr)
 
+    def test_contract_header_keeps_c_linkage_for_cpp_consumers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            implementation = work / "contract.c"
+            consumer = work / "consumer.cpp"
+            implementation.write_text(
+                '#include "postgamma/contract_runtime.h"\n#include <stdlib.h>\n'
+                'void postgamma_runtime_contract_violation(void) { abort(); }\n'
+            )
+            consumer.write_text(
+                '#include "postgamma/contract_runtime.h"\n'
+                'int main(int argc, char **) {\n'
+                '    if (argc == 2) postgamma_runtime_contract_violation();\n'
+                '    return 0;\n}\n'
+            )
+            commands = [
+                [*shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-c",
+                 str(implementation), "-o", str(work / "contract.o")],
+                [*shlex.split(os.environ.get("CXX", "c++")), "-std=c++17",
+                 str(consumer), str(work / "contract.o"), "-o", str(work / "consumer")],
+            ]
+            for command in commands:
+                result = subprocess.run(
+                    [*command, "-Wall", "-Wextra", "-Werror", "-Iruntime/include"],
+                    cwd=ROOT, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            subprocess.run([str(work / "consumer")], check=True, timeout=10)
+
     def test_adapters_are_dependencies_of_both_runtime_gates(self) -> None:
         result = subprocess.run(
             [*shlex.split(os.environ.get("MAKE", "make")), "-qp", "runtime-adapter-test"],
@@ -78,7 +123,9 @@ class RuntimeAdapterTests(unittest.TestCase):
                 targets[name] = set(dependencies.split())
         self.assertIn("runtime-adapter-test", targets["runtime-test"])
         self.assertIn("runtime-adapter-sanitizer-test", targets["runtime-sanitizer-test"])
-        for name in ("session-locale", "external-process", "virtual-signal"):
+        for name in ("session-locale", "external-process", "virtual-signal", "timeout",
+                     "backend-interrupts", "backend-startup", "backend-state-cache", "guc-catalog",
+                     "memory-pool"):
             self.assertIn(f"runtime-{name}-test", targets["runtime-adapter-test"])
             self.assertIn(f"runtime-{name}-sanitizer-test",
                           targets["runtime-adapter-sanitizer-test"])

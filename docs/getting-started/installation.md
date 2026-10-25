@@ -21,15 +21,46 @@ owner of every source, build, and test process:
 ```
 
 The provisioner recognizes Debian/Ubuntu, Fedora/RHEL/CentOS/Rocky/AlmaLinux/
-Anolis/Amazon Linux, and openSUSE package families. It installs the appropriate
-host packages and a checksum-pinned Git 2.43, CPython 3.11, GNU Make 4.4.1,
-LLVM/Clang 22, and PostgreSQL TAP test toolchain. It then validates the current
+Anolis/Amazon Linux, and openSUSE package families. It installs missing host
+packages while protecting the versions of packages already installed, including
+transitive dependencies. System Git 2.28 or newer is reused; older Git uses a
+checksum-pinned local fallback. CPython 3.11, GNU Make 4.4.1, LLVM/Clang 22 and
+the PostgreSQL TAP tools are installed under the managed build directory.
+Product compilation uses the host's headers and libraries. AST and C++17 test
+tools use the private toolchain's sysroot and library paths, so old hosts do not
+need a newer system C++ runtime to run the build tools. It validates the current
 checkout's clean, committed source directly, runs the environment preflight,
-and starts `make complete-source-check`. A standalone copy of the script clones
+and starts `make complete-source-check static-sdk-package`, followed by tests
+of the packaged SDK and pip-installed wheel with build-library overrides removed.
+The source gate also generates the C and Python API references and builds the
+documentation website with warnings treated as errors. The provisioner installs
+missing Doxygen packages and the pinned `docs/requirements.txt` dependencies;
+Python documentation tools remain inside the managed toolchain. Documentation
+failures fail the source gate; the provisioner runs this check before native
+kernel validation starts.
+The installed-wheel check uses a Python interpreter with the same ABI as the
+wheel and host runtime libraries. A suitable system interpreter is reused;
+otherwise a checksum-pinned CPython is built under
+`build/full-test/state/runtime-python` and cached, using the existing system
+headers and libraries. `POSTGAMMA_RUNTIME_PYTHON` selects an existing compatible interpreter,
+and `POSTGAMMA_PYTHON_SOURCE_URL` selects a mirror of the pinned source archive.
+The check also compares libraries actually loaded by Python with the host
+loader's resolution, so a toolchain's preloaded zlib cannot stand in for the
+system library.
+A standalone copy of the script clones
 the selected repository because no checkout is available. The script never
 creates an account and refuses to run as root. Package installation, swap
 activation, and a temporary process-limit adjustment are the only commands
 invoked through sudo.
+
+Package version constraints apply only to the provisioning transaction; the
+script does not add persistent package holds. If the configured repositories
+cannot supply missing prerequisites without replacing installed packages,
+provisioning stops. Supply matching development packages or a repository for
+that system version. The package inventories and transaction constraints are
+saved under `build/full-test/run/packages/`.
+On Rocky Linux 9, installing missing Doxygen temporarily enables the configured
+CRB repository for that transaction; the repository configuration stays unchanged.
 
 On a machine with less than 3 GiB of RAM the default is `JOBS=1`. On a machine
 with less than 4 GiB of RAM, the script ensures that at least 4 GiB of swap is
@@ -89,11 +120,41 @@ and defaults to 60.
 the 1,000-session executor gate and defaults to 300 seconds while preserving
 the full workload. `SESSION_EXECUTOR_TIMEOUT_SECONDS` sets the outer timeout;
 the clean-host runner uses 3600 seconds for that gate.
+`RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS` controls the per-operation wait in
+the 1,000-connection events gate. The clean-host runner uses 300 seconds so
+swapped-out connection state can be reclaimed on low-memory hosts;
+`RUNTIME_EVENTS_TIMEOUT_SECONDS` bounds its normal driver to 1200 seconds.
+Direct `make runtime-events-check` retains the 30-second operation and
+300-second normal-driver defaults. The separate 32-connection trace run keeps
+its 180-second outer limit. Connection counts, event assertions, resource
+checks, and the dedicated timeout/cancellation tests are unchanged.
 `LOGICAL_MANAGEMENT_TIMEOUT_SECONDS` controls each traced logical-management
 workload and defaults to 1800 seconds in the clean-host runner for older
 `strace` implementations without seccomp filtering.
 Use `--prepare-only` to stop after source initialization and the complete
 environment preflight.
+
+After a successful full test, `build/full-test/artifacts/` contains the exact
+SDK archive, wheel, wheel receipt, and a manifest binding their hashes to the
+tested source commit. `build/full-test/artifact-check.json` records the host,
+resolved runtime library paths, required glibc symbol versions, and package
+test results. It does not claim compatibility with systems on which the
+artifacts have not been exercised.
+
+To test those same bytes on another system, copy the artifact directory, check
+out the source commit in its manifest, and run:
+
+```bash
+POSTGAMMA_TEST_ARTIFACTS="$PWD/build/transferred-artifacts" \
+  ./scripts/full-test.sh --artifacts-only
+```
+
+This mode provisions the consumer test tools, links the packaged C SDK's
+quickstart and pgvector consumer, and runs the existing installed-wheel unit,
+integration and documentation checks. It does not fetch PostgreSQL or rebuild
+the kernel. It supplements the complete source run; it does not replace it.
+The default managed interpreter tests CPython 3.11. The release workflow's
+other CPython versions remain separate release gates.
 
 ## Source-build prerequisites
 
@@ -270,12 +331,20 @@ out-of-tree build is written to `build/generated-build/`. These directories are
 recreated from the pristine `postgres/` submodule and PostGamma-owned adapters,
 manifests, transformer, and runtime sources; do not edit the generated files.
 
-Run the full pristine-versus-threaded PostgreSQL and isolation gate before
+Run the full reference-versus-threaded PostgreSQL and isolation gate before
 submitting changes to the transformation:
 
 ```bash
 make threaded-postgresql-check JOBS=4
 ```
+
+Both builds keep the pinned source checkout clean. The reference server uses
+the upstream backend unchanged. For upstream versions whose `pg_upgrade` passes
+`SSIZE_MAX` to `copy_file_range`, configure writes a build-local `file.c` with
+requests bounded by `PG_INT32_MAX`. This prevents offset-plus-length overflow
+on older Linux kernels while retaining kernel-side copies, the short-copy loop,
+error handling, and every upstream upgrade test. The same correction applies
+to generated builds; its content hash is recorded in `.postgamma-configure.json`.
 
 ## Python wheel
 

@@ -17,6 +17,7 @@ from reset_directory import is_strict_child
 
 
 STATE_FILENAME = ".postgamma-configure.json"
+PG_UPGRADE_FILE = "src/bin/pg_upgrade/file.c"
 CONFIGURE_ENVIRONMENT = (
     "AR",
     "AWK",
@@ -55,7 +56,7 @@ CONFIGURE_ENVIRONMENT = (
     "LZ4_LIBS",
     "MSGFMT",
     "PATH",
-    # PostgreSQL's untouched upstream build still selects a Perl interpreter.
+    # The PostgreSQL reference build still selects a Perl interpreter.
     "PERL",
     "PKG_CONFIG",
     "PKG_CONFIG_LIBDIR",
@@ -129,6 +130,32 @@ def read_state(path: Path) -> dict[str, object] | None:
     return value if isinstance(value, dict) else None
 
 
+def pg_upgrade_source_overrides(source: Path) -> dict[str, str]:
+    """Bound upgrade copy requests in the build tree, leaving the input clean.
+
+    Linux 4.15 checks offset + length before limiting a copy to the file size.
+    SSIZE_MAX therefore fails after the first successful copy.  PG_INT32_MAX
+    retains large kernel-side transfers and the upstream short-copy/EOF loop.
+    Apply the same utility-only correction to reference and generated builds.
+    """
+    path = source / PG_UPGRADE_FILE
+    if not path.is_file():
+        return {}
+    content = path.read_text(encoding="utf-8")
+    call = "copy_file_range(src_fd, NULL, dest_fd, NULL, SSIZE_MAX, 0)"
+    count = content.count(call)
+    if count == 0 and "SSIZE_MAX" not in content:
+        return {}
+    if count != 2 or content.count("SSIZE_MAX") != count:
+        raise ConfigurationError(
+            f"{path}: pg_upgrade copy_file_range calls changed; "
+            "review the bounded-copy compatibility correction"
+        )
+    return {
+        PG_UPGRADE_FILE: content.replace(call, call.replace("SSIZE_MAX", "PG_INT32_MAX"))
+    }
+
+
 def ensure_configured(
     source: Path,
     build: Path,
@@ -176,8 +203,22 @@ def ensure_configured(
             "configuration input(s) missing: "
             + ", ".join(str(path) for path in missing_inputs)
         )
+    overrides = pg_upgrade_source_overrides(source)
     request = configuration_request(source, arguments, environment, inputs)
-    if (build / "config.status").is_file() and read_state(state_path) == request:
+    request["source_overrides"] = {
+        name: hashlib.sha256(content.encode("utf-8")).hexdigest()
+        for name, content in overrides.items()
+    }
+    if (
+        (build / "config.status").is_file()
+        and read_state(state_path) == request
+        and all(
+            not (build / name).is_symlink()
+            and (build / name).is_file()
+            and sha256(build / name) == digest
+            for name, digest in request["source_overrides"].items()
+        )
+    ):
         print(f"configure: up to date ({build})", flush=True)
         return False
 
@@ -203,6 +244,14 @@ def ensure_configured(
         )
     if not (build / "config.status").is_file():
         raise ConfigurationError("PostgreSQL configure did not create config.status")
+    for name, content in overrides.items():
+        target = build / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Some configure variants create source symlinks in the build tree.
+        if target.is_symlink():
+            target.unlink()
+        target.write_text(content, encoding="utf-8")
+        print(f"configure: bounded pg_upgrade copy_file_range requests ({target})", flush=True)
     state_path.write_text(
         json.dumps(request, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

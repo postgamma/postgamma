@@ -38,6 +38,8 @@ ISOLATION_STRESS_SECONDS ?= 120
 ISOLATION_SOAK_SECONDS ?= 28800
 SESSION_EXECUTOR_TIMEOUT_SECONDS ?= 600
 SESSION_EXECUTOR_REQUEST_TIMEOUT_SECONDS ?= 300
+RUNTIME_EVENTS_TIMEOUT_SECONDS ?= 300
+RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS ?= 30
 LOGICAL_MANAGEMENT_TIMEOUT_SECONDS ?= 300
 UPGRADE_ADAPTER ?= $(POSTGRES_ADAPTER)
 POSTGRES_CANDIDATE_PROBE ?= 0
@@ -949,6 +951,7 @@ BACKEND_STATE_MOBILITY ?= $(ROOT)/manifests/ownership/backend-state-mobility.jso
 SESSION_MOBILITY_REPORT := $(BUILD_DIR)/reports/session-mobility.json
 BACKEND_STATE_PLAN := $(BUILD_DIR)/plans/backend-state.json
 BACKEND_STATE_GENERATED_PLAN := $(BUILD_DIR)/plans/backend-state-generated.json
+BACKEND_STATE_PREPARATION_PLAN := $(BUILD_DIR)/plans/backend-state-preparation.json
 BACKEND_QUANTUM_MANIFEST := \
 	$(ROOT)/manifests/postgresql/backend-quantum.json
 BACKEND_QUANTUM_PLAN := $(BUILD_DIR)/plans/backend-quantum.json
@@ -986,7 +989,7 @@ BACKEND_INHERITANCE_POLICY ?= $(ROOT)/manifests/execution/backend-inheritance.js
 BACKEND_INHERITANCE_ALIGNMENT := $(BUILD_DIR)/reports/backend-inheritance.json
 BACKEND_INHERITANCE_FACTS := $(GUC_RUNTIME_DIR)/include/postgamma/backend_inheritance.inc
 POSTGAMMA_RUNTIME_INPUTS := $(sort $(wildcard \
-	runtime/include/postgamma/*.h runtime/src/*.c))
+	runtime/include/postgamma/*.h runtime/src/*.c runtime/*.mk))
 DOCS_BUILD_DIR := $(BUILD_DIR)/docs
 DOCS_GENERATED_DIR := $(DOCS_BUILD_DIR)/generated
 DOCS_DOXYGEN_DIR := $(DOCS_BUILD_DIR)/doxygen
@@ -1120,7 +1123,7 @@ help:
 	@echo "  doctor-docs                    validate documentation dependencies"
 	@echo "  doctor-workflow                validate workflow checker dependencies"
 	@echo "  threaded-postgresql-build      generate and compile threaded PostgreSQL"
-	@echo "  threaded-postgresql-check      validate pristine and threaded PostgreSQL"
+	@echo "  threaded-postgresql-check      validate reference and threaded PostgreSQL"
 	@echo "  upstream-daily                 fetch PG_BRANCH and run the daily upstream canary"
 	@echo "  upstream-weekly                fetch PG_BRANCH and run the full weekly canary"
 	@echo "  embedded-runtime-fast-check    run the fast in-process runtime gates"
@@ -1167,9 +1170,9 @@ help-internal:
 	@echo "  guc-catalog           derive all built-in GUC facts from PostgreSQL"
 	@echo "  guc-policy-check      require exact code/ownership policy alignment"
 	@echo "  guc-runtime           generate typed state for every built-in GUC"
-	@echo "  reference-build       build pristine PostgreSQL out of tree"
-	@echo "  reference-check       run pristine PostgreSQL make check"
-	@echo "  reference-check-world run pristine PostgreSQL make check-world"
+	@echo "  reference-build       build reference PostgreSQL out of tree"
+	@echo "  reference-check       run reference PostgreSQL make check"
+	@echo "  reference-check-world run reference PostgreSQL make check-world"
 	@echo "  capture-compile-db    rebuild PostgreSQL while recording compiler calls"
 	@echo "  server-compile-db     select the exact PostgreSQL server compile domain"
 	@echo "  frontend-tool-compile-db select the exact frontend/tool compile domain"
@@ -1181,6 +1184,7 @@ help-internal:
 	@echo "  backend-state-policy-check require one reviewed owner for every backend object"
 	@echo "  session-mobility-check classify every backend object and carrier-only binding"
 	@echo "  backend-state-runtime generate opaque aligned role/session state slots"
+	@echo "  backend-state-preparation-plan audit candidates without enabling direct access"
 	@echo "  backend-execution-catalog derive every PostgreSQL backend execution type"
 	@echo "  backend-execution-policy-check require reviewed threaded runtime handling for every type"
 	@echo "  backend-inheritance-policy-check validate every inherited backend state"
@@ -1197,7 +1201,7 @@ help-internal:
 	@echo "  thread-isolation-soak run the long-duration seeded isolation workload"
 	@echo "  generation-determinism generate twice and compare all output bytes"
 	@echo "  upgrade-audit         compare the pinned PostgreSQL with PG_REF in an isolated worktree"
-	@echo "  upstream-canary       build fixed-SHA pristine and threaded trees for PG_REF"
+	@echo "  upstream-canary       build fixed-SHA reference and threaded trees for PG_REF"
 	@echo "  embedded-c-check      build and test the private embedded C boundary"
 	@echo "  embedded-c-sanitizer-check test the embedded boundary under ASan, UBSan, and TSan"
 	@echo "  embedded-bootstrap-doctor    validate and aggregate the embedded bootstrap evidence contract"
@@ -4214,6 +4218,8 @@ $(EMBEDDED_API_EVENTS_EVIDENCE) \
 		--runtime-source "$(ROOT)/runtime/src/postgres_backend_runtime.c" \
 		--quantum-manifest "$(BACKEND_QUANTUM_MANIFEST)" \
 		--work-root "$(EMBEDDED_API_RUN_ROOT)" \
+		--timeout-seconds "$(RUNTIME_EVENTS_TIMEOUT_SECONDS)" \
+		--request-timeout-seconds "$(RUNTIME_EVENTS_REQUEST_TIMEOUT_SECONDS)" \
 		--stdout "$(EMBEDDED_API_EVENTS_STDOUT)" \
 		--stderr "$(EMBEDDED_API_EVENTS_STDERR)" \
 		--trace "$(EMBEDDED_API_EVENTS_TRACE)" \
@@ -4606,6 +4612,20 @@ $(BACKEND_STATE_RUNTIME_STAMP): $(BACKEND_STATE_CATALOG) \
 
 backend-state-runtime: $(BACKEND_STATE_RUNTIME_STAMP)
 
+.PHONY: backend-state-preparation-plan
+backend-state-preparation-plan: $(BACKEND_STATE_PREPARATION_PLAN)
+
+$(BACKEND_STATE_PREPARATION_PLAN): $(BACKEND_STATE_CATALOG) $(BACKEND_STATE_OWNERSHIP) \
+		$(BACKEND_STATE_RULES) $(GUC_INVENTORY) $(BACKEND_STATE_PLAN) \
+		$(BACKEND_STATE_GENERATED_PLAN) buildsys/plan_backend_state_preparation.py \
+		buildsys/generate_backend_state_runtime.py buildsys/generate_backend_state_plan.py \
+		buildsys/check_backend_state_policy.py buildsys/state_policy.py
+	@$(PYTHON) buildsys/plan_backend_state_preparation.py \
+		--catalog "$(BACKEND_STATE_CATALOG)" --policy "$(BACKEND_STATE_OWNERSHIP)" \
+		--guc-inventory "$(GUC_INVENTORY)" --review-rules "$(BACKEND_STATE_RULES)" \
+		--source-plan "$(BACKEND_STATE_PLAN)" --generated-plan "$(BACKEND_STATE_GENERATED_PLAN)" \
+		--source-root "$(PG_SOURCE)" --generated-root "$(REFERENCE_BUILD)" --output "$@"
+
 ast-scan-full: compiler $(COMPILE_DATABASE) $(GUC_TRANSFORM_MANIFEST)
 	@mkdir -p "$(BUILD_DIR)/inventory"
 	@"$(POSTGAMMA_CC)" \
@@ -4881,10 +4901,149 @@ runtime-$(1)-sanitizer-test:
 endef
 
 $(eval $(call runtime_adapter_test,session-locale,session_locale,runtime/src/session_locale.c))
+$(eval $(call runtime_adapter_test,syslogger-transfer,syslogger_transfer,))
 $(eval $(call runtime_adapter_test,external-process,external_process,\
 	runtime/src/external_process.c runtime/src/instance_runtime.c \
 	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c))
 $(eval $(call runtime_adapter_test,virtual-signal,virtual_signal,runtime/src/virtual_signal.c))
+$(eval $(call runtime_adapter_test,deadline-heap,deadline_heap,))
+$(eval $(call runtime_adapter_test,backend-wake-epoch,backend_wake_epoch,\
+	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c))
+.PHONY: runtime-backend-wake-epoch-tsan-test
+runtime-sanitizer-test: runtime-backend-wake-epoch-tsan-test
+runtime-backend-wake-epoch-tsan-test:
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" tests/runtime/test_backend_wake_epoch.c \
+		runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-wake-epoch-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-wake-epoch-tsan"
+$(eval $(call runtime_adapter_test,memory-blocks,memory_blocks,-DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS))
+$(eval $(call runtime_adapter_test,memory-pool,memory_pool,-DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS))
+.PHONY: runtime-memory-pool-tsan-test
+runtime-sanitizer-test: runtime-memory-pool-tsan-test
+runtime-memory-pool-tsan-test:
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" -DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS \
+		tests/runtime/test_memory_pool.c -o "$(BUILD_DIR)/tests/sanitizers/runtime-memory-pool-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-memory-pool-tsan"
+$(eval $(call runtime_adapter_test,guc-catalog,guc_catalog,-I"$(BUILD_DIR)/tests"))
+runtime-guc-catalog-test runtime-guc-catalog-sanitizer-test: $(BUILD_DIR)/tests/guc_catalog.inc
+$(BUILD_DIR)/tests/guc_catalog.inc: tests/runtime/generate_guc_catalog_fixture.py \
+		runtime/src/postgres_guc_runtime.c
+	@$(PYTHON) tests/runtime/generate_guc_catalog_fixture.py "$@"
+.PHONY: runtime-guc-catalog-tsan-test
+runtime-sanitizer-test: runtime-guc-catalog-tsan-test
+runtime-guc-catalog-tsan-test: $(BUILD_DIR)/tests/guc_catalog.inc
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(BUILD_DIR)/tests" tests/runtime/test_guc_catalog.c \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-guc-catalog-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-guc-catalog-tsan"
+$(eval $(call runtime_adapter_test,timeout,timeout,runtime/src/virtual_signal.c -I"$(BUILD_DIR)/tests"))
+runtime-timeout-test runtime-timeout-sanitizer-test: $(BUILD_DIR)/tests/timeout_module.inc
+$(BUILD_DIR)/tests/timeout_module.inc: tests/runtime/generate_timeout_fixture.py \
+		manifests/postgresql/adapter.json runtime/src/postgres_backend_runtime.c \
+		$(PG_SOURCE)/src/backend/utils/misc/timeout.c $(PG_SOURCE)/src/include/utils/timeout.h
+	@$(PYTHON) tests/runtime/generate_timeout_fixture.py "$@" "$(PG_SOURCE)"
+$(eval $(call runtime_adapter_test,backend-interrupts,backend_interrupts,\
+	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c \
+	-Xlinker --wrap=postgamma_mutex_lock))
+.PHONY: runtime-backend-interrupts-tsan-test
+runtime-sanitizer-test: runtime-backend-interrupts-tsan-test
+runtime-backend-interrupts-tsan-test:
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" tests/runtime/test_backend_interrupts.c \
+		runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c \
+		-Xlinker --wrap=postgamma_mutex_lock \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-interrupts-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-interrupts-tsan"
+$(eval $(call runtime_adapter_test,backend-alarms,backend_alarms,\
+	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c \
+	-DPOSTGAMMA_EVENT_TIMERS -Xlinker --wrap=postgamma_mutex_lock \
+	-Xlinker --wrap=postgamma_thread_create -Xlinker --wrap=postgamma_condition_signal))
+.PHONY: runtime-backend-alarms-tsan-test
+runtime-sanitizer-test: runtime-backend-alarms-tsan-test
+runtime-backend-alarms-tsan-test:
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-DPOSTGAMMA_EVENT_TIMERS -I"$(ROOT)/runtime/include" \
+		tests/runtime/test_backend_alarms.c runtime/src/backend_execution_runtime.c \
+		runtime/src/thread_runtime.c -Xlinker --wrap=postgamma_mutex_lock \
+		-Xlinker --wrap=postgamma_thread_create -Xlinker --wrap=postgamma_condition_signal \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-alarms-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-alarms-tsan"
+$(eval $(call runtime_adapter_test,backend-startup,backend_startup,\
+	runtime/src/backend_execution_runtime.c tests/runtime/backend_startup_thread_runtime.c \
+	-Xlinker --wrap=postgamma_condition_wait))
+.PHONY: runtime-backend-startup-tsan-test
+runtime-sanitizer-test: runtime-backend-startup-tsan-test
+runtime-backend-startup-tsan-test:
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" tests/runtime/test_backend_startup.c \
+		runtime/src/backend_execution_runtime.c tests/runtime/backend_startup_thread_runtime.c \
+		-Xlinker --wrap=postgamma_condition_wait \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-startup-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-startup-tsan"
+$(eval $(call runtime_adapter_test,backend-state-cache,backend_state_cache,\
+	runtime/src/thread_runtime.c runtime/src/execution_context.c \
+	$(BACKEND_STATE_RUNTIME_SOURCE) -I"$(GUC_RUNTIME_DIR)/include" \
+	-Xlinker --wrap=postgamma_backend_state_address_relocated))
+$(eval $(call runtime_adapter_test,backend-state-preparation,backend_state_preparation,\
+	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
+	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
+	-DPOSTGAMMA_PREPARED_ROLE_STATE -Xlinker --wrap=malloc -Xlinker --wrap=calloc))
+runtime-backend-state-preparation-test runtime-backend-state-preparation-sanitizer-test: $(GUC_RUNTIME_STAMP)
+$(eval $(call runtime_adapter_test,backend-state-direct,backend_state_preparation,\
+	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
+	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
+	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE \
+	-Xlinker --wrap=malloc -Xlinker --wrap=calloc))
+runtime-backend-state-direct-test runtime-backend-state-direct-sanitizer-test: $(GUC_RUNTIME_STAMP)
+$(eval $(call runtime_adapter_test,backend-state-pool,backend_state_preparation,\
+	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
+	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
+	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE -DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS \
+	-Xlinker --wrap=malloc -Xlinker --wrap=calloc))
+runtime-backend-state-pool-test runtime-backend-state-pool-sanitizer-test: $(GUC_RUNTIME_STAMP)
+$(eval $(call runtime_adapter_test,role-cache,backend_state_preparation,\
+	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
+	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
+	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE \
+	-DPOSTGAMMA_ROLE_CACHE_BYTES=4194304 -Xlinker --wrap=malloc -Xlinker --wrap=calloc))
+runtime-role-cache-test runtime-role-cache-sanitizer-test: $(GUC_RUNTIME_STAMP)
+.PHONY: runtime-role-cache-tsan-test
+runtime-sanitizer-test: runtime-role-cache-tsan-test
+runtime-role-cache-tsan-test: $(GUC_RUNTIME_STAMP)
+	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
+		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" -I"$(ROOT)/tests/runtime/preparation_fixture/include" \
+		-I"$(GUC_RUNTIME_DIR)/include" -DPOSTGAMMA_PREPARED_ROLE_STATE \
+		-DPOSTGAMMA_DIRECT_ROLE_STATE -DPOSTGAMMA_ROLE_CACHE_BYTES=4194304 \
+		tests/runtime/test_backend_state_preparation.c runtime/src/thread_runtime.c \
+		runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
+		-Xlinker --wrap=malloc -Xlinker --wrap=calloc \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-role-cache-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-role-cache-tsan"
+runtime-backend-state-cache-test runtime-backend-state-cache-sanitizer-test: \
+	$(GUC_RUNTIME_STAMP) $(BACKEND_STATE_RUNTIME_STAMP)
 
 runtime-test: $(GUC_RUNTIME_STAMP) $(BACKEND_STATE_RUNTIME_STAMP) runtime-adapter-test
 	@mkdir -p "$(BUILD_DIR)/tests"
@@ -5039,6 +5198,15 @@ runtime-sanitizer-test: $(GUC_RUNTIME_STAMP) $(BACKEND_STATE_RUNTIME_STAMP) runt
 	@$(CC) -std=c11 -Wall -Wextra -Werror -pthread \
 		-fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
 		-I"$(ROOT)/runtime/include" -I"$(GUC_RUNTIME_DIR)/include" \
+		runtime/src/thread_runtime.c runtime/src/execution_context.c \
+		"$(BACKEND_STATE_RUNTIME_SOURCE)" tests/runtime/test_backend_state_cache.c \
+		-Wl,--wrap=postgamma_backend_state_address_relocated \
+		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-state-cache-tsan"
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
+		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-state-cache-tsan"
+	@$(CC) -std=c11 -Wall -Wextra -Werror -pthread \
+		-fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
+		-I"$(ROOT)/runtime/include" -I"$(GUC_RUNTIME_DIR)/include" \
 		runtime/src/thread_runtime.c \
 		runtime/src/execution_context.c \
 		"$(BACKEND_STATE_RUNTIME_SOURCE)" \
@@ -5184,7 +5352,7 @@ embedded-runtime-fast-check: doctor-build kernel-fast-check
 
 embedded-runtime-check: doctor-full-test doctor-build embedded-release-full-check
 
-complete-source-check: doctor-full-test doctor-python check-head
+complete-source-check: doctor-full-test doctor-python docs-check check-head
 
 python-package-check: doctor-python python-check
 

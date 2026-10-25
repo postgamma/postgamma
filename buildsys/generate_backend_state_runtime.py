@@ -7,7 +7,7 @@ import argparse
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +119,9 @@ def emit_layout_header(
         "/* Generated PostgreSQL-dependent backend-state layout facts. */",
         "#ifndef POSTGAMMA_BACKEND_STATE_LAYOUT_H",
         "#define POSTGAMMA_BACKEND_STATE_LAYOUT_H",
+        '#define POSTGAMMA_BACKEND_STATE_LAYOUT_ID "' + hashlib.sha256(
+            json.dumps([asdict(slot) for slot in slots], sort_keys=True,
+                       separators=(",", ":")).encode()).hexdigest() + '"',
         "",
         "typedef enum PostgammaBackendStateSlot",
         "{",
@@ -152,10 +155,16 @@ def emit_layout_header(
             raise ValueError(
                 f"cannot emit an external-state accessor for {slot.name!r}"
             )
+        accessor = (
+            "POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE("
+            f"{slot.enum_name}, {slot.name}, {relocation_bridge_name(slot.identifier)})"
+            if slot.relocations
+            else f"POSTGAMMA_BACKEND_STATE_VALUE({slot.enum_name}, {slot.name})"
+        )
         lines.extend(
             [
                 f"#define POSTGAMMA_BACKEND_STATE_GLOBAL_{slot.name} \\",
-                f"\tPOSTGAMMA_BACKEND_STATE_VALUE({slot.enum_name}, {slot.name})",
+                f"\t{accessor}",
             ]
         )
     if external_slots:

@@ -3,6 +3,7 @@
 #include "postgamma/postgamma.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <poll.h>
 #include <pthread.h>
@@ -14,10 +15,12 @@
 #include <time.h>
 
 
-#define TEST_TIMEOUT_MS INT64_C(30000)
 #define EVENT_QUEUE_CAPACITY 64U
 #define SCALE_CONNECTIONS 1000U
 #define TRACE_CONNECTIONS 32U
+
+/* Fixed once by main; every host-side wait uses the same test budget. */
+static int64_t test_timeout_ms;
 
 
 typedef struct CallbackState
@@ -101,18 +104,30 @@ main(int argument_count, char **arguments)
 	int			request_waitable = -1;
 	bool		trace_mode = false;
 	bool		passed = false;
+	char	   *timeout_end = NULL;
+	unsigned long long timeout_seconds;
 
-	if ((argument_count != 5 && argument_count != 6) ||
+	if ((argument_count != 6 && argument_count != 7) ||
 		strcmp(arguments[4], "create") != 0 ||
-		(argument_count == 6 && strcmp(arguments[5], "trace") != 0))
+		(argument_count == 7 && strcmp(arguments[6], "trace") != 0))
 	{
 		fprintf(stderr,
 			"usage: %s DATA_DIRECTORY EXECUTABLE_PATH RESOURCE_ROOT "
-			"create [trace]\n",
+			"create REQUEST_TIMEOUT_SECONDS [trace]\n",
 			arguments[0]);
 		return 2;
 	}
-	trace_mode = argument_count == 6;
+	errno = 0;
+	timeout_seconds = strtoull(arguments[5], &timeout_end, 10);
+	if (errno != 0 || arguments[5][0] < '0' || arguments[5][0] > '9' ||
+		*timeout_end != '\0' || timeout_seconds == 0 ||
+		timeout_seconds > (unsigned long long) (INT64_MAX / INT64_C(1000)))
+	{
+		fprintf(stderr, "invalid request timeout in seconds\n");
+		return 2;
+	}
+	test_timeout_ms = (int64_t) timeout_seconds * INT64_C(1000);
+	trace_mode = argument_count == 7;
 	if (trace_mode)
 		scale_count = TRACE_CONNECTIONS;
 	memset(&callback_state, 0, sizeof(callback_state));
@@ -198,7 +213,7 @@ main(int argument_count, char **arguments)
 		goto fail;
 
 	status = pgm_instance_next_event(
-		instance, TEST_TIMEOUT_MS, &event, &availability, &error);
+		instance, test_timeout_ms, &event, &availability, &error);
 	if (status != PGM_STATUS_OK || availability != PGM_AVAILABILITY_READY ||
 		event == NULL || pgm_event_type(event) != PGM_EVENT_LOG ||
 		callback_state.log_count != 0)
@@ -361,7 +376,7 @@ main(int argument_count, char **arguments)
 			goto fail;
 		}
 		status = pgm_request_wait(
-			request, TEST_TIMEOUT_MS, &result, &error);
+			request, test_timeout_ms, &result, &error);
 		if (status != PGM_STATUS_OK)
 		{
 			pgm_result_free(result);
@@ -374,9 +389,17 @@ main(int argument_count, char **arguments)
 	for (size_t index = opened_scale; index > 0; index--)
 	{
 		status = pgm_connection_close(
-			scale_connections[index - 1], TEST_TIMEOUT_MS, &error);
+			scale_connections[index - 1], test_timeout_ms, &error);
 		if (status != PGM_STATUS_OK)
+		{
+			fprintf(stderr,
+				"scale connection close failed: index=%zu id=%" PRIu64
+				" timeout_ms=%" PRId64 "\n", index - 1,
+				pgm_connection_identity(scale_connections[index - 1]),
+				test_timeout_ms);
+			report_instance_state(instance, "scale connection close");
 			goto fail;
+		}
 		scale_connections[index - 1] = NULL;
 		opened_scale--;
 	}
@@ -449,12 +472,12 @@ main(int argument_count, char **arguments)
 		uint64_t dispatch_deadline = monotonic_milliseconds();
 
 		if (dispatch_deadline == UINT64_MAX ||
-			UINT64_MAX - dispatch_deadline < (uint64_t) TEST_TIMEOUT_MS)
+			UINT64_MAX - dispatch_deadline < (uint64_t) test_timeout_ms)
 		{
 			fprintf(stderr, "could not start the notification deadline\n");
 			goto fail;
 		}
-		dispatch_deadline += (uint64_t) TEST_TIMEOUT_MS;
+		dispatch_deadline += (uint64_t) test_timeout_ms;
 		while (callback_state.notification_count == 0)
 		{
 			struct pollfd descriptor = {instance_waitable, POLLIN, 0};
@@ -578,16 +601,16 @@ telemetry_quiescent:
 		goto fail;
 	}
 
-	status = pgm_connection_close(listener, TEST_TIMEOUT_MS, &error);
+	status = pgm_connection_close(listener, test_timeout_ms, &error);
 	if (status != PGM_STATUS_OK)
 		goto fail;
 	listener = NULL;
-	status = pgm_connection_close(connection, TEST_TIMEOUT_MS, &error);
+	status = pgm_connection_close(connection, test_timeout_ms, &error);
 	if (status != PGM_STATUS_OK)
 		goto fail;
 	connection = NULL;
 	status = pgm_instance_close(
-		instance, PGM_SHUTDOWN_FAST, TEST_TIMEOUT_MS, &error);
+		instance, PGM_SHUTDOWN_FAST, test_timeout_ms, &error);
 	if (status != PGM_STATUS_OK)
 		goto fail;
 	instance = NULL;
@@ -604,12 +627,14 @@ telemetry_quiescent:
 		"startup_polled=%zu "
 		"event_capacity=%" PRIu64 " overflow_reported=%" PRIu64 " "
 		"request_count=%" PRIu64 " completed_count=%" PRIu64 " "
-		"failed_count=%" PRIu64 " trace=%s phase=closed\n",
+		"failed_count=%" PRIu64 " request_timeout_ms=%" PRId64
+		" trace=%s phase=closed\n",
 		callback_state.reentrant_status, scale_count,
 		fd_after - fd_before, startup_polled,
 		telemetry.event_queue_capacity, overflow_reported,
 		telemetry.request_count, telemetry.completed_request_count,
-		telemetry.failed_request_count, trace_mode ? "true" : "false");
+		telemetry.failed_request_count, test_timeout_ms,
+		trace_mode ? "true" : "false");
 
 fail:
 	if (!passed)
@@ -627,17 +652,17 @@ fail:
 		{
 			if (scale_connections[index - 1] != NULL)
 				(void) pgm_connection_close(
-					scale_connections[index - 1], TEST_TIMEOUT_MS, NULL);
+					scale_connections[index - 1], test_timeout_ms, NULL);
 		}
 		free(scale_connections);
 	}
 	if (listener != NULL)
-		(void) pgm_connection_close(listener, TEST_TIMEOUT_MS, NULL);
+		(void) pgm_connection_close(listener, test_timeout_ms, NULL);
 	if (connection != NULL)
-		(void) pgm_connection_close(connection, TEST_TIMEOUT_MS, NULL);
+		(void) pgm_connection_close(connection, test_timeout_ms, NULL);
 	if (instance != NULL)
 		(void) pgm_instance_close(
-			instance, PGM_SHUTDOWN_IMMEDIATE, TEST_TIMEOUT_MS, NULL);
+			instance, PGM_SHUTDOWN_IMMEDIATE, test_timeout_ms, NULL);
 	return passed ? 0 : 1;
 }
 
@@ -664,7 +689,7 @@ execute_command(pgm_connection *connection, const char *sql)
 	pgm_result *result = NULL;
 	pgm_error  *error = NULL;
 	pgm_status	status = pgm_execute(
-		connection, sql, NULL, 0, PGM_FORMAT_TEXT, TEST_TIMEOUT_MS,
+		connection, sql, NULL, 0, PGM_FORMAT_TEXT, test_timeout_ms,
 		&result, &error);
 	bool		ok = status == PGM_STATUS_OK && result != NULL &&
 		(pgm_result_kind(result) == PGM_RESULT_COMMAND_OK ||
@@ -686,7 +711,7 @@ execute_text(
 	pgm_error  *error = NULL;
 	pgm_value_view value = PGM_VALUE_VIEW_INIT;
 	pgm_status	status = pgm_execute(
-		connection, sql, NULL, 0, PGM_FORMAT_TEXT, TEST_TIMEOUT_MS,
+		connection, sql, NULL, 0, PGM_FORMAT_TEXT, test_timeout_ms,
 		&result, &error);
 	bool		ok = status == PGM_STATUS_OK && result != NULL &&
 		pgm_result_kind(result) == PGM_RESULT_TUPLES_OK &&
@@ -724,7 +749,7 @@ execute_notice(
 	if (request_id != NULL)
 		*request_id = pgm_request_identity(request);
 	status = pgm_request_wait(
-		request, TEST_TIMEOUT_MS, &result, &error);
+		request, test_timeout_ms, &result, &error);
 
 done:
 	if (status != PGM_STATUS_OK)
@@ -755,7 +780,7 @@ diagnostic_contract(pgm_connection *connection)
 		return false;
 	status = pgm_execute(
 		connection, "INSERT INTO public.event_diagnostic VALUES (-1)",
-		NULL, 0, PGM_FORMAT_TEXT, TEST_TIMEOUT_MS, &result, &error);
+		NULL, 0, PGM_FORMAT_TEXT, test_timeout_ms, &result, &error);
 	if (status != PGM_STATUS_POSTGRES_ERROR || error == NULL ||
 		strcmp(pgm_error_field(error, PGM_DIAG_SQLSTATE), "23514") != 0 ||
 		strcmp(pgm_error_field(error, PGM_DIAG_SEVERITY), "ERROR") != 0 ||
@@ -785,7 +810,7 @@ diagnostic_contract(pgm_connection *connection)
 	pgm_result_free(result);
 	result = NULL;
 	status = pgm_execute(
-		connection, "SELEC 1", NULL, 0, PGM_FORMAT_TEXT, TEST_TIMEOUT_MS,
+		connection, "SELEC 1", NULL, 0, PGM_FORMAT_TEXT, test_timeout_ms,
 		&result, &error);
 	if (status != PGM_STATUS_POSTGRES_ERROR || error == NULL ||
 		strcmp(pgm_error_field(error, PGM_DIAG_SQLSTATE), "42601") != 0 ||
@@ -841,7 +866,7 @@ wait_for_notification_event(
 		pgm_error  *error = NULL;
 		pgm_availability availability = PGM_AVAILABILITY_AGAIN;
 		pgm_status	status = pgm_instance_next_event(
-			instance, TEST_TIMEOUT_MS, &event, &availability, &error);
+			instance, test_timeout_ms, &event, &availability, &error);
 
 		if (status != PGM_STATUS_OK || availability != PGM_AVAILABILITY_READY ||
 			event == NULL)
@@ -951,12 +976,12 @@ wait_for_post_scale_quiescence(pgm_instance *instance)
 	uint64_t	deadline;
 
 	if (started == UINT64_MAX ||
-		UINT64_MAX - started < (uint64_t) TEST_TIMEOUT_MS)
+		UINT64_MAX - started < (uint64_t) test_timeout_ms)
 	{
 		fprintf(stderr, "could not start the post-scale deadline\n");
 		return false;
 	}
-	deadline = started + (uint64_t) TEST_TIMEOUT_MS;
+	deadline = started + (uint64_t) test_timeout_ms;
 	for (;;)
 	{
 		pgm_instance_telemetry state = PGM_INSTANCE_TELEMETRY_INIT;
