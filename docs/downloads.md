@@ -6,13 +6,13 @@ wheel mirrors. PyPI receives the exact same tested wheel bytes.
 
 <div class="pg-download-status" id="release-status" markdown>
 
-<span class="pg-card-label">CURRENT CANDIDATE</span>
+<span class="pg-card-label">CURRENT RELEASE</span>
 
 ## {{ POSTGAMMA_VERSION }} · {{ POSTGAMMA_RELEASE_STATE }}
 
-The first public binary release is being prepared for Linux x86-64. Until it
-is published, build from source or use an explicitly shared candidate artifact.
-Only assets attached to a published release are official release artifacts.
+The first public alpha is available for Linux x86-64. Install the Python
+package from PyPI or download the tested wheels and static C SDK from GitHub
+Releases.
 
 [Open GitHub Releases]({{ POSTGAMMA_RELEASES_URL }}){ .md-button .md-button--primary }
 [Read the release notes](releases/{{ POSTGAMMA_VERSION }}.md){ .md-button }
@@ -21,8 +21,8 @@ Only assets attached to a published release are official release artifacts.
 
 ## Python
 
-Once the release is published, select this alpha explicitly and let `pip`
-choose the wheel for the active CPython interpreter:
+Select this alpha explicitly and let `pip` choose the wheel for the active
+CPython interpreter:
 
 ```bash
 python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"

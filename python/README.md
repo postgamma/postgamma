@@ -11,7 +11,7 @@ it statically; it does not ship or load a separate `libpostgamma.so`.
 The [complete documentation](https://postgamma.com/) is also available under
 `docs/` in the source checkout.
 
-Once this alpha is published, install it from PyPI:
+Install this alpha from PyPI:
 
 ```console
 python -m pip install "postgamma==0.1.0a1"

@@ -123,7 +123,7 @@
       <article class="pg-v3-sdk pg-v3-sdk--python">
         <div class="pg-sdk-head"><span>PY</span><div><strong>Python SDK</strong><small>Native CPython wheel</small></div><em>3.10–3.14</em></div>
         <h3>Install once.<br>Import normally.</h3>
-        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI. The installation command below applies after publication; see <a href="downloads/">downloads</a> for current availability.</p>
+        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI. Install the current alpha from PyPI, or see <a href="downloads/">downloads</a> for the wheels and static C SDK.</p>
         <div class="pg-install-line"><pre><code>python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"</code></pre><span aria-hidden="true">$</span></div>
         <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python quickstart</a><a class="pg-inline-link" href="python/">API reference ↗</a></div>
       </article>

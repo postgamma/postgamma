@@ -348,9 +348,8 @@ to generated builds; its content hash is recorded in `.postgamma-configure.json`
 
 ## Python wheel
 
-The first release publishes platform-specific CPython wheels and no source
-distribution. Once published, install the wheel matching the Python interpreter
-and platform:
+The first release provides platform-specific CPython wheels and no source
+distribution. Install the wheel matching the Python interpreter and platform:
 
 ```bash
 python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"

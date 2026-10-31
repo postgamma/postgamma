@@ -25,15 +25,13 @@ The first release provides:
   one host process; and
 - bundled pgvector 0.8.6 for local vector search.
 
-This is an unreleased alpha intended for evaluation and feedback. Read the
+This alpha is intended for evaluation and feedback. Read the
 [compatibility limits](docs/compatibility/limits.md) before using it with data
 that cannot be recreated.
 
 ## Python quickstart
 
-Until the first public release is available, follow the
-[source build instructions](docs/getting-started/installation.md).
-After publication, install this alpha explicitly:
+Install this alpha explicitly from PyPI:
 
 ```bash
 python -m pip install "postgamma==0.1.0a1"

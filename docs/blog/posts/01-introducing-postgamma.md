@@ -23,9 +23,9 @@ inside your application process. You don't need a separate database server.
 The embedded version supports concurrent connections and writes. It keeps
 PostgreSQL's transactions, WAL, and crash recovery. It also includes pgvector.
 
-The project is still an unreleased alpha. You can
-[build it from source](https://postgamma.com/getting-started/installation/)
-and try it today.
+The project is still an early alpha. You can
+[install it from PyPI](https://pypi.org/project/postgamma/0.1.0a1/)
+or [build it from source](https://postgamma.com/getting-started/installation/).
 
 ## Why I wanted this
 
@@ -127,8 +127,9 @@ It tests the transformation against new commits on PostgreSQL's
 ## Where it stands
 
 The current native target is PostgreSQL 19 on Linux x86-64. The code is
-available under the Apache 2.0 license. The first public binary release is
-still being prepared, so please start with the source build instructions.
+available under the Apache 2.0 license. Version 0.1.0a1 is now available as
+Python wheels and a static C SDK. See the
+[download page](https://postgamma.com/downloads/) for both.
 
 There are limits. Only one process can use a given data directory at a time.
 The embedded version supports bundled extensions such as pgvector. It does

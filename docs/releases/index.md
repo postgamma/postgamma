@@ -11,7 +11,7 @@ status and verification commands are on the [download page](../downloads.md).
 
 | Version | State | PostgreSQL major | Notes |
 | --- | --- | ---: | --- |
-| [0.1.0a1](0.1.0a1.md) | Unreleased alpha candidate | 19 | First Python wheel and static C SDK |
+| [0.1.0a1](0.1.0a1.md) | Published alpha | 19 | First Python wheel and static C SDK |
 
 ## Upgrade rule during alpha
 

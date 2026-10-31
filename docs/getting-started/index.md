@@ -12,9 +12,8 @@ command, host name, port, or password is required.
 
 ## 1. Install PostGamma
 
-Until the first public release is available, follow the
-[source build instructions](installation.md). After publication, install
-the wheel that matches your CPython version and Linux platform:
+Install the alpha from PyPI. The wheel must match your CPython version and
+Linux platform; see the [installation guide](installation.md) for details.
 
 ```bash
 python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"
