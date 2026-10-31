@@ -1,0 +1,39 @@
+{% extends "blog-base.html" %}
+
+{% block blog_content %}
+{% set author = page.meta.author | default(config.site_author, true) %}
+{% set toc = page.toc | list %}
+{% if toc | length == 1 %}{% set toc = toc[0].children %}{% endif %}
+<div class="pg-post-layout">
+  <article class="pg-post">
+    <header class="pg-post-header">
+      <a class="pg-back-to-blog" href="{{ 'blog/' | url }}"><span aria-hidden="true">←</span> All posts</a>
+      <div class="pg-blog-meta">
+        {% for category in page.categories %}<a class="pg-blog-category" href="{{ category.url | url }}">{{ category.title }}</a>{% endfor %}
+        {% if not page.config.draft %}
+        <span aria-hidden="true">·</span>
+        <time datetime="{{ page.config.date.created }}">{{ page.config.date.created | date }}</time>
+        {% endif %}
+      </div>
+      <h1 id="{{ (page.toc | first).id }}">{{ page.title }}</h1>
+      <p class="pg-post-description">{{ page.meta.description }}</p>
+      <div class="pg-blog-byline">
+        <span>{{ author }}</span><span aria-hidden="true">·</span><span>{{ page.config.readtime }} min read</span>
+      </div>
+    </header>
+    {% if page.meta.cover %}
+    <figure class="pg-post-cover">
+      <img src="{{ page.meta.cover | url }}" alt="{{ page.meta.cover_alt | default('', true) | e }}" width="1200" height="675" decoding="async" fetchpriority="high">
+    </figure>
+    {% endif %}
+    <div class="pg-post-body">{{ page.content.split('</h1>', 1)[-1] }}</div>
+    <div class="pg-post-end"><a href="{{ 'blog/' | url }}">← Back to all posts</a><a href="https://github.com/postgamma/postgamma">Explore PostGamma on GitHub ↗</a></div>
+  </article>
+  {% if toc %}
+  <aside class="pg-post-toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>{% for item in toc %}<li><a href="{{ item.url }}">{{ item.title }}</a></li>{% endfor %}</ol>
+  </aside>
+  {% endif %}
+</div>
+{% endblock %}

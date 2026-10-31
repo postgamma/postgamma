@@ -45,6 +45,13 @@ theme:
 
 plugins:
   - search
+  - blog:
+      post_url_format: "{slug}"
+      post_readtime_words_per_minute: 220
+      archive: false
+      authors: false
+      pagination_per_page: 9
+      draft: !ENV [POSTGAMMA_BLOG_DRAFTS, false]
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -95,6 +102,8 @@ extra_javascript:
 
 nav:
   - Home: index.md
+  - Blog:
+      - blog/index.md
   - Download: downloads.md
   - Start here:
       - Python quickstart: getting-started/index.md

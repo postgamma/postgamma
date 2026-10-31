@@ -366,6 +366,13 @@ def check_markdown(root: Path) -> int:
     documents = sorted((root / "docs").rglob("*.md"))
     for path in documents:
         text = path.read_text(encoding="utf-8")
+        if text.startswith("---\n"):
+            _, separator, text = text[4:].partition("\n---\n")
+            if not separator:
+                raise DocumentationCheckError(
+                    f"{path.relative_to(root)} has unterminated YAML metadata"
+                )
+            text = text.lstrip("\n")
         if not text.startswith("# "):
             raise DocumentationCheckError(
                 f"{path.relative_to(root)} must begin with one level-one title"

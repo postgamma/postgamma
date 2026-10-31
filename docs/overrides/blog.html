@@ -1,0 +1,44 @@
+{% extends "blog-base.html" %}
+
+{% block blog_content %}
+<section class="pg-blog-index" aria-labelledby="blog-title">
+  <header class="pg-blog-heading">
+    <h1 id="blog-title">{{ page.title }}</h1>
+    <p class="pg-blog-intro">Notes on PostgreSQL, threads, and building PostGamma.</p>
+  </header>
+  <nav class="pg-blog-filters" aria-label="Article categories">
+    <a href="{{ 'blog/' | url }}" {% if 'category/' not in page.url %}aria-current="page"{% endif %}>All posts</a>
+    {% for category in config.plugins['material/blog'].blog.views %}
+      <a href="{{ category.url | url }}" {% if page.url == category.url %}aria-current="page"{% endif %}>{{ category.title }}</a>
+    {% endfor %}
+  </nav>
+  <div class="pg-blog-grid">
+    {% for post in posts %}
+      {% set author = post.meta.author | default(config.site_author, true) %}
+      <a class="pg-blog-card" href="{{ post.url | url }}">
+        {% if post.meta.cover %}
+        <div class="pg-blog-cover">
+          <img src="{{ post.meta.cover | url }}" alt="{{ post.meta.cover_alt | default('', true) | e }}" width="1200" height="675" loading="lazy" decoding="async">
+        </div>
+        {% endif %}
+        <div class="pg-card-copy">
+          <div class="pg-blog-meta">
+            {% if not post.config.draft %}<time datetime="{{ post.config.date.created }}">{{ post.config.date.created | date }}</time>{% endif %}
+            <span class="pg-blog-category">{{ post.config.categories | first }}</span>
+          </div>
+          <h2>{{ post.title }}</h2>
+          <p class="pg-card-description">{{ post.meta.description }}</p>
+          <div class="pg-blog-byline">
+            <span>{{ author }}</span>
+            <span aria-hidden="true">·</span>
+            <span class="pg-card-readtime">{{ post.config.readtime }} min read</span>
+          </div>
+        </div>
+      </a>
+    {% else %}
+      <p class="pg-blog-empty">The first posts are on their way.</p>
+    {% endfor %}
+  </div>
+  {% if pagination %}<div class="pg-blog-pagination">{% include "partials/pagination.html" %}</div>{% endif %}
+</section>
+{% endblock %}

@@ -15,7 +15,7 @@ import check_portability  # noqa: E402
 
 
 class PortabilityTests(unittest.TestCase):
-    def test_third_party_trees_are_not_project_owned(self) -> None:
+    def test_vendor_and_git_metadata_are_not_project_owned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "owned").mkdir()
@@ -24,10 +24,28 @@ class PortabilityTests(unittest.TestCase):
             (root / "third_party" / "vendor" / "source.c").write_text(
                 "vendored", encoding="utf-8"
             )
+            nested = root / ".claude/worktrees/preview"
+            nested.mkdir(parents=True)
+            (nested / "source.c").write_text("nested source", encoding="utf-8")
+            git_paths = (root / ".git", nested / ".git")
+            for git_path in git_paths:
+                git_path.write_text("gitdir: /work/main/.git/worktrees/preview\n")
+            expected = {
+                Path("owned/source.c"),
+                Path(".claude/worktrees/preview/source.c"),
+            }
             relative = {
                 path.relative_to(root) for path in check_portability.project_files(root)
             }
-            self.assertEqual(relative, {Path("owned/source.c")})
+            self.assertEqual(relative, expected)
+            for git_path in git_paths:
+                git_path.unlink()
+                git_path.mkdir()
+                (git_path / "HEAD").write_text("ref: refs/heads/main\n")
+            self.assertEqual(
+                check_portability.project_files(root),
+                sorted(root / path for path in expected),
+            )
 
 
 if __name__ == "__main__":

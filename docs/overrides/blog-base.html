@@ -1,0 +1,53 @@
+{% extends "main.html" %}
+
+{% block fonts %}{% endblock %}
+
+{% block extrahead %}
+  {{ super() }}
+  <link rel="preload" href="{{ 'assets/fonts/inter-latin.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ 'assets/stylesheets/blog.css' | url }}">
+  <meta property="og:title" content="{{ page.title | e }} · PostGamma">
+  <meta property="og:description" content="{{ page.meta.description | default('Notes on PostgreSQL, threads, and building PostGamma.', true) | e }}">
+  {% if page.meta.cover %}
+  <meta property="og:image" content="{{ config.site_url }}{{ page.meta.cover }}">
+  <meta property="og:image:alt" content="{{ page.meta.cover_alt | default('', true) | e }}">
+  {% endif %}
+{% endblock %}
+
+{% block site_nav %}{% endblock %}
+{% block tabs %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block container %}
+<div class="md-content" data-md-component="content">
+  <div class="pg-blog md-typeset">
+    <nav class="pg-product-nav" aria-label="Website navigation">
+      <a class="pg-brand" href="{{ '.' | url }}" aria-label="PostGamma home">
+        <span class="pg-brand-mark" aria-hidden="true"></span>
+        <span class="pg-brand-wordmark">postgamma</span>
+      </a>
+      <div class="pg-product-links">
+        <a href="{{ 'blog/' | url }}" aria-current="page">Blog</a>
+        <a href="{{ 'getting-started/' | url }}">Documentation</a>
+        <a href="https://github.com/postgamma/postgamma">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="pg-product-actions">
+        <button class="pg-theme-toggle" type="button" data-pg-theme-toggle aria-label="Switch color theme">
+          <span class="pg-theme-icon pg-theme-icon--sun" aria-hidden="true"></span>
+          <span class="pg-theme-icon pg-theme-icon--moon" aria-hidden="true"></span>
+        </button>
+        <a class="pg-blog-quickstart" href="{{ 'getting-started/' | url }}">Quickstart <span aria-hidden="true">↗</span></a>
+      </div>
+    </nav>
+    {% block blog_content %}{% endblock %}
+    <footer class="pg-blog-footer">
+      <span>{{ config.copyright }}</span>
+      <nav aria-label="Footer navigation">
+        <a href="{{ 'blog/' | url }}">Blog</a>
+        <a href="{{ 'getting-started/' | url }}">Docs</a>
+        <a href="{{ 'about/license/' | url }}">Apache-2.0</a>
+      </nav>
+    </footer>
+  </div>
+</div>
+{% endblock %}

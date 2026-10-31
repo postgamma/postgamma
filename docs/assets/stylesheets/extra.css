@@ -1733,6 +1733,17 @@ body.pg-home-page .md-main {
     display: none;
   }
 
+  .md-typeset .pg-home-v3 .pg-product-links {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-bottom: .8rem;
+  }
+
+  .md-typeset .pg-home-v3 .pg-product-links a[href^="#"] {
+    display: none;
+  }
+
   .md-typeset .pg-v3-section-head,
   .md-typeset .pg-v3-final {
     grid-template-columns: 1fr;

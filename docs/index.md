@@ -11,6 +11,7 @@
     <a href="#architecture">Architecture</a>
     <a href="#sdks">SDKs</a>
     <a href="#use-cases">Use cases</a>
+    <a href="blog/">Blog</a>
     <a href="getting-started/">Documentation</a>
   </div>
   <div class="pg-product-actions">
@@ -231,7 +232,7 @@
 <footer class="pg-product-footer">
   <a class="pg-brand" href="./" aria-label="postgamma home"><span class="pg-brand-mark" aria-hidden="true"></span><span class="pg-brand-wordmark">postgamma</span></a>
   <p class="pg-product-copyright">Copyright &copy; 2026 Shujie Zhang</p>
-  <div><a href="getting-started/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
+  <div><a href="blog/">Blog</a><a href="getting-started/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
 </footer>
 
 </div>

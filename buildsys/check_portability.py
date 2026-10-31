@@ -20,12 +20,11 @@ WINDOWS_WORKSPACE = re.compile(
 )
 EXCLUDED_ROOT_DIRECTORIES = {
     ".deps",
-    ".git",
     "build",
     "postgres",
     "third_party",
 }
-EXCLUDED_DIRECTORY_NAMES = {"__pycache__"}
+EXCLUDED_DIRECTORY_NAMES = {".git", "__pycache__"}
 PATH_CONTINUATION_BYTES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./\\-$)}]"
 )
@@ -45,6 +44,7 @@ def project_files(root: Path) -> list[Path]:
             current / filename
             for filename in filenames
             if not (current / filename).is_symlink()
+            and filename != ".git"
         )
     return sorted(paths)
 

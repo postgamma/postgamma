@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "title": "Historical PostGamma state access comparison",
+  "experiment_date": "2026-10-10",
+  "comparison": "Two historical threaded server builds, before and after the change",
+  "scope": "Read-only development experiment; not current release or cross-engine performance",
+  "provenance": {
+    "archive_name": "thread-state-access-20261010/evidence.tar.gz",
+    "archive_sha256": "ecb27f7b3c9f928080fc4ccc949dbc2324b42b2f5359fe3233bf068bb75fc102",
+    "summary_member": "diag-state/paired-a3/summary.json",
+    "identity_member": "notes/final-identity.json",
+    "patch_member": "notes/candidate-final.patch",
+    "before_source_record": "d511f2b1fefa9a8a705f6940bc392aec23098baa",
+    "after_source_head": "9e1461b2c94457cb8ed30ae599dcb30feeca734e"
+  },
+  "builds": {
+    "before": {
+      "binary_sha256": "9b144429799b57124f70056e39a36cf87d8efaf98176d5284b5ab6d901408971",
+      "compiler_options": {
+        "configure": "'--without-icu' '--disable-cassert' '--disable-debug' 'CC=gcc' 'CFLAGS=-O2 -g0' 'CPPFLAGS=-DEXEC_BACKEND' 'CXX=g++'",
+        "cc": "gcc",
+        "cflags": "-O2 -g0",
+        "cppflags": "-DEXEC_BACKEND -D_GNU_SOURCE",
+        "ldflags": "-Wl,--as-needed -Wl,-rpath,'/usr/local/pgsql/lib',--enable-new-dtags"
+      }
+    },
+    "after": {
+      "binary_sha256": "2ac68afa0e5b380d4512080f9aa76fba300d710856f1217ee17cb1c8af4a182c",
+      "compiler_options": {
+        "configure": "'--without-icu' '--disable-cassert' '--disable-debug' 'CC=gcc' 'CFLAGS=-O2 -g0' 'CPPFLAGS=-DEXEC_BACKEND' 'CXX=g++'",
+        "cc": "gcc",
+        "cflags": "-O2 -g0",
+        "cppflags": "-DEXEC_BACKEND -D_GNU_SOURCE",
+        "ldflags": "-Wl,--as-needed -Wl,-rpath,'/usr/local/pgsql/lib',--enable-new-dtags"
+      }
+    }
+  },
+  "method": {
+    "pairs": 6,
+    "operations_per_run": 100000,
+    "run_order": "Alternating before/after order, after warmup",
+    "timing": "Wall-clock timing without perf or ptrace instrumentation",
+    "units": "Microseconds per completed operation",
+    "reported_statistic": "Median across six runs per build",
+    "storage": "tmpfs; read-only queries",
+    "cpu_placement": "Same fixed backend CPU; separate client CPU",
+    "cases": {
+      "one": "SELECT 1 in a separate network request per operation",
+      "point": "One prepared point query in a separate network request per operation",
+      "batch": "Point queries inside one PL/pgSQL call; time per completed lookup"
+    }
+  },
+  "limitations": [
+    "The after build also includes a pointer initialization correctness fix.",
+    "The timings do not isolate the causal effect of a single removed check.",
+    "The network point-query case improved in only two of six pairs.",
+    "The internal-loop case improved in five of six pairs, with one slower pair.",
+    "Do not compare absolute loop timings with network request timings as identical work.",
+    "The earlier native PostgreSQL control used different compiler flags and is omitted.",
+    "These results do not establish disk-write, current package, or Wasm performance."
+  ],
+  "summary": {
+    "status": "passed",
+    "iterations": 6,
+    "operations_per_trial": 100000,
+    "cases": {
+      "one": {
+        "before": {
+          "wall_us_median": 61.807719,
+          "cpu_runtime_us_median": 43.039179704999995,
+          "samples_wall_us": [
+            63.748287,
+            57.753676,
+            68.479693,
+            59.682988,
+            63.439355,
+            60.176083
+          ]
+        },
+        "thread": {
+          "wall_us_median": 61.7743855,
+          "cpu_runtime_us_median": 42.26303154,
+          "samples_wall_us": [
+            60.92893,
+            57.138806,
+            64.919027,
+            59.675013,
+            62.910107,
+            62.619841
+          ]
+        },
+        "median_wall_change_percent": -0.05393096613062198,
+        "paired_wall_change_percent": [
+          -4.4226396232419525,
+          -1.0646421883171442,
+          -5.199593987665796,
+          -0.013362266647909404,
+          -0.8342581667168503,
+          4.061012080164805
+        ],
+        "faster_pairs": 5
+      },
+      "point": {
+        "before": {
+          "wall_us_median": 78.925061,
+          "cpu_runtime_us_median": 61.004733765,
+          "samples_wall_us": [
+            82.368989,
+            78.542575,
+            80.089541,
+            78.126445,
+            79.307547,
+            71.737338
+          ]
+        },
+        "thread": {
+          "wall_us_median": 80.01794,
+          "cpu_runtime_us_median": 61.664510379999996,
+          "samples_wall_us": [
+            76.405184,
+            73.741617,
+            88.197673,
+            81.384923,
+            81.139534,
+            78.896346
+          ]
+        },
+        "median_wall_change_percent": 1.3847046630727222,
+        "paired_wall_change_percent": [
+          -7.240352312688936,
+          -6.1125548786756685,
+          10.123833772502211,
+          4.170774697351187,
+          2.309978141172353,
+          9.979472614386676
+        ],
+        "faster_pairs": 2
+      },
+      "batch": {
+        "before": {
+          "wall_us_median": 10.086611000000001,
+          "cpu_runtime_us_median": 10.083365305000001,
+          "samples_wall_us": [
+            10.21258,
+            9.067355,
+            9.955645,
+            11.449166,
+            10.478739,
+            9.960642
+          ]
+        },
+        "thread": {
+          "wall_us_median": 9.205476,
+          "cpu_runtime_us_median": 9.202549755,
+          "samples_wall_us": [
+            9.431062,
+            8.97989,
+            12.154864,
+            10.566928,
+            8.806624,
+            8.712063
+          ]
+        },
+        "median_wall_change_percent": -8.735689321219986,
+        "paired_wall_change_percent": [
+          -7.652503089327089,
+          -0.9646142673359503,
+          22.0901709532632,
+          -7.705696642008675,
+          -15.957215844387385,
+          -12.535125747918652
+        ],
+        "faster_pairs": 5
+      }
+    }
+  }
+}

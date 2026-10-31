@@ -444,6 +444,23 @@ Then visit `http://SERVER_IP:8000/`. The development server is for trusted
 networks only; publish `build/docs/site/` behind a normal static web server for
 public access.
 
+Blog articles live in `docs/blog/posts/`. Each article has YAML metadata for
+its title, description, author, date, category, and stable URL slug. Use
+`cover` for a site-relative image path and `cover_alt` to describe the image.
+The list shows newer publication times first. Include a time and UTC offset
+when several posts share a date, and use the actual publication time when
+publishing.
+Keep `draft: true` while editing. `make docs-serve` shows drafts locally;
+`make docs` excludes them. To build a static preview with drafts:
+
+```bash
+POSTGAMMA_BLOG_DRAFTS=true make docs DOCS_SITE_DIR=build/docs/preview
+```
+
+Before publishing an article, confirm its date and set `draft: false`.
+The initial three articles and their source notes are listed in
+[the blog editorial notes](drafts/blog/README.md).
+
 ## Supported release target
 
 The initial binary contract is:

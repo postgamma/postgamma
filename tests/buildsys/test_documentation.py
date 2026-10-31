@@ -112,6 +112,30 @@ class DocumentationTests(unittest.TestCase):
         markdown = "# Guide\n\n```python\n# create=True is the default\n```\n"
         self.assertEqual(check_documentation.level_one_headings(markdown), ["Guide"])
 
+    def test_blog_metadata_preserves_markdown_title_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docs").mkdir()
+            post = root / "docs/post.md"
+            with (
+                mock.patch.object(check_documentation, "REQUIRED_DOCUMENTS", ()),
+                mock.patch.object(check_documentation, "REFERENCE_MARKERS", {}),
+            ):
+                metadata = "---\ntitle: Post\n# Metadata comment\ndraft: true\n---\n\n"
+                post.write_text(metadata + "# Post\n\nSome text.\n")
+                self.assertEqual(check_documentation.check_markdown(root), 1)
+                for text, error in (
+                    (metadata + "No heading.\n", "must begin"),
+                    (metadata + "# Post\n\n# Duplicate\n", "exactly one"),
+                    ("---\ntitle: Post\n\n# Post\n", "unterminated"),
+                ):
+                    with self.subTest(error=error):
+                        post.write_text(text)
+                        with self.assertRaisesRegex(
+                            check_documentation.DocumentationCheckError, error
+                        ):
+                            check_documentation.check_markdown(root)
+
     def test_function_pointer_typedef_arguments_are_not_duplicated(self) -> None:
         document = """\
 <doxygen>
