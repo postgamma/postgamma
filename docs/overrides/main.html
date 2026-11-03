@@ -1,5 +1,24 @@
 {% extends "base.html" %}
 
+{% block extrahead %}
+  {{ super() }}
+  {% if live_modules %}
+    <script id="pg-live-modules" type="application/json">{{ live_modules | tojson }}</script>
+    <script id="pg-live-imports">
+      // Start after the page resources are ready, alongside terminal startup.
+      // Ordinary imports respect reloads; WebKit can retain modulepreload
+      // responses across reloads even when their HTTP policy is no-store.
+      document.addEventListener("DOMContentLoaded", () => {
+        if (new URLSearchParams(location.search).get("client") === "js") return;
+        for (const path of JSON.parse(document.getElementById("pg-live-modules").textContent)) {
+          // The normal startup path reports errors with its loading phase.
+          void import(new URL(path, document.baseURI).href).catch(() => {});
+        }
+      }, {once: true});
+    </script>
+  {% endif %}
+{% endblock %}
+
 {% block htmltitle %}
   {% if page and page.is_homepage %}
     <title>{{ config.site_name }} - {{ config.site_description }}</title>

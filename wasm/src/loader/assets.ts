@@ -1,0 +1,48 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import {buildId} from './identity.js';
+export interface AssetManifest {
+  schemaVersion: number; buildId: string; protocolVersion: number;
+  entries: {worker: string; module: string; wasm: string; resources: string};
+  capabilities: {initialMemoryBytes: number; maximumMemoryBytes: number};
+  files: Record<string, {sha256: string; bytes: number}>;
+}
+export async function assets(base: URL): Promise<AssetManifest> {
+  if (!globalThis.crossOriginIsolated || typeof SharedArrayBuffer !== 'function' ||
+      typeof Worker !== 'function' || typeof WebAssembly !== 'object' ||
+      !globalThis.crypto?.subtle || !globalThis.crypto?.getRandomValues)
+    throw new Error('postgamma requires cross-origin isolation, shared Wasm memory, Workers and Web Crypto');
+  const response = await fetch(new URL('postgamma.assets.json', base), {cache: 'no-store'});
+  if (!response.ok) throw new Error(`Asset manifest download failed: ${response.status}`);
+  const manifest = await response.json() as AssetManifest;
+  if (manifest.schemaVersion !== 1 || manifest.buildId !== buildId)
+    throw new Error('postgamma asset build identity mismatch');
+  for (const name of Object.values(manifest.entries))
+    if (!/^[a-zA-Z0-9_./-]+$/.test(name) || name.startsWith('/') || name.split('/').includes('..') || !manifest.files[name])
+      throw new Error('Invalid postgamma asset entry');
+  return manifest;
+}
+export async function verifiedAsset(base: URL, manifest: AssetManifest, name: string): Promise<ArrayBuffer> {
+  const expected = manifest.files[name];
+  if (!expected) throw new Error('Undeclared postgamma asset: ' + name);
+  let bytes: ArrayBuffer;
+  if (!name.endsWith('.gz') && manifest.files[name + '.gz'] && typeof DecompressionStream === 'function') {
+    // Static hosts can cache the compressed file without special server rules.
+    // Verify both the transferred representation and the original asset.
+    const compressed = await verifiedAsset(base, manifest, name + '.gz');
+    bytes = await new Response(new Blob([compressed]).stream()
+      .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  } else {
+    const url = new URL(name, base);
+    if (name.endsWith('.gz')) url.searchParams.set('sha256', expected.sha256);
+    // Firefox can retain another copy of a default-cache response until its
+    // channel is collected. Compiled code has its own bounded cache.
+    const response = await fetch(url, {cache: 'no-store'});
+    if (!response.ok) throw new Error(`Asset download failed (${name}): ${response.status}`);
+    bytes = await response.arrayBuffer();
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const hash = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+  if (bytes.byteLength !== expected.bytes || hash !== expected.sha256)
+    throw new Error('postgamma asset integrity mismatch: ' + name);
+  return bytes;
+}

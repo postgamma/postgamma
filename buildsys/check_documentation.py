@@ -32,12 +32,17 @@ REFERENCE_MARKERS = {
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 REQUIRED_DOCUMENTS = (
     "docs/index.md",
+    "docs/overview/index.md",
     "docs/getting-started/index.md",
     "docs/getting-started/why-postgamma.md",
     "docs/getting-started/c-static.md",
     "docs/getting-started/installation.md",
     "docs/getting-started/database-paths.md",
     "docs/downloads.md",
+    "docs/server/index.md",
+    "docs/server/quickstart.md",
+    "docs/server/operations.md",
+    "docs/server/compatibility.md",
     "docs/concepts/architecture.md",
     "docs/concepts/concurrency.md",
     "docs/concepts/transactions.md",

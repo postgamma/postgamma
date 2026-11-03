@@ -1,0 +1,24 @@
+name: Pinned LLVM toolchain
+description: Reuse the checksum-locked LLVM 22 closure used by native release builds
+runs:
+  using: composite
+  steps:
+    - name: Install the locked LLVM tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        tools="$RUNNER_TEMP/postgamma-llvm-tools"
+        mkdir -p "$tools"
+        curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 \
+          https://github.com/mamba-org/micromamba-releases/releases/download/2.8.1-0/micromamba-linux-64 \
+          --output "$tools/micromamba"
+        printf '%s  %s\n' \
+          9689782d863c05a1bf5d2d371ba527104e7a4eb4310c1637d8653b751aed9c82 \
+          "$tools/micromamba" | sha256sum --check
+        chmod 0755 "$tools/micromamba"
+        MAMBA_ROOT_PREFIX="$tools/cache" "$tools/micromamba" create --yes \
+          --prefix "$tools/llvm" --file buildsys/toolchains/llvm22-linux-64.lock
+        test "$("$tools/llvm/bin/llvm-config" --version | cut -d. -f1)" = 22
+        "$tools/llvm/bin/clang++" --version
+        printf 'LLVM_CONFIG=%s\nCLANGXX=%s\n' \
+          "$tools/llvm/bin/llvm-config" "$tools/llvm/bin/clang++" >> "$GITHUB_ENV"

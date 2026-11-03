@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def strict_child(path: Path, parent: Path) -> bool:
@@ -37,6 +37,7 @@ def main() -> int:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--build-root", required=True, type=Path)
+    parser.add_argument("--subdirectory", default="")
     args = parser.parse_args()
 
     repository = args.repository.resolve()
@@ -54,6 +55,15 @@ def main() -> int:
     if status:
         parser.error("refusing to materialize a dirty source tree")
 
+    tree = expected
+    if args.subdirectory:
+        relative = PurePosixPath(args.subdirectory)
+        if relative.is_absolute() or ".." in relative.parts or str(relative) != args.subdirectory:
+            parser.error("subdirectory must be a normalized relative directory")
+        tree = expected + ":" + args.subdirectory
+        if git(repository, "cat-file", "-t", tree) != "tree":
+            parser.error("subdirectory must identify a committed directory")
+
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True)
@@ -61,7 +71,7 @@ def main() -> int:
 
     with tempfile.NamedTemporaryFile(dir=build_root, suffix=".tar") as archive:
         subprocess.run(
-            ["git", "-C", str(repository), "archive", "--format=tar", expected],
+            ["git", "-C", str(repository), "archive", "--format=tar", tree],
             check=True,
             stdout=archive,
         )
@@ -80,6 +90,8 @@ def main() -> int:
         "source_repository": manifest["repository"],
         "generated_tree": True,
     }
+    if args.subdirectory:
+        metadata["source_subdirectory"] = args.subdirectory
     (destination / ".postgamma-source.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

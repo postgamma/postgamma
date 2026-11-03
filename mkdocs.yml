@@ -1,5 +1,5 @@
 site_name: postgamma
-site_description: PostgreSQL inside your application
+site_description: PostgreSQL for apps and agents, as a threaded server, and in the browser
 site_url: https://postgamma.com/
 site_author: Shujie Zhang
 docs_dir: docs
@@ -17,9 +17,7 @@ theme:
   language: en
   logo: assets/images/postgamma-mark.svg
   favicon: assets/images/postgamma-favicon-optical.svg
-  font:
-    text: Space Grotesk
-    code: IBM Plex Mono
+  font: false
   features:
     - content.code.copy
     - content.tabs.link
@@ -95,10 +93,18 @@ markdown_extensions:
       alternate_style: true
 
 extra_css:
+  - assets/vendor/fonts/fonts.css
   - assets/stylesheets/extra.css
+  - assets/vendor/xterm/xterm.css
+  - assets/stylesheets/live.css
+  - assets/stylesheets/opfs.css
 
 extra_javascript:
   - assets/javascripts/home.js
+  - assets/javascripts/live.js
+  - assets/javascripts/live-report.js
+  - assets/javascripts/psql.js
+  - assets/javascripts/opfs.js
 
 nav:
   - Home: index.md
@@ -106,9 +112,12 @@ nav:
       - blog/index.md
   - Download: downloads.md
   - Start here:
+      - Project overview: overview/index.md
       - Python quickstart: getting-started/index.md
       - When to use PostGamma: getting-started/why-postgamma.md
       - Static C quickstart: getting-started/c-static.md
+      - Browser preview: getting-started/browser.md
+      - OPFS persistence check: opfs/index.md
       - Installation: getting-started/installation.md
       - Database paths and creation: getting-started/database-paths.md
   - Python guides:
@@ -126,6 +135,11 @@ nav:
       - Asynchronous execution: c/async.md
       - Streaming and COPY: c/streaming-and-copy.md
       - Management and backup: c/management.md
+  - Server:
+      - Overview: server/index.md
+      - Build and quickstart: server/quickstart.md
+      - Operations and backup: server/operations.md
+      - Validation and compatibility: server/compatibility.md
   - Concepts:
       - Architecture: concepts/architecture.md
       - Connections and concurrency: concepts/concurrency.md
@@ -150,6 +164,7 @@ nav:
       - Release index: releases/index.md
       - Versioning policy: releases/versioning.md
       - 0.1.0a1: releases/0.1.0a1.md
+      - Browser 0.1.0-alpha.1: releases/wasm-0.1.0-alpha.1.md
   - About:
       - License: about/license.md
 

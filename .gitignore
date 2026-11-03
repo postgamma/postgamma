@@ -1,6 +1,7 @@
 # Project build products
 /build/
 /.deps/
+/wasm/node_modules/
 
 # Python environments, caches, and packaging products
 __pycache__/

@@ -21,6 +21,11 @@ OBJCOPY ?= objcopy
 MKDOCS ?= $(if $(wildcard $(BUILD_DIR)/docs-tools/bin/mkdocs),$(BUILD_DIR)/docs-tools/bin/mkdocs,mkdocs)
 DOXYGEN ?= doxygen
 DOCS_DEV_ADDR ?= 127.0.0.1:8000
+DOCS_HTTPS ?= auto
+DOCS_TLS_CERT ?=
+DOCS_TLS_KEY ?=
+DOCS_TLS_HOSTS ?=
+DOCS_WASM_PACKAGE ?=
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 PG_REF ?=
 PG_BRANCH ?= master
@@ -1045,7 +1050,7 @@ PUBLIC_ARTIFACT_EVIDENCE := $(STATIC_SDK_DIST_DIR)/public-artifacts.json
 	generated-check-world generated-thread-runtime-check thread-isolation-check \
 	thread-isolation-stress thread-isolation-soak
 
-.PHONY: help help-internal source-init bootstrap doctor doctor-threaded doctor-sdk doctor-foundation doctor-ast doctor-build \
+.PHONY: help help-internal source-init bootstrap doctor doctor-native doctor-threaded doctor-sdk doctor-foundation doctor-ast doctor-build \
 	doctor-python doctor-docs doctor-full-test doctor-release doctor-workflow \
 	verify-upstream postgresql-adapter-check check-layout version-check portability-check publication-check artifact-publication-check \
 	docs docs-api docs-check docs-serve \
@@ -1115,8 +1120,20 @@ PUBLIC_ARTIFACT_EVIDENCE := $(STATIC_SDK_DIST_DIR)/public-artifacts.json
 help:
 	@echo "PostGamma source and release targets"
 	@echo
+	@echo "  server-doctor / server-build / server-test   check tools, build or test the server"
+	@echo "  c-doctor / c-build / c-test                  check tools, package or test the C SDK"
+	@echo "  python-doctor / python-build / python-test   check tools, build or test the wheel"
+	@echo "  wasm-doctor / wasm-build / wasm-test         check tools, build or test the browser SDK"
+	@echo "  docs-doctor                    validate documentation dependencies"
+	@echo "  full-test-doctor               check installed native/Wasm tools and all three browsers"
+	@echo "  wasm-browser-doctor            check installed browser libraries and launch all three engines"
+	@echo "  full-test                      prepare tools, then run native and Wasm acceptance"
+	@echo "  full-test-prepare              prepare and check native/Wasm tools without full tests"
+	@echo "  wasm-alpha-test                add two active hours per browser to Wasm acceptance"
+	@echo
 	@echo "  source-init                    initialize pinned PostgreSQL and pgvector sources"
-	@echo "  doctor                         validate every local development dependency"
+	@echo "  doctor                         check native, Python, docs, Wasm and all browser dependencies"
+	@echo "  doctor-native                  check native/Python/docs release dependencies"
 	@echo "  doctor-threaded                validate threaded PostgreSQL build dependencies"
 	@echo "  doctor-sdk                     validate native C SDK dependencies"
 	@echo "  doctor-python                  validate native and Python wheel dependencies"
@@ -1128,7 +1145,7 @@ help:
 	@echo "  upstream-weekly                fetch PG_BRANCH and run the full weekly canary"
 	@echo "  embedded-runtime-fast-check    run the fast in-process runtime gates"
 	@echo "  embedded-runtime-check         run the complete embedded product gate"
-	@echo "  complete-source-check          run the complete source validation graph"
+	@echo "  complete-source-check          run the native source validation graph"
 	@echo "  embedded-conformance-check     compare the public API with PostgreSQL 19"
 	@echo "  embedded-lifecycle-check       validate open, recovery, and shutdown"
 	@echo "  embedded-query-check           validate typed in-process SQL execution"
@@ -1140,11 +1157,36 @@ help:
 	@echo "  python-package-check           build and validate the local wheel"
 	@echo "  static-sdk-package             build the tested static C SDK archive"
 	@echo "  docs                           build the documentation website strictly"
+	@echo "  wasm-toolchain-setup           install reusable SDK/npm build tools without browsers"
+	@echo "  wasm-setup                     install reusable Wasm probe tools"
+	@echo "  doctor-wasm                    legacy SDK/Chromium probe check (use wasm-doctor for builds)"
+	@echo "  wasm-probe-build               compile the Wasm toolchain smoke probe"
+	@echo "  wasm-probe-check               run the Wasm smoke probe in Chromium"
+	@echo "  wasm-platform-check            check Wasm ABI, pthread, TLS, stack, and libc"
+	@echo "  wasm-wait-check                check Wasm waits, deadlines, and cancellation"
+	@echo "  wasm-recovery-check            check Wasm longjmp and error recovery"
+	@echo "  wasm-opfs-check                check OPFS file semantics and proxy costs"
+	@echo "  wasm-browser-setup             install the pinned three-engine browser matrix"
+	@echo "  wasm-browser-check             check browser startup and deployment failures"
+	@echo "  wasm-resource-check            measure capacity and refresh the platform budget"
+	@echo "  wasm-target-check              verify initial kernel target and width decision"
+	@echo "  wasm-vector-check              check pgvector queries, indexes, and recovery"
+	@echo "  wasm-vector-serve              serve the persistent vector search example"
+	@echo "  wasm-package                   package an already generated Wasm kernel"
+	@echo "  wasm-ci               run the local Chromium CI stages with diagnostics"
+	@echo "  wasm-check-full       run pinned SQL, vector, recovery, package and browser gates"
+	@echo "  wasm-weekly           validate current PostgreSQL master in an isolated build"
+	@echo "  wasm-matrix-check     measure the installed package across pinned browsers"
+	@echo "  wasm-package-check             install and validate an independent consumer"
+	@echo "  wasm-sdk-check                 check prepared SQL, codecs, cancellation and COPY in three browsers"
+	@echo "  wasm-logical-check             check streaming pg_dump/restore and native archive interoperability"
+	@echo "  wasm-bundler-check             build and exercise Vite and webpack consumers"
+	@echo "  wasm-clean                     remove Wasm output and retain installed tools"
 	@echo "  docs-serve                     serve documentation on DOCS_DEV_ADDR"
 	@echo "  version-check                  validate VERSION, release tag, and mirrors"
 	@echo "  publication-check              validate product metadata and attribution"
 	@echo "  artifact-publication-check     check release payloads for build-host paths"
-	@echo "  release-candidate              test and build every local release artifact"
+	@echo "  release-candidate              test and build native release artifacts and docs"
 	@echo "  clean                          remove reproducible build products"
 	@echo "  help-internal                  show compatibility and maintainer targets"
 
@@ -1158,8 +1200,8 @@ help-internal:
 	@echo "  doctor-build          require the internal native build dependencies"
 	@echo "  doctor-python         require native and Python wheel dependencies"
 	@echo "  doctor-docs           require documentation dependencies"
-	@echo "  doctor-release        compatibility alias for the complete doctor"
-	@echo "  doctor-full-test      require the complete validation toolchain"
+	@echo "  doctor-release        check native release dependencies, including Python and docs"
+	@echo "  doctor-full-test      internal native validation toolchain check"
 	@echo "  verify-upstream       require the pinned, clean PostgreSQL submodule"
 	@echo "  postgresql-adapter-check validate adapter/source major compatibility"
 	@echo "  portability-check     check source files for build-host path dependencies"
@@ -1307,25 +1349,50 @@ docs-api:
 		--root "$(ROOT)" \
 		--output "$(DOCS_GENERATED_DIR)/python-api.md"
 
-docs-check: doctor-docs docs-api portability-check publication-check
-	@$(PYTHON) -m unittest tests.buildsys.test_documentation
+.PHONY: docs-wasm
+docs-wasm:
+	@$(PYTHON) buildsys/docs_wasm.py --build-dir "$(BUILD_DIR)" --package "$(DOCS_WASM_PACKAGE)"
+
+.PHONY: docs-live-check
+DOCS_LIVE_ENGINES ?= chromium,firefox,webkit
+DOCS_LIVE_CLIENTS ?= psql,js,opfs
+docs-live-check: docs
+	@$(PYTHON) buildsys/docs_live_check.py --root "$(ROOT)" --build-dir "$(BUILD_DIR)" --engines "$(DOCS_LIVE_ENGINES)" --clients "$(DOCS_LIVE_CLIENTS)"
+
+docs-check: doctor-docs docs-api docs-wasm portability-check publication-check
+	@$(PYTHON) -m unittest tests.buildsys.test_documentation tests.buildsys.test_docs_wasm tests.buildsys.test_docs_tls
 	@$(PYTHON) buildsys/check_documentation.py \
 		--root "$(ROOT)" --output "$(DOCS_EVIDENCE)"
 	@NO_MKDOCS_2_WARNING=1 \
 		POSTGAMMA_DOCS_GENERATED_DIR="$(DOCS_GENERATED_DIR)" \
+		POSTGAMMA_DOCS_WASM_DIR="$(DOCS_BUILD_DIR)/browser" \
 		$(MKDOCS) build --strict --config-file "$(ROOT)/mkdocs.yml" \
 		--site-dir "$(DOCS_SITE_DIR)"
 
 docs: docs-check
 
-docs-serve: docs-api
+docs-serve:
+	@docs_probe_status=0; \
+		$(PYTHON) buildsys/docs_serve.py --root "$(ROOT)" --address "$(DOCS_DEV_ADDR)" || docs_probe_status=$$?; \
+		if [[ $$docs_probe_status == 1 ]]; then \
+			$(MAKE) --no-print-directory docs-serve-start; \
+		elif [[ $$docs_probe_status != 0 ]]; then exit $$docs_probe_status; fi
+
+.PHONY: docs-serve-start
+docs-serve-start: docs-api docs-wasm
 	@$(PYTHON) buildsys/check_documentation.py --root "$(ROOT)"
 	@NO_MKDOCS_2_WARNING=1 \
 		POSTGAMMA_DOCS_GENERATED_DIR="$(DOCS_GENERATED_DIR)" \
+		POSTGAMMA_DOCS_WASM_DIR="$(DOCS_BUILD_DIR)/browser" \
+		POSTGAMMA_DOCS_HTTPS="$(DOCS_HTTPS)" \
+		POSTGAMMA_DOCS_TLS_CERT="$(DOCS_TLS_CERT)" \
+		POSTGAMMA_DOCS_TLS_KEY="$(DOCS_TLS_KEY)" \
+		POSTGAMMA_DOCS_TLS_HOSTS="$(DOCS_TLS_HOSTS)" \
+		POSTGAMMA_DOCS_TLS_DIR="$(DOCS_BUILD_DIR)/tls" \
 		$(MKDOCS) serve --strict --config-file "$(ROOT)/mkdocs.yml" \
 		--dev-addr "$(DOCS_DEV_ADDR)"
 
-doctor:
+doctor-native:
 	@CC="$(CC)" CXX="$(CXX)" AR="$(AR)" NM="$(NM)" \
 		READELF="$(READELF)" STRACE="$(STRACE)" OBJCOPY="$(OBJCOPY)" \
 		MKDOCS="$(MKDOCS)" DOXYGEN="$(DOXYGEN)" \
@@ -1383,7 +1450,7 @@ doctor-full-test:
 		STRACE="$(STRACE)" $(PYTHON) buildsys/doctor.py --root "$(ROOT)" \
 		--build-dir "$(BUILD_DIR)" --jobs "$(JOBS)" --require-profile full-test
 
-doctor-release: doctor
+doctor-release: doctor-native
 
 bootstrap: doctor-foundation check-layout portability-check verify-upstream postgresql-adapter-check
 
@@ -5377,3 +5444,6 @@ check-head: doctor-full-test doctor-python python-release-candidate-check
 clean:
 	@$(PYTHON) buildsys/reset_directory.py \
 		--path "$(BUILD_DIR)" --within "$(ROOT)" --remove-only
+
+include $(ROOT)/buildsys/wasm.mk
+include $(ROOT)/buildsys/make/products.mk

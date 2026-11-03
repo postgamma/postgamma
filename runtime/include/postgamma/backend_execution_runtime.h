@@ -260,8 +260,10 @@ int postgamma_backend_schedule(PostgammaBackendRegistry *registry,
 						   PostgammaBackendId id);
 int postgamma_backend_notify(PostgammaBackendRegistry *registry,
 						 PostgammaBackendId id, bool runnable);
+/* Snapshot before draining role work and probing transport readiness. */
 int postgamma_backend_schedule_epoch(PostgammaBackendRegistry *registry,
 								 PostgammaBackendId id, uint64_t *epoch);
+/* EAGAIN preserves a newer wake: yield and let the scheduler resume the role. */
 int postgamma_backend_prepare_yield(PostgammaBackendRegistry *registry,
 								PostgammaBackendId id,
 								uint64_t observed_schedule_epoch,

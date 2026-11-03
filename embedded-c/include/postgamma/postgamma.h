@@ -259,6 +259,9 @@ typedef int32_t pgm_maintenance_kind;
 #define PGM_LOGICAL_CREATE UINT32_C(0x0008)
 #define PGM_LOGICAL_NO_OWNER UINT32_C(0x0010)
 #define PGM_LOGICAL_NO_PRIVILEGES UINT32_C(0x0020)
+/* Restore only; incompatible with CREATE. */
+#define PGM_LOGICAL_SINGLE_TRANSACTION UINT32_C(0x0040)
+/* Frozen ABI v1.2 mask; SINGLE_TRANSACTION is an additive restore-only flag. */
 #define PGM_LOGICAL_FLAGS_ALL UINT32_C(0x003f)
 
 typedef struct pgm_setting
@@ -284,6 +287,11 @@ typedef struct pgm_bundled_extension_info
 	{sizeof(pgm_bundled_extension_info), UINT32_C(0), UINT32_C(0), \
 	 UINT32_C(0), UINT64_C(0), NULL, NULL, NULL}
 
+/*
+ * size counts payload bytes, excluding any terminator. Text payloads containing
+ * a NUL byte are rejected with PGM_STATUS_INVALID_ARGUMENT. Binary payloads may
+ * contain NUL bytes, subject to the PostgreSQL type's binary input rules.
+ */
 typedef struct pgm_parameter
 {
 	uint32_t	struct_size;

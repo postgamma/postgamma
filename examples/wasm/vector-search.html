@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postgamma — vector search</title>
+<style>
+body {font: 17px/1.6 system-ui; max-width: 720px; margin: 48px auto; padding: 0 20px; color: #18212f;}
+button, input {font: inherit; padding: 8px 12px; margin: 4px 0;}
+table {border-collapse: collapse; width: 100%;} th, td {text-align: left; padding: 8px; border-bottom: 1px solid #ddd;}
+#status {min-height: 2em;} label {display: block;}
+</style>
+<h1>postgamma vector search</h1>
+<p>Search three sample documents with pgvector. The database stays in this browser across reopens.</p>
+<button id="open" type="button">Open database</button>
+<button id="close" type="button" disabled>Close database</button>
+<form id="vector-search">
+  <label for="coordinates">Query vector</label>
+  <input id="coordinates" value="[1,1,1]" required>
+  <button id="search" disabled>Search</button>
+</form>
+<p id="status" role="status">Open the database to start.</p>
+<table><thead><tr><th>ID</th><th>Document</th><th>Distance</th></tr></thead><tbody id="results"></tbody></table>
+<script type="module" src="./vector-example.js"></script>
+</html>

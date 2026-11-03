@@ -31,7 +31,7 @@ def compile_manifest(
     controls: dict[str, Any],
 ) -> dict[str, Any]:
     names = catalog_names(catalog)
-    owners = policy_owners(policy)
+    owners = policy_owners(policy, catalog_names(catalog))
     validate_alignment(names, owners)
     if hooks.get("schema_version") != 1 or hooks.get("kind") != HOOK_KIND:
         raise PolicyError(f"hooks: expected schema_version 1 and kind {HOOK_KIND}")

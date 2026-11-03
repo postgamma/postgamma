@@ -1,4 +1,4 @@
-# PostgreSQL inside your application. { #pg-v3-heading .pg-document-title }
+# PostgreSQL in your app, agent, and browser { #pg-v3-heading .pg-document-title }
 
 <div class="pg-home pg-home-v3">
 
@@ -9,10 +9,10 @@
   </a>
   <div class="pg-product-links">
     <a href="#architecture">Architecture</a>
-    <a href="#sdks">SDKs</a>
+    <a href="#sdks">Run modes</a>
     <a href="#use-cases">Use cases</a>
     <a href="blog/">Blog</a>
-    <a href="getting-started/">Documentation</a>
+    <a href="overview/">Documentation</a>
   </div>
   <div class="pg-product-actions">
     <a class="pg-github-link" href="https://github.com/postgamma/postgamma" target="_blank" rel="noopener noreferrer" aria-label="postgamma on GitHub, 0 stars" title="postgamma on GitHub" data-pg-github-stars data-pg-repository-api="https://api.github.com/repos/postgamma/postgamma">
@@ -25,37 +25,120 @@
       <span class="pg-theme-icon pg-theme-icon--sun" aria-hidden="true"></span>
       <span class="pg-theme-icon pg-theme-icon--moon" aria-hidden="true"></span>
     </button>
-    <a class="pg-nav-cta" href="getting-started/">Quickstart <span aria-hidden="true">↗</span></a>
+    <a class="pg-nav-cta" href="overview/#choose-your-path">Quickstart <span aria-hidden="true">↗</span></a>
   </div>
 </nav>
 
 <header class="pg-v3-hero" aria-labelledby="pg-v3-heading">
   <div class="pg-v3-hero-copy">
-    <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · embedded runtime</p>
-    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong>inside your application.</strong></div>
-    <p class="pg-v3-lead">Run PostgreSQL in your application process—with transactions, WAL, crash recovery, and bundled extensions, but no database server to install or supervise.</p>
+    <p class="pg-v3-eyebrow"><span></span> PostgreSQL 19 · native + browser</p>
+    <div class="pg-v3-display" aria-hidden="true"><span class="pg-v3-morph" data-pg-word-morph>PostgreSQL</span><strong>In your app, agent, and browser</strong></div>
+    <p class="pg-v3-lead">Give your apps and AI agents PostgreSQL. Embed it with Python or C, run it as a threaded server, or use it in your browser.</p>
     <div class="pg-v3-actions">
-      <a class="pg-action pg-action--primary" href="getting-started/">Build your first app <span aria-hidden="true">↗</span></a>
-      <a class="pg-action pg-action--secondary" href="concepts/architecture/">Explore the architecture</a>
+      <a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live <span aria-hidden="true">↗</span></a>
+      <a class="pg-action pg-action--secondary" href="overview/#choose-your-path">Build your first app</a>
     </div>
     <ul class="pg-v3-facts" aria-label="Supported platform and license">
-      <li><span aria-hidden="true"></span> Linux x86-64</li>
-      <li><span aria-hidden="true"></span> glibc 2.17+</li>
+      <li><span aria-hidden="true"></span> Embedded · Server · Browser</li>
+      <li><span aria-hidden="true"></span> Server source build · Browser preview</li>
       <li><span aria-hidden="true"></span> PostGamma · Apache-2.0</li>
     </ul>
   </div>
 
-  <div class="pg-v3-demo" aria-label="PostGamma API quickstart" data-pg-code-switcher>
+  <div id="live-demo" class="pg-v3-demo" aria-label="PostGamma live demo and SDK quickstarts" data-pg-code-switcher>
     <div class="pg-demo-head">
       <div class="pg-demo-dots" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="pg-code-tabs" role="tablist" aria-label="Choose an SDK quickstart" data-pg-code-tabs>
-        <button id="pg-tab-python" type="button" role="tab" aria-selected="true" aria-controls="pg-panel-python" tabindex="0" data-pg-code-tab>Python</button>
+        <button id="pg-tab-browser" type="button" role="tab" aria-selected="true" aria-controls="pg-panel-browser" tabindex="0" data-pg-code-tab>Browser Live</button>
+        <button id="pg-tab-python" type="button" role="tab" aria-selected="false" aria-controls="pg-panel-python" tabindex="-1" data-pg-code-tab>Python</button>
         <button id="pg-tab-static" type="button" role="tab" aria-selected="false" aria-controls="pg-panel-static" tabindex="-1" data-pg-code-tab>Static C</button>
       </div>
-      <span class="pg-demo-file">quickstart</span>
+      <button type="button" class="pg-live-expand" data-pg-live-expand aria-label="Expand demo" title="Expand demo">⤢</button>
     </div>
     <div>
-      <div id="pg-panel-python" class="pg-code-panel" role="tabpanel" aria-labelledby="pg-tab-python" tabindex="0">
+      <div id="pg-panel-browser" class="pg-code-panel pg-live" role="tabpanel" aria-labelledby="pg-tab-browser" data-pg-live>
+        <div class="pg-psql" data-pg-psql>
+          <div class="pg-psql-workspace">
+          <div class="pg-psql-frame">
+            <div class="pg-psql-screen" data-pg-psql-terminal aria-label="Interactive psql terminal" aria-busy="true">Loading PostgreSQL…</div>
+            <div class="pg-psql-loading" data-pg-psql-loading>
+              <div class="pg-psql-loading-title"><span class="pg-psql-spinner" aria-hidden="true"></span><strong data-pg-psql-loading-title>Starting PostgreSQL</strong></div>
+              <div class="pg-psql-percentage" data-pg-psql-loading-percent>1 / 3</div>
+              <div class="pg-psql-progress" data-pg-psql-progress role="progressbar" aria-label="Completed startup stages" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0" aria-valuetext="Step 1 of 3"><span></span></div>
+              <p data-pg-psql-loading-detail>Preparing your browser</p>
+              <div class="pg-psql-loading-note"><span>Elapsed</span><span aria-hidden="true">·</span><span data-pg-psql-loading-time>0s</span></div>
+            </div>
+            <section id="pg-live-report" class="pg-psql-report" data-pg-psql-report aria-label="Diagnostic report" hidden>
+              <div class="pg-psql-report-head"><strong>Diagnostic report</strong><button type="button" data-pg-psql-report-back>Back to terminal</button></div>
+              <label class="pg-psql-report-option"><input type="checkbox" data-pg-psql-report-terminal> Include recent SQL and terminal output</label>
+              <textarea data-pg-psql-report-text readonly spellcheck="false" wrap="off" aria-label="Diagnostic report text"></textarea>
+              <div class="pg-psql-report-actions"><button type="button" data-pg-psql-report-refresh>Refresh</button><button type="button" data-pg-psql-report-copy>Copy report</button></div>
+              <p data-pg-psql-report-notice role="status" aria-live="polite">Created locally. Review before sharing.</p>
+            </section>
+          </div>
+          <aside id="pg-psql-examples" class="pg-psql-examples" data-pg-examples hidden aria-label="Runnable PostgreSQL examples">
+            <div class="pg-examples-head"><strong>Explore PostgreSQL</strong><button type="button" data-pg-examples-hide aria-label="Hide examples">×</button></div>
+            <nav class="pg-examples-list" data-pg-examples-list aria-label="Choose an example"></nav>
+            <div class="pg-example-detail">
+              <p data-pg-example-description>Loading examples…</p>
+              <p class="pg-example-expected" data-pg-example-expected></p>
+              <details open><summary>SQL script</summary><pre><code data-pg-example-sql></code></pre></details>
+              <div class="pg-example-actions"><button type="button" data-pg-example-insert disabled>Insert</button><button type="button" class="pg-example-run" data-pg-example-run disabled>Run example</button></div>
+            </div>
+            <div class="pg-examples-check">
+              <button type="button" data-pg-example-check disabled>Run quick check</button>
+              <span>4 small checks · results included in Report</span>
+              <ol data-pg-example-results aria-label="Check results" hidden></ol>
+            </div>
+            <p class="pg-examples-status" data-pg-example-status role="status" aria-live="polite"></p>
+          </aside>
+          </div>
+          <noscript>Enable JavaScript to use the psql terminal.</noscript>
+          <div class="pg-live-footer pg-psql-footer">
+            <span data-pg-psql-status role="status" aria-live="polite" data-state="loading">Loading PostgreSQL…</span>
+            <span class="pg-psql-hint">In-memory · \? for help</span>
+            <div class="pg-psql-controls">
+              <button type="button" class="pg-examples-toggle" data-pg-examples-toggle aria-controls="pg-psql-examples" aria-expanded="false">Examples</button>
+              <button type="button" data-pg-psql-report-open aria-controls="pg-live-report" aria-expanded="false" title="Generate a diagnostic report">Report</button>
+              <button type="button" data-pg-psql-cancel disabled>Ctrl+C</button>
+              <button type="button" data-pg-psql-reset disabled title="Discard this database and start a new one">Reset</button>
+              <button type="button" data-pg-psql-close disabled>Close</button>
+            </div>
+          </div>
+        </div>
+        <div data-pg-legacy hidden>
+        <div class="pg-live-toolbar">
+          <label for="pg-live-example">Explore</label>
+          <select id="pg-live-example" aria-label="SQL example" data-pg-live-example>
+            <option value="sql">SQL &amp; aggregation</option>
+            <option value="json">JSONB documents</option>
+            <option value="transaction">Transactions</option>
+            <option value="vector">Vector search</option>
+          </select>
+          <span class="pg-live-badge">Preview</span>
+        </div>
+        <label class="pg-live-sr" for="pg-live-sql">SQL editor</label>
+        <textarea id="pg-live-sql" data-pg-live-sql spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="pg-live-hint">SELECT category,
+       count(*) AS orders,
+       sum(total) AS revenue
+FROM demo_orders
+GROUP BY category
+ORDER BY revenue DESC;</textarea>
+        <div class="pg-live-actions">
+          <button type="button" class="pg-live-run" data-pg-live-run>Start &amp; run</button>
+          <button type="button" data-pg-live-cancel disabled>Cancel</button>
+          <button type="button" data-pg-live-reset disabled title="Create a fresh in-memory database">Reset</button>
+          <button type="button" data-pg-live-close disabled title="Close the database and release its resources">Close</button>
+          <span id="pg-live-hint">Ctrl / ⌘ ↵</span>
+        </div>
+        <div class="pg-live-results" data-pg-live-results tabindex="0" aria-label="Query results">
+          <div class="pg-live-empty"><span class="pg-live-prompt" aria-hidden="true">&gt;_</span><strong>Your browser. A real PostgreSQL database.</strong><p>Edit the SQL, then start the demo.<br>Sample data stays in memory for this visit.</p></div>
+        </div>
+        <div class="pg-live-footer"><span data-pg-live-status role="status" aria-live="polite" data-state="idle">Not started</span><span data-pg-live-detail>Runs locally in your browser</span></div>
+        </div>
+        <noscript><p>Enable JavaScript to run the browser demo. The Python and C quickstarts are available in the documentation.</p></noscript>
+      </div>
+      <div id="pg-panel-python" class="pg-code-panel" role="tabpanel" aria-labelledby="pg-tab-python" tabindex="0" hidden>
 <pre><code><span class="pg-code-keyword">import</span> postgamma
 
 <span class="pg-code-keyword">with</span> postgamma.connect(<span class="pg-code-string">"agent.pgm"</span>,
@@ -92,20 +175,13 @@
 }</code></pre>
       </div>
     </div>
-    <div class="pg-demo-foot">
-      <span><i aria-hidden="true"></i> Embedded cluster ready</span>
-      <code>no SQL socket</code>
-    </div>
-    <div class="pg-runtime-line" aria-label="Your process contains the PostgreSQL engine">
-      <span>Your process</span><i aria-hidden="true"></i><strong>PostgreSQL 19</strong>
-    </div>
   </div>
 </header>
 
 <section class="pg-proof-strip" aria-label="Technical support baseline">
   <div><strong>19</strong><span>PostgreSQL core</span></div>
   <div><strong>3.10–3.14</strong><span>CPython wheels</span></div>
-  <div><strong>2.17+</strong><span>glibc baseline</span></div>
+  <div><strong>2.17+</strong><span>Wheel glibc baseline</span></div>
   <div><strong>C ABI</strong><span>Static SDK</span></div>
   <div><strong>0.8.6</strong><span>Bundled pgvector</span></div>
 </section>
@@ -114,25 +190,32 @@
   <section id="sdks" class="pg-v3-section pg-v3-sdks" aria-labelledby="sdks-heading">
     <div class="pg-v3-section-head pg-v3-section-head--compact">
       <div>
-        <p class="pg-v3-kicker">Python and C</p>
-        <h2 id="sdks-heading">Choose the interface that fits.</h2>
+        <p class="pg-v3-kicker">Embedded, Server and Browser</p>
+        <h2 id="sdks-heading">Choose how you run PostgreSQL.</h2>
       </div>
-      <p>Both SDKs bundle the same PostgreSQL kernel and version-matched resources. Neither requires an installed PostgreSQL server.</p>
+      <p>Own the database inside your app, connect to a threaded server, or run SQL locally in the browser.</p>
     </div>
-    <div class="pg-v3-sdk-grid">
-      <article class="pg-v3-sdk pg-v3-sdk--python">
-        <div class="pg-sdk-head"><span>PY</span><div><strong>Python SDK</strong><small>Native CPython wheel</small></div><em>3.10–3.14</em></div>
-        <h3>Install once.<br>Import normally.</h3>
-        <p>The wheel bundles the Python API, PostgreSQL kernel, and version-matched resources for each supported CPython ABI. Install the current alpha from PyPI, or see <a href="downloads/">downloads</a> for the wheels and static C SDK.</p>
-        <div class="pg-install-line"><pre><code>python -m pip install "postgamma=={{ POSTGAMMA_VERSION }}"</code></pre><span aria-hidden="true">$</span></div>
-        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python quickstart</a><a class="pg-inline-link" href="python/">API reference ↗</a></div>
+    <div class="pg-v3-sdk-grid pg-sdk-three">
+      <article class="pg-v3-sdk pg-v3-sdk--embedded">
+        <div class="pg-sdk-head"><span>API</span><div><strong>Embedded</strong><small>Python + Static C</small></div><em>Published alpha</em></div>
+        <h3>PostgreSQL inside<br>your application.</h3>
+        <p>Import the Python package or link <code>libpostgamma.a</code>. Your app owns the database lifecycle, with no separate server to manage. Install the current alpha from PyPI, or see <a href="downloads/">downloads</a> for the wheels and static C SDK.</p>
+        <div class="pg-install-line"><pre><code>postgamma.connect("agent.pgm")</code></pre><span aria-hidden="true">&gt;</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="getting-started/">Python guide</a><a class="pg-inline-link" href="getting-started/c-static/">C guide ↗</a></div>
       </article>
-      <article class="pg-v3-sdk pg-v3-sdk--c">
-        <div class="pg-sdk-head"><span>C</span><div><strong>Static C SDK</strong><small>Stable public ABI</small></div><em>Linux x86-64</em></div>
-        <h3>Link PostgreSQL<br>into native software.</h3>
-        <p>Link against <code>libpostgamma.a</code>; its stable public ABI keeps PostgreSQL implementation types private.</p>
-        <div class="pg-install-line"><pre><code>pkg-config --static --libs postgamma</code></pre><span aria-hidden="true">$</span></div>
-        <div class="pg-sdk-links"><a class="pg-action pg-action--secondary" href="getting-started/c-static/">Static C quickstart</a><a class="pg-inline-link" href="c/">C API ↗</a></div>
+      <article class="pg-v3-sdk pg-v3-sdk--server">
+        <div class="pg-sdk-head"><span>PG</span><div><strong>Server</strong><small>Threaded PostgreSQL</small></div><em>Source build</em></div>
+        <h3>A familiar server.<br>A threaded engine.</h3>
+        <p>Run PostgreSQL roles as threads in a standalone server. Connect with psql or a PostgreSQL driver. Build from source today; a separate server binary package is not yet available.</p>
+        <div class="pg-install-line"><pre><code>make threaded-postgresql-build</code></pre><span aria-hidden="true">$</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--secondary" href="server/quickstart/">Build from source</a><a class="pg-inline-link" href="server/">Server guide ↗</a></div>
+      </article>
+      <article class="pg-v3-sdk pg-v3-sdk--browser">
+        <div class="pg-sdk-head"><span>JS</span><div><strong>Browser</strong><small>WebAssembly + Workers</small></div><em>Preview</em></div>
+        <h3>Real PostgreSQL.<br>Right in your browser.</h3>
+        <p>Run SQL, JSONB, transactions and pgvector locally. Start in memory, or explicitly enable OPFS storage. The browser package is currently built from source.</p>
+        <div class="pg-install-line"><pre><code>const db = await Database.open();</code></pre><span aria-hidden="true">&gt;</span></div>
+        <div class="pg-sdk-links"><a class="pg-action pg-action--primary" href="#live-demo" data-pg-try-live>Try it live</a><a class="pg-inline-link" href="getting-started/browser/">Browser guide ↗</a></div>
       </article>
     </div>
   </section>
@@ -141,9 +224,9 @@
     <div class="pg-v3-section-head">
       <div>
         <p class="pg-v3-kicker">The PostgreSQL core, reframed</p>
-        <h2 id="architecture-heading">Keep the database semantics.<br><em>Lose the service boundary.</em></h2>
+        <h2 id="architecture-heading">Keep the database semantics.<br><em>Choose the runtime boundary.</em></h2>
       </div>
-      <p>PostGamma changes PostgreSQL’s deployment model while preserving its database behavior. Your application owns startup and shutdown; PostgreSQL still owns parsing, planning, catalogs, transactions, WAL, and recovery.</p>
+      <p>The threaded kernel powers each mode. PostgreSQL owns parsing, planning, catalogs, transactions, WAL, and recovery; you choose an embedded API, a server connection, or a browser Worker.</p>
     </div>
 
     <div class="pg-v3-bento">
@@ -162,7 +245,7 @@
       </article>
 
       <article class="pg-v3-card pg-v3-card--process">
-        <div class="pg-v3-card-index"><span>02</span> In-process</div>
+        <div class="pg-v3-card-index"><span>02</span> Embedded mode</div>
         <h3>One process.<br>One lifecycle.</h3>
         <p>No database server to install, configure, or supervise.</p>
         <div class="pg-process-frame" aria-label="Application and PostgreSQL share one process">
@@ -175,7 +258,7 @@
       </article>
 
       <article class="pg-v3-card pg-v3-card--lifecycle">
-        <div class="pg-v3-card-index"><span>03</span> Explicit ownership</div>
+        <div class="pg-v3-card-index"><span>03</span> Embedded lifecycle</div>
         <h3>Open, connect, query, and close explicitly.</h3>
         <ol class="pg-mini-flow">
           <li><span>01</span><strong>Open</strong><small>initialize or recover</small></li>
@@ -202,11 +285,11 @@
 
   <section id="use-cases" class="pg-v3-section pg-v3-fit" aria-labelledby="use-cases-heading">
     <div class="pg-fit-intro">
-      <p class="pg-v3-kicker">Built for local software</p>
+      <p class="pg-v3-kicker">Embedded and browser use cases</p>
       <h2 id="use-cases-heading">Put PostgreSQL where a separate service does not fit.</h2>
       <div class="pg-choice-note">
         <span>Choose deliberately</span>
-        <p>PostGamma is not a universal replacement for a PostgreSQL server. Each cluster directory can be owned by only one live OS process at a time.</p>
+        <p>Use embedded mode when the app owns its database. For independent clients, explore the <a href="server/">threaded server source build</a>. Each native cluster directory still has one owner process.</p>
         <a class="pg-inline-link" href="getting-started/why-postgamma/">Read the selection guide <span aria-hidden="true">↗</span></a>
       </div>
     </div>
@@ -220,11 +303,11 @@
   <section class="pg-v3-final" aria-labelledby="final-heading">
     <div>
       <p class="pg-v3-kicker">Start small. Keep PostgreSQL.</p>
-      <h2 id="final-heading">Give your application<br>a path and ordinary SQL.</h2>
+      <h2 id="final-heading">Choose your runtime.<br>Run your first query.</h2>
     </div>
     <div>
-      <p>The quickstart shows what PostGamma creates, where the cluster lives, and how to reopen it safely.</p>
-      <div class="pg-v3-actions"><a class="pg-action pg-action--primary" href="getting-started/">Build your first app <span aria-hidden="true">↗</span></a><a class="pg-action pg-action--secondary" href="downloads/">Download</a></div>
+      <p>Start with the project overview, then follow the Python, C, server, or browser quickstart for your application.</p>
+      <div class="pg-v3-actions"><a class="pg-action pg-action--primary" href="overview/#choose-your-path">Build your first app <span aria-hidden="true">↗</span></a><a class="pg-action pg-action--secondary" href="downloads/">Download</a></div>
     </div>
   </section>
 </main>
@@ -232,7 +315,7 @@
 <footer class="pg-product-footer">
   <a class="pg-brand" href="./" aria-label="postgamma home"><span class="pg-brand-mark" aria-hidden="true"></span><span class="pg-brand-wordmark">postgamma</span></a>
   <p class="pg-product-copyright">Copyright &copy; 2026 Shujie Zhang</p>
-  <div><a href="blog/">Blog</a><a href="getting-started/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
+  <div><a href="blog/">Blog</a><a href="overview/">Docs</a><a href="downloads/">Downloads</a><a href="about/license/">Apache-2.0</a></div>
 </footer>
 
 </div>

@@ -1,0 +1,101 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import {createRequire} from 'node:module';
+import {writeFileSync, mkdtempSync, rmSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {parseArgs} from 'node:util';
+import assert from 'node:assert/strict';
+import {bounded, failureSnapshot} from '../browser/diagnostics.mjs';
+const {values} = parseArgs({options: {root: {type:'string'},url: {type:'string'},output: {type:'string'},
+  engine: {type:'string', default:'chromium'}, storage: {type:'string',default:'opfs'}, executable: {type:'string'}, 'no-faults': {type:'boolean'}}});
+const require = createRequire(resolve(values.root, 'wasm/package.json'));
+const playwright = require('playwright');
+const report = {status:'failed',engine:values.engine,playwright:require('playwright/package.json').version,cases:[]};
+let browser;
+const launchOptions = {headless:true,timeout:15000,
+  ...(values.executable ? {executablePath:values.executable} : values.engine==='chromium' ? {channel:'chromium'} : {})};
+async function waitForConsumer(page) {
+  const started = performance.now();
+  let stage, changed = started;
+  for (;;) {
+    const view = await bounded(() => page.evaluate(() => ({
+      result: window.probeResult, stage: window.probeProgress?.stage,
+    })), 5000);
+    assert(!view.error, view.error);
+    if (view.result != null) return;
+    const now = performance.now();
+    if (view.stage !== stage) {stage = view.stage; changed = now;}
+    // Fresh OPFS initialization and archive restore each have their own work.
+    // Retain the original stall deadline, with a separate bounded total run.
+    assert(now - changed < 120000, `Package stage ${stage} made no progress for 120 seconds`);
+    assert(now - started < 300000, 'Package consumer exceeded five minutes');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+try {
+  assert(['all','opfs','ephemeral'].includes(values.storage));
+  const profiles = values.storage === 'all' ? ['ephemeral','opfs'] : [values.storage];
+  const cases = [...profiles.map(storage => ({name:'consumer-' + storage,storage})), ...(values['no-faults'] ? [] : [
+    {name:'identity',json:{buildId:'wrong-build'},expected:/build identity mismatch/},
+    {name:'protocol',json:{protocolVersion:0},expected:/bridge protocol mismatch/},
+    {name:'wasm',asset:'postgamma.wasm',expected:/asset integrity mismatch/},
+    {name:'resources',asset:'postgamma.data',expected:/asset integrity mismatch/},
+    {name:'worker',asset:'src/worker/sql.js',missing:true,expected:/Asset download failed/},
+    {name:'isolation',expected:/cross-origin isolation/},
+  ])];
+  for (const scenario of cases) {
+    // OPFS acceptance uses ordinary browser storage. Nonpersistent WebKit
+    // contexts disable getDirectory(), even though a disk profile supports it.
+    const profile = scenario.storage === 'opfs' ? mkdtempSync(resolve(tmpdir(), 'pgm-opfs-')) : undefined;
+    let context;
+    const row = {name:scenario.name,storage:scenario.storage,context:profile?'persistent':'nonpersistent',status:'failed',pageErrors:[],failedRequests:[],httpErrors:[],console:[]}; report.cases.push(row);
+    try {
+      if (profile) {
+        await browser?.close(); browser = undefined;
+        context = await playwright[values.engine].launchPersistentContext(profile, launchOptions);
+      } else {
+        browser ??= await playwright[values.engine].launch(launchOptions);
+        context = await browser.newContext();
+      }
+      report.browserVersion = context.browser().version();
+      const page = context.pages()[0] || await context.newPage();
+      page.on('pageerror', error => row.pageErrors.push(String(error)));
+      page.on('console', message => row.console.push({type:message.type(),text:message.text()}));
+      page.on('response', response => {if(response.status() >= 400) row.httpErrors.push({url:response.url(),status:response.status()});});
+      page.on('requestfailed', request => row.failedRequests.push(request.url()));
+      if (scenario.json) await context.route('**/postgamma.assets.json', async route => {
+        const response = await route.fetch(); const data = await response.json();
+        await route.fulfill({response,json:{...data,...scenario.json}});
+      });
+      if (scenario.asset) await context.route('**/' + scenario.asset, route => route.fulfill({
+        status:scenario.missing ? 404 : 200,body:'injected mismatched asset'}));
+      if (scenario.name==='isolation') await page.route('**/consumer.html?*', async route => {
+        const response = await route.fetch(); const headers = response.headers();
+        delete headers['cross-origin-opener-policy']; delete headers['cross-origin-embedder-policy'];
+        await route.fulfill({response,headers});
+      });
+      await page.goto(values.url + (scenario.expected ? '?fault=' + scenario.name : '?storage=' + scenario.storage), {timeout:15000});
+      const started = performance.now();
+      try {
+        if (scenario.expected) await page.waitForFunction(() => window.probeResult != null, undefined, {timeout:15000});
+        else await waitForConsumer(page);
+      } catch (error) {
+        row.progress = await bounded(() => page.evaluate(() => window.probeProgress));
+        row.failureSnapshot = await failureSnapshot(page);
+        throw error;
+      } finally {row.elapsedMs = performance.now() - started;}
+      row.probe = await page.evaluate(() => window.probeResult);
+      if (scenario.expected) {
+        assert.equal(row.probe.status,'rejected'); assert.match(row.probe.error,scenario.expected);
+      } else {
+        assert.equal(row.probe.status,'passed',row.probe.error); assert(row.probe.ticks >= 2);
+        assert.deepEqual(row.failedRequests,[]); assert.deepEqual(row.httpErrors,[]);
+      }
+      assert.deepEqual(row.pageErrors,[]); row.status='passed';
+    } catch (error) {row.error=String(error.stack||error);}
+    finally {await context?.close(); if (profile) rmSync(profile,{recursive:true,force:true}); writeFileSync(values.output,JSON.stringify(report,null,2)+'\n');}
+  }
+  assert(report.cases.every(row=>row.status==='passed'), 'One or more package cases failed');
+  report.status='passed';
+} catch (error) {report.error=String(error.stack||error); process.exitCode=1;}
+finally {if(browser) await browser.close(); writeFileSync(values.output,JSON.stringify(report,null,2)+'\n');}

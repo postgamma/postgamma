@@ -1911,7 +1911,8 @@ schedule_slot_locked(
 {
 	int			status;
 
-	/* Signals and ordinary wakes must also invalidate a pending idle decision. */
+	/* Every runnable wake, including virtual signals, invalidates an idle
+	 * decision made by the running quantum before this work arrived. */
 	if (slot->schedule_epoch == UINT64_MAX)
 		return EOVERFLOW;
 	slot->schedule_epoch++;

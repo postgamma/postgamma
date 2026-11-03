@@ -294,6 +294,13 @@ def positive_integer(value: Any, label: str) -> int:
     return value
 
 
+def validate_static_module_summary(extensions: dict[str, Any]) -> None:
+    """Check the native bundle inventory, including built-in conversions."""
+    require(extensions, "bundle.module_count", 5)
+    require(extensions, "bundle.sdk_module_count", 2)
+    require(extensions, "bundle.registered_symbol_count", 246)
+
+
 def validate_product_evidence(
     public_api: dict[str, Any],
     multi: dict[str, Any],
@@ -399,9 +406,7 @@ def validate_product_evidence(
         require(conformance, f"candidate_host_safety.{field}", 0)
 
     require(extensions, "postgresql_major", 19)
-    require(extensions, "bundle.module_count", 4)
-    require(extensions, "bundle.sdk_module_count", 2)
-    require(extensions, "bundle.registered_symbol_count", 241)
+    validate_static_module_summary(extensions)
     require(extensions, "ast.translation_units", 20)
     require(extensions, "ast.mutable_static_candidates", 16)
     require(extensions, "ast.virtualized_role_candidates", 16)

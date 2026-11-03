@@ -58,6 +58,22 @@ class LogicalReleaseTests(unittest.TestCase):
             0,
         )
 
+    def test_live_policy_preserves_frozen_logical_flags(self) -> None:
+        core = json.loads((PROJECT_ROOT / "manifests/api/c-core-abi-v1.json").read_text())
+        prior = json.loads((PROJECT_ROOT / "manifests/api/c-abi-v1-1.json").read_text())
+        numerics = check_c_api_contract.flatten_numeric_registry(self.policy)
+        closure = {"numeric_registry": {"values": numerics}}
+        check_logical_release.validate_numerics(self.baseline, prior, core, closure)
+        self.assertEqual(numerics["PGM_LOGICAL_SINGLE_TRANSACTION"], 64)
+        for name, value in (("PGM_LOGICAL_FLAGS_ALL", 127), ("PGM_LOGICAL_CREATE", 64)):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(closure)
+                changed["numeric_registry"]["values"][name] = value
+                with self.assertRaisesRegex(
+                    check_logical_release.LogicalReleaseCheckError, "released numeric value changed"
+                ):
+                    check_logical_release.validate_numerics(self.baseline, prior, core, changed)
+
     def test_requires_all_process_safe_logical_tool_providers(self) -> None:
         report = {
             "status": "pass",
@@ -95,22 +111,52 @@ class LogicalReleaseTests(unittest.TestCase):
                 for name in expected
             },
         }
+        # Streaming logical tools track returned PGresults with libpq events.
+        # Include their actual references independently of the baseline so an
+        # omitted event entry cannot hide behind a self-consistent fixture.
+        event_symbols = (
+            "PQregisterEventProc",
+            "PQresultInstanceData",
+            "PQresultSetInstanceData",
+        )
+        report["namespaced_symbols"].update(
+            (name, "postgamma_private_libpq_symbol_" + name)
+            for name in event_symbols
+        )
         self.assertEqual(
             check_logical_release.validate_logical_tool_namespace(
                 self.baseline, report
             ),
             len(expected),
         )
-        report["namespaced_symbols"]["PQconnectdbParams"] = (
-            "postgamma_private_libpq_symbol_PQconnectdbParams"
-        )
-        with self.assertRaisesRegex(
-            check_logical_release.LogicalReleaseCheckError,
-            "reviewed baseline",
-        ):
-            check_logical_release.validate_logical_tool_namespace(
-                self.baseline, report
-            )
+        for name in event_symbols:
+            for mutation in ("missing", "unprefixed"):
+                with self.subTest(name=name, mutation=mutation):
+                    changed = copy.deepcopy(report)
+                    if mutation == "missing":
+                        del changed["namespaced_symbols"][name]
+                    else:
+                        changed["namespaced_symbols"][name] = name
+                    with self.assertRaisesRegex(
+                        check_logical_release.LogicalReleaseCheckError,
+                        "reviewed baseline",
+                    ):
+                        check_logical_release.validate_logical_tool_namespace(
+                            self.baseline, changed
+                        )
+        for name in ("PQconnectdbParams", "PQunreviewed"):
+            with self.subTest(extra=name):
+                changed = copy.deepcopy(report)
+                changed["namespaced_symbols"][name] = (
+                    "postgamma_private_libpq_symbol_" + name
+                )
+                with self.assertRaisesRegex(
+                    check_logical_release.LogicalReleaseCheckError,
+                    "reviewed baseline",
+                ):
+                    check_logical_release.validate_logical_tool_namespace(
+                        self.baseline, changed
+                    )
 
     def test_rejects_socket_backed_cancel_symbols_from_namespace(self) -> None:
         changed = copy.deepcopy(self.baseline)

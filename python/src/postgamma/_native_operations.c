@@ -646,7 +646,8 @@ native_operation_logical(PyObject *self, PyObject *args, PyObject *kwargs, bool 
 			&capsule, &stream, &flags, &database, &user,
 			&channel_capacity, &progress_quantum))
 		return NULL;
-	if ((flags & ~PGM_LOGICAL_FLAGS_ALL) != 0 || channel_capacity == 0 ||
+	if ((flags & ~(PGM_LOGICAL_FLAGS_ALL | PGM_LOGICAL_SINGLE_TRANSACTION)) != 0 ||
+		channel_capacity == 0 ||
 		progress_quantum == 0 || channel_capacity > (unsigned long long) SIZE_MAX ||
 		progress_quantum > (unsigned long long) SIZE_MAX)
 	{

@@ -1,0 +1,566 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import {createRequire} from 'node:module';
+import {writeFileSync, mkdirSync} from 'node:fs';
+import {resolve, dirname} from 'node:path';
+import {parseArgs} from 'node:util';
+import assert from 'node:assert/strict';
+const {values} = parseArgs({options: {root: {type: 'string'}, url: {type: 'string'},
+  output: {type: 'string'}, engine: {type: 'string', default: 'chromium'},
+  executable: {type: 'string'}, 'static-host': {type: 'boolean'}}});
+const require = createRequire(resolve(values.root, 'wasm/package.json'));
+const playwright = require('playwright');
+const report = {status: 'failed', engine: values.engine, staticHost: !!values['static-host'], cases: [], errors: [], requestsFailed: [], webSockets: [], externalRequests: []};
+function passed(...cases) {report.cases.push(...cases); console.log('passed: ' + cases.join(', '));}
+mkdirSync(dirname(values.output), {recursive: true});
+let browser, page;
+try {
+  browser = await playwright[values.engine].launch({headless: true, timeout: 20000,
+    ...(values.executable ? {executablePath: values.executable} : values.engine === 'chromium' ? {channel: 'chromium'} : {})});
+  report.browserVersion = browser.version();
+  const context = await browser.newContext({viewport: {width: 1440, height: 1000}});
+  page = await context.newPage(); page.setDefaultTimeout(45000);
+  page.on('pageerror', error => report.errors.push(String(error)));
+  page.on('websocket', socket => report.webSockets.push(socket.url()));
+  page.on('requestfailed', request => {if (request.url().startsWith(values.url)) report.requestsFailed.push(request.url());});
+  if (new URL(values.url).protocol === 'http:') await context.route('https://**/*', route => route.abort());
+  let navigations = 0, downloads = 0, exampleDownloads = 0;
+  page.on('framenavigated', frame => {if (frame === page.mainFrame()) navigations++;});
+  page.on('request', request => {if (/postgamma\.(wasm|data)/.test(request.url())) downloads++;});
+  page.on('request', request => {if (request.url().includes('/psql-examples.js')) exampleDownloads++;});
+  page.on('request', request => {
+    if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(values.url).origin)
+      report.externalRequests.push(request.url());
+  });
+  await context.addInitScript(() => {
+    window.psqlText = () => {
+      const term = document.querySelector('[data-pg-psql-terminal]')?.terminal;
+      if (!term) return '';
+      const buffer = term.buffer.active, end = buffer.baseY + buffer.cursorY;
+      let text = '';
+      for (let row = 0; row <= end; row++) {
+        if (row && !buffer.getLine(row).isWrapped) text += '\n';
+        text += buffer.getLine(row).translateToString(row !== end, 0, row === end ? buffer.cursorX : undefined);
+      }
+      return text;
+    };
+  });
+  const screen = page.locator('[data-pg-psql-terminal]'), input = screen.locator('textarea');
+  const read = () => page.evaluate(() => window.psqlText());
+  const diagnosticText = page.locator('[data-pg-psql-report-text]');
+  async function openReport() {
+    await page.locator('[data-pg-psql-report-open]').click();
+    assert(await page.locator('[data-pg-psql-report]').isVisible());
+    return JSON.parse(await diagnosticText.inputValue());
+  }
+  async function closeReport() {
+    await page.locator('[data-pg-psql-report-back]').click();
+    assert(await page.locator('[data-pg-psql-report]').isHidden());
+  }
+  async function paste(text) {
+    await input.focus();
+    await input.evaluate((element, text) => {
+      // Firefox empties DataTransfer on synthetic ClipboardEvent dispatch.
+      // Supply the clipboard interface directly and exercise xterm's real handler.
+      const event = new Event('paste', {bubbles: true, cancelable: true});
+      Object.defineProperty(event, 'clipboardData', {value: {getData: type => type === 'text/plain' ? text : ''}});
+      element.dispatchEvent(event);
+    }, text);
+  }
+  async function ready(prompt = 'postgres=# ') {
+    await page.waitForFunction(prompt => document.querySelector('[data-pg-psql-status]')?.textContent === 'Ready' &&
+      window.psqlText().endsWith(prompt), prompt);
+  }
+  async function promptFits() {
+    // Check the rendered cursor cell against the clipping container and footer,
+    // not just scrollWidth: overflow:hidden can conceal an oversized terminal.
+    assert(await screen.evaluate(el => {
+      const term = el.terminal, buffer = term.buffer.active;
+      const frame = el.getBoundingClientRect(), grid = el.querySelector('.xterm-screen').getBoundingClientRect();
+      const footer = document.querySelector('.pg-psql-footer').getBoundingClientRect();
+      const row = buffer.baseY + buffer.cursorY - buffer.viewportY;
+      const top = grid.top + row * grid.height / term.rows;
+      return buffer.viewportY === buffer.baseY && top >= frame.top - .5 &&
+        top + grid.height / term.rows <= Math.min(frame.bottom, footer.top) + .5 &&
+        grid.right <= frame.right + .5;
+    }), 'the complete input row fits above the status bar after scrollback');
+  }
+  async function command(text, expected, prompt = 'postgres=# ') {
+    const before = await read();
+    await paste(text); await input.press('Enter');
+    await page.waitForFunction(({before, expected, prompt}) => window.psqlText() !== before &&
+      window.psqlText().endsWith(prompt) && new RegExp(expected, 's').test(window.psqlText()),
+      {before, expected: expected.source, prompt});
+    await ready(prompt);
+    return await read();
+  }
+  let releaseStartup;
+  if (!values['static-host']) {
+    const gate = new Promise(resolve => {releaseStartup = resolve;});
+    await context.route('**/assets/wasm/demo.json', async route => {await gate; await route.continue();});
+  }
+  await page.goto(values.url, {waitUntil: 'domcontentloaded'});
+  if (releaseStartup) {
+    const loading = page.locator('[data-pg-psql-loading]');
+    await page.waitForFunction(() => document.querySelector('[data-pg-psql-loading-title]').textContent === 'Loading PostgreSQL');
+    const diagnostic = await openReport();
+    assert.equal(diagnostic.phase, 'fetching-package-metadata');
+    assert.equal(diagnostic.runtime.opening, true);
+    assert.equal(diagnostic.package, null);
+    assert.equal(diagnostic.terminal.included, false);
+    assert.equal(diagnostic.environment.isolated, true);
+    assert.equal(diagnostic.pageTiming.firstPsqlPromptMs, null);
+    await closeReport();
+    assert(await loading.isVisible());
+    assert(await screen.evaluate(el => el.inert));
+    assert((await screen.boundingBox()).height <= 370, 'loading keeps the compact terminal height');
+    assert.equal(await page.locator('[data-pg-psql-loading-example]').count(), 0);
+    const progress = page.locator('[data-pg-psql-progress]');
+    const firstProgress = Number(await progress.getAttribute('aria-valuenow'));
+    await page.waitForFunction(() => /^[1-9]\d*s$/.test(document.querySelector('[data-pg-psql-loading-time]').textContent));
+    const {completed, label} = await progress.evaluate(el => ({completed: Number(el.getAttribute('aria-valuenow')),
+      label: document.querySelector('[data-pg-psql-loading-percent]').textContent}));
+    assert.equal(completed, firstProgress, 'elapsed time cannot advance an unfinished stage');
+    assert.equal(completed, 1, 'browser setup has completed; engine startup is pending');
+    assert.equal(label, '2 / 3');
+    assert.equal(diagnostic.runtime.estimatedStartupPercent, null);
+    const frame = await loading.boundingBox(), number = await page.locator('[data-pg-psql-loading-percent]').boundingBox();
+    assert(Math.abs(number.x + number.width / 2 - frame.x - frame.width / 2) < 2, 'loading percentage is centered');
+    assert.match(await page.locator('[data-pg-psql-loading-time]').textContent(), /[1-9]\d*s/);
+    await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-loading.png')});
+    await page.setViewportSize({width: 390, height: 844});
+    await page.locator('#live-demo').scrollIntoViewIfNeeded();
+    assert(await loading.evaluate(el => el.scrollHeight <= el.clientHeight + 1), 'mobile loading content fits');
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-loading-mobile.png')});
+    await page.setViewportSize({width: 1440, height: 1000});
+    releaseStartup();
+    // Keep this now-open gate installed: removing it while route.continue()
+    // resumes can double-handle the request. Other routes, including the
+    // offline HTTPS guard, must remain in place too.
+    passed('actual-startup-stages-elapsed-time-and-compact-mobile-layout');
+    passed('diagnostic-report-works-while-startup-is-blocked');
+  }
+  await ready();
+  const cancelledPrompt = await page.evaluate(async () => {
+    const {PsqlScreen} = await import(new URL('assets/javascripts/psql-terminal.js', document.baseURI));
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:-10000px;width:400px;height:250px';
+    document.body.append(host);
+    let submitted = '';
+    const screen = new PsqlScreen(host, {line: text => {submitted = text;}, error: error => {throw error;}});
+    try {
+      await screen.output('postgres-# ', () => true);
+      await screen.cancel();
+      await screen.output('', () => true);
+      await screen.output('\r\npostgres=# ', () => true);
+      const prefix = screen.prefix;
+      await screen.insert('SELECT 42;', true);
+      const buffer = screen.term.buffer.active;
+      const line = buffer.getLine(buffer.baseY + buffer.cursorY - 1).translateToString(true);
+      return {prefix, submitted, line};
+    } finally {screen.observer.disconnect(); await screen.work; screen.term.dispose(); host.remove();}
+  });
+  assert.deepEqual(cancelledPrompt, {prefix: 'postgres=# ', submitted: 'SELECT 42;\n', line: 'postgres=# SELECT 42;'});
+  passed('cancel-empty-input-poll-refreshes-the-real-prompt');
+  const preloads = await page.locator('#pg-live-modules').evaluate(el =>
+    JSON.parse(el.textContent).map(path => new URL(path, document.baseURI).href));
+  assert(preloads.some(url => url.endsWith('/assets/wasm/src/api/database.js')));
+  assert(preloads.some(url => url.endsWith('/assets/javascripts/psql-terminal.js')));
+  assert(preloads.every(url => url.startsWith(values.url) && !/\.(wasm|data)$/.test(url) && !url.includes('/worker/')),
+    'early imports stay below the deployment prefix and leave Workers and verified native downloads to the loader');
+  await page.evaluate(() => document.fonts.ready);
+  assert(await page.evaluate(() => {
+    const faces = [...document.fonts];
+    return ['Space Grotesk', 'IBM Plex Mono'].every(name =>
+      faces.some(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded'));
+  }), 'the original page fonts load from the static site');
+  // The existing GitHub star counter is optional and independent of startup.
+  assert.deepEqual(report.externalRequests.filter(url => new URL(url).hostname !== 'api.github.com'), []);
+  passed('parallel-module-imports-and-local-fonts-without-a-font-cdn');
+  assert(downloads >= 2, 'Wasm and database assets download automatically');
+  assert.equal(await page.locator('[data-pg-psql-start], [data-pg-psql-send]').count(), 0);
+  assert.equal(await input.evaluate(el => getComputedStyle(el).opacity), '0');
+  assert.match(await read(), /psql \(/);
+  assert.doesNotMatch(await read(), /could not find a .*psql.* to execute/);
+  assert(await page.locator('[data-pg-psql-loading]').isHidden());
+  assert((await screen.boundingBox()).height <= 370, 'compact terminal height');
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-ready.png')});
+  report.isolated = await page.evaluate(() => isSecureContext && crossOriginIsolated && typeof SharedArrayBuffer === 'function');
+  assert.equal(report.isolated, true);
+  assert.equal(navigations, values['static-host'] ? 2 : 1);
+  passed('automatic-real-psql-startup-with-inline-terminal', values['static-host'] ? 'pages-project-prefix-service-worker-one-reload' : 'native-headers-no-reload');
+  // Drive the terminal's real keyboard and clipboard events, with no separate
+  // command input or submit button and no direct calls into the database SDK.
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'startup does not expand');
+  assert.equal(exampleDownloads, 0, 'examples stay off the startup download path');
+  await input.focus(); await input.press('ArrowLeft'); await input.press('Backspace');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'control keys do not expand');
+  await page.keyboard.type('S');
+  await page.waitForSelector('dialog[open]');
+  await page.waitForFunction(() => window.psqlText().endsWith('postgres=# S'));
+  await page.waitForSelector('[data-example="sql"]');
+  assert(await page.locator('[data-pg-example-run]').isEnabled(), 'typing keeps example controls visually stable');
+  const draftBeforeExample = await read();
+  await page.locator('[data-pg-example-run]').click();
+  assert.equal(await read(), draftBeforeExample, 'Run example preserves unsubmitted input');
+  assert.match(await page.locator('[data-pg-example-status]').textContent(), /Finish or clear/);
+  assert.equal(await page.locator('[data-pg-example-results] li').count(), 0, 'blocked example does not start');
+  assert(await input.evaluate(el => el === document.activeElement), 'expansion retains keyboard focus');
+  await page.screenshot({path: values.output.replace(/\.json$/, '-first-input.png')});
+  await page.keyboard.type('ELECT 123;');
+  await page.waitForFunction(() => window.psqlText().endsWith('postgres=# SELECT 123;'));
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  await input.press('ArrowLeft'); await input.press('Backspace');
+  await page.keyboard.type('4'); await input.press('End'); await input.press('Enter');
+  await page.waitForFunction(() => /\n\s*124\s*\n/.test(window.psqlText())); await ready();
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'typing after collapse stays compact');
+  passed('first-character-expands-once-without-losing-input-or-focus');
+  await input.press('ArrowUp'); await input.press('Home'); await input.press('Delete');
+  await page.keyboard.type('S'); await input.press('Control+e'); await input.press('Enter'); await ready();
+  await page.waitForFunction(() => window.psqlText().endsWith('(1 row)\n\npostgres=# '));
+  await page.keyboard.type('draft'); await input.press('ArrowUp'); await input.press('ArrowDown');
+  await page.waitForFunction(() => window.psqlText().endsWith('postgres=# draft'));
+  await input.press('Control+u');
+  await page.keyboard.insertText("SELECT '中文e\u0301🙂"); await input.press('Backspace'); await input.press('Backspace');
+  await page.keyboard.insertText("' AS edited;"); await input.press('Enter');
+  await page.waitForFunction(() => /edited\s*\n[-]+\s*\n 中文/.test(window.psqlText())); await ready();
+  await input.press('Control+l'); await ready();
+  await paste("SELECT length('" + 'a'.repeat(3000) + "') AS long_input;");
+  await input.press('Home'); await input.press('Delete'); await page.keyboard.type('S');
+  await input.press('End'); await input.press('Enter');
+  await page.waitForFunction(() => /\n\s*3000\s*\n/.test(window.psqlText())); await ready();
+  assert.equal((await read()).split('postgres=# SELECT length(').length - 1, 1, 'long input echoes once');
+  passed('inline-echo-cursor-edit-delete-home-end-history-draft-unicode-grapheme-ctrl-l');
+  const downloadsBeforeExamples = downloads;
+  await page.locator('[data-pg-live-expand]').click();
+  await page.locator('[data-example="json"]').click();
+  await page.locator('[data-pg-example-insert]').click();
+  await page.waitForFunction(() => window.psqlText().includes('CREATE TEMP TABLE pg_live_') && window.psqlText().endsWith('ROLLBACK;'));
+  assert.equal(await page.locator('[data-pg-psql-status]').textContent(), 'Ready', 'Insert does not submit any SQL');
+  assert(await page.locator('[data-pg-example-check]').isEnabled());
+  const insertedDraft = await read();
+  await page.locator('[data-pg-example-check]').click();
+  assert.equal(await read(), insertedDraft, 'Quick check preserves the inserted draft');
+  assert.match(await page.locator('[data-pg-example-status]').textContent(), /Finish or clear/);
+  await input.press('Control+u'); await ready();
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-pg-example-results] li[data-state="passed"]').length === 4 &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  await ready();
+  const checked = await openReport();
+  assert.equal(checked.runtime.examples.running, false);
+  assert.deepEqual(checked.runtime.examples.results.map(row => [row.id, row.status]),
+    [['sql', 'passed'], ['json', 'passed'], ['transaction', 'passed'], ['vector', 'passed']]);
+  assert.equal(checked.terminal.included, false);
+  await closeReport();
+  await page.locator('[data-example="parallel"]').click();
+  await page.locator('[data-pg-example-run]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'passed' &&
+    !document.querySelector('[data-pg-example-run]').disabled);
+  assert.match(await read(), /Workers Planned: 2/); assert.match(await read(), /Workers Launched: 2/);
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-examples.png')});
+  await command('BEGIN;', /BEGIN/, 'postgres=*# ');
+  const transactionBeforeExample = await read();
+  await page.locator('[data-pg-example-run]').click();
+  assert.equal(await read(), transactionBeforeExample, 'examples do not enter a user transaction');
+  assert.match(await page.locator('[data-pg-example-status]').textContent(), /standard idle psql prompt/);
+  await command('ROLLBACK;', /ROLLBACK/);
+  await command('SELECT', /postgres-# /, 'postgres-# ');
+  const multilineBeforeExample = await read();
+  await page.locator('[data-pg-example-run]').click();
+  assert.equal(await read(), multilineBeforeExample, 'examples do not append to multiline SQL');
+  assert.match(await page.locator('[data-pg-example-status]').textContent(), /standard idle psql prompt/);
+  await input.press('Control+c'); await ready();
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'running');
+  await page.locator('[data-pg-psql-cancel]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li[data-state="cancelled"]') &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  await command('SELECT 82 AS after_example_cancel;', /\n\s*82\s*\n/);
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await command('SET default_transaction_read_only = on;', /SET/);
+  await page.locator('[data-pg-example-check]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li[data-state="failed"]') &&
+    !document.querySelector('[data-pg-example-check]').disabled);
+  const failedCheck = await openReport();
+  assert(failedCheck.runtime.examples.results.some(row => row.status === 'failed' && row.error.includes('read-only')));
+  await closeReport();
+  await command('SET default_transaction_read_only = off;', /SET/);
+  await page.locator('[data-example="sql"]').click();
+  await page.locator('[data-pg-example-run]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-example-results] li')?.dataset.state === 'passed' &&
+    !document.querySelector('[data-pg-example-run]').disabled);
+  assert.equal(downloads, downloadsBeforeExamples, 'examples reuse the original Wasm instance');
+  await page.evaluate(() => {
+    document.querySelector('[data-pg-example-check]').click();
+    document.querySelector('[data-pg-psql-reset]').click();
+  });
+  await ready();
+  await page.waitForFunction(() => !document.querySelector('[data-pg-example-check]').disabled);
+  const resetCheck = await openReport();
+  assert.equal(resetCheck.runtime.examples.running, false);
+  assert(resetCheck.runtime.examples.results.some(row => row.status === 'cancelled'));
+  await closeReport();
+  await command("SELECT count(*) AS leftover_examples FROM pg_class WHERE relname LIKE 'pg_live_%';", /leftover_examples\s*\n[-]+\s*\n\s*0/);
+  await page.setViewportSize({width: 390, height: 844});
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-terminal]').inert);
+  assert(await page.locator('[data-pg-psql-terminal]').evaluate(el => el.inert), 'mobile drawer does not accept hidden terminal input');
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-examples-mobile.png')});
+  await page.locator('[data-pg-examples-hide]').click();
+  assert(!(await screen.evaluate(el => el.inert)));
+  await page.locator('[data-pg-examples-toggle]').click();
+  await page.locator('[data-pg-examples-hide]').press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(), 1, 'Escape dismisses the drawer before the terminal');
+  await page.setViewportSize({width: 1440, height: 1000});
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  passed('lazy-examples-insert-without-submit-four-real-checks-report-and-two-launched-workers',
+    'examples-protect-drafts-transactions-and-multiline-input-cancel-cleanup-and-mobile-drawer',
+    'failed-sql-check-reports-real-error-cleans-up-and-retries', 'reset-cancels-examples-without-writing-into-the-new-session');
+  await command('\\?', /General.*\\copyright.*quit psql/);
+  await command('CREATE DATABASE terminal_test;', /CREATE DATABASE/);
+  await command('\\c terminal_test', /You are now connected to database "terminal_test"/, 'terminal_test=# ');
+  await command('CREATE TABLE t1(c1 integer, c2 text);', /CREATE TABLE/, 'terminal_test=# ');
+  await command("INSERT INTO t1 VALUES (100, '你好');", /INSERT 0 1/, 'terminal_test=# ');
+  const rows = await command('SELECT * FROM t1;', /100\s*\| 你好/, 'terminal_test=# ');
+  assert.match(rows, /\(1 row\)/);
+  await command('\\d t1', /Table "public.t1".*integer.*text/, 'terminal_test=# ');
+  await command('\\l', /List of databases.*terminal_test/, 'terminal_test=# ');
+  passed('help-create-database-connect-ddl-insert-select-describe-list-unicode');
+  await command('SELECT * FROM missing_table;', /ERROR:.*does not exist/, 'terminal_test=# ');
+  await paste('SELECT 81 AS pending_report;');
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 81 AS pending_report;'));
+  const beforeReport = await read(), reportFrame = await screen.boundingBox();
+  const diagnostic = await openReport();
+  assert.equal(diagnostic.kind, 'postgamma.live-diagnostics');
+  assert.equal(diagnostic.diagnosticsVersion, 1);
+  assert.equal(diagnostic.phase, 'ready');
+  assert(diagnostic.pageTiming.firstPsqlPromptMs >= diagnostic.pageTiming.domContentLoadedMs);
+  assert(diagnostic.pageTiming.firstPsqlPromptMs <= diagnostic.pageTiming.elapsedMs);
+  assert.equal(diagnostic.runtime.storage, 'memory');
+  assert.equal(diagnostic.runtime.active, true);
+  assert.match(diagnostic.package.buildId, /^[a-f0-9]+$/);
+  assert.equal(diagnostic.terminal.included, false);
+  assert(!Object.hasOwn(diagnostic.terminal, 'text'));
+  assert(!(await diagnosticText.inputValue()).includes('missing_table'), 'SQL and terminal output are opt-in');
+  await page.locator('[data-pg-psql-report-terminal]').check();
+  const withTerminal = JSON.parse(await diagnosticText.inputValue());
+  assert.match(withTerminal.terminal.text, /missing_table/);
+  assert.match(withTerminal.terminal.text, /ERROR:.*does not exist/);
+  // Exercise both clipboard paths without depending on OS clipboard permissions.
+  await page.evaluate(() => {
+    window.reportClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    window.reportExecCommand = document.execCommand;
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
+      writeText: async text => {window.copiedReport = text;}
+    }});
+  });
+  await page.locator('[data-pg-psql-report-copy]').click();
+  assert.equal(await page.evaluate(() => window.copiedReport), await diagnosticText.inputValue());
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async () => {throw new Error('Clipboard blocked for test');};
+    document.execCommand = () => false;
+  });
+  await page.locator('[data-pg-psql-report-copy]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-report-notice]').textContent.startsWith('Text selected'));
+  assert(await diagnosticText.evaluate(el => el.selectionStart === 0 && el.selectionEnd === el.value.length));
+  await page.evaluate(() => {
+    if (window.reportClipboardDescriptor) Object.defineProperty(navigator, 'clipboard', window.reportClipboardDescriptor);
+    else delete navigator.clipboard;
+    document.execCommand = window.reportExecCommand;
+  });
+  await page.setViewportSize({width: 320, height: 740});
+  assert(await page.locator('[data-pg-psql-report]').evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1));
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.locator('#live-demo').screenshot({path: values.output.replace(/\.json$/, '-report-mobile.png')});
+  await page.setViewportSize({width: 1440, height: 1000});
+  assert(Math.abs((await screen.boundingBox()).height - reportFrame.height) < .5, 'report does not enlarge the compact terminal');
+  await page.locator('[data-pg-psql-report-terminal]').uncheck();
+  await closeReport(); assert.equal(await read(), beforeReport, 'report preserves terminal contents and input');
+  await input.press('Enter'); await ready('terminal_test=# ');
+  assert.match(await read(), /\n\s*81\s*\n/);
+  passed('diagnostic-report-build-environment-opt-in-sql-copy-fallback-and-mobile-layout');
+  await command('\\c missing_database', /does not exist.*Previous connection kept/, 'terminal_test=# ');
+  await command('SELECT 42 AS recovered;', /\n\s*42\s*\n/, 'terminal_test=# ');
+  await command('BEGIN; INSERT INTO t1 VALUES(200, \'rolled back\'); ROLLBACK;', /BEGIN.*INSERT 0 1.*ROLLBACK/, 'terminal_test=# ');
+  await command('SELECT count(*) FROM t1;', /\n\s*1\s*\n/, 'terminal_test=# ');
+  passed('sql-error-failed-reconnect-keeps-session-rollback');
+  await command('SELECT', /terminal_test-# /, 'terminal_test-# ');
+  await command('73 AS multiline;', /\n\s*73\s*\n/, 'terminal_test=# ');
+  await command('SELECT', /terminal_test-# /, 'terminal_test-# ');
+  await input.press('Control+c'); await ready('terminal_test=# ');
+  await command('SELECT 74 AS after_input_cancel;', /\n\s*74\s*\n/, 'terminal_test=# ');
+  await paste('SELECT pg_sleep(30);'); await input.press('Enter');
+  // A query-side acknowledgement prevents cancellation from racing submission.
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Running…');
+  const busyReport = await openReport();
+  assert.equal(busyReport.phase, 'executing');
+  assert.equal(busyReport.runtime.active, true);
+  await closeReport();
+  await page.waitForTimeout(300);
+  await page.locator('[data-pg-psql-cancel]').click();
+  await page.waitForFunction(() => window.psqlText().includes('canceling statement'));
+  await ready('terminal_test=# ');
+  await command('SELECT 75 AS after_query_cancel;', /\n\s*75\s*\n/, 'terminal_test=# ');
+  passed('multiline-input-cancel-query-cancel-and-reuse');
+  await command('COPY t1 FROM STDIN;\n300\tcopy-input\n\\.', /COPY 1/, 'terminal_test=# ');
+  await command('COPY (SELECT c1 FROM t1 ORDER BY c1) TO STDOUT;', /\n100\n300\n/, 'terminal_test=# ');
+  await command("SELECT '<img src=x onerror=alert(1)>' AS literal;", /\(1 row\)/, 'terminal_test=# ');
+  assert.equal(await screen.locator('img').count(), 0);
+  await command('SELECT generate_series(1, 30000);', /\(30000 rows\)/, 'terminal_test=# ');
+  assert(await screen.evaluate(el => el.terminal.buffer.active.length <= 2000 + el.terminal.rows));
+  await command('SELECT 76 AS after_output_backpressure;', /\n\s*76\s*\n/, 'terminal_test=# ');
+  await promptFits();
+  passed('copy-stdin-stdout-literal-rendering-bounded-output-backpressure');
+  await input.focus();
+  await screen.evaluate(el => {
+    window.inputFrames = {count: 0, emptyPrompt: 0};
+    window.inputFrameWatch = el.terminal.onRender(() => {
+      const buffer = el.terminal.buffer.active;
+      const text = buffer.getLine(buffer.baseY + buffer.cursorY).translateToString(true);
+      window.inputFrames.count++;
+      if (!text.startsWith('terminal_test=#')) window.inputFrames.emptyPrompt++;
+    });
+  });
+  await page.keyboard.type('SELECT 987654321 AS smooth;', {delay: 35});
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 987654321 AS smooth;'));
+  await input.press('Home'); await input.press('Delete'); await page.keyboard.type('S'); await input.press('End');
+  await page.waitForFunction(() => window.psqlText().endsWith('terminal_test=# SELECT 987654321 AS smooth;'));
+  report.inputFrames = await page.evaluate(() => {window.inputFrameWatch.dispose(); return window.inputFrames;});
+  assert(report.inputFrames.count > 0, 'observe actual terminal renders during typing and editing');
+  assert.equal(report.inputFrames.emptyPrompt, 0, 'typing must never render an erased input prompt');
+  await input.press('Enter');
+  await page.waitForFunction(() => /\n\s*987654321\s*\n/.test(window.psqlText())); await ready('terminal_test=# ');
+  passed('typing-and-cursor-edits-keep-the-prompt-visible-in-every-rendered-frame');
+  await command('\\c terminal_test postgamma example.com', /network connection strings are unavailable.*Previous connection kept/, 'terminal_test=# ');
+  await command('\\watch', /could not set timer/, 'terminal_test=# ');
+  await command('SELECT 77 AS after_unsupported_command;', /\n\s*77\s*\n/, 'terminal_test=# ');
+  passed('unsupported-host-and-watch-recover-without-network-proxy');
+  await page.locator('[data-pg-live-expand]').click(); assert.equal(await page.locator('dialog[open]').count(), 1);
+  await command('SELECT generate_series(1, 120);', /\(120 rows\)/, 'terminal_test=# ');
+  await promptFits();
+  await page.keyboard.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  await page.screenshot({path: values.output.replace(/\.json$/, '-desktop.png'), fullPage: true});
+  await page.setViewportSize({width: 390, height: 844});
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'mobile horizontal overflow');
+  await page.locator('#live-demo').scrollIntoViewIfNeeded();
+  const wrapped = "SELECT '" + 'long_'.repeat(14) + "' AS wrapped;";
+  await paste(wrapped); await input.press('Home'); await input.press('Delete'); await page.keyboard.type('S');
+  await input.press('End');
+  await page.locator('[data-pg-live-expand]').click();
+  await page.keyboard.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  await input.press('Enter');
+  await page.waitForFunction(() => window.psqlText().includes('(1 row)') && window.psqlText().endsWith('terminal_test=# '));
+  assert.match(await read(), /long_long_long_long_/); await ready('terminal_test=# ');
+  await promptFits();
+  await page.screenshot({path: values.output.replace(/\.json$/, '-mobile.png')});
+  passed('expand-collapse-mobile-layout-wrapped-input-resize-and-edit', 'scrollback-input-row-visible-in-compact-expanded-and-mobile-terminal');
+  await paste('\\q'); await input.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'psql exited (0)');
+  await input.press('Enter'); await ready();
+  await command("SELECT datname FROM pg_database WHERE datname = 'terminal_test';", /\(0 rows\)/);
+  await page.locator('[data-pg-psql-reset]').click(); await ready();
+  await paste('SELECT pg_sleep(30);'); await input.press('Enter');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'database reset does not rearm automatic expansion');
+  await page.waitForTimeout(300); await page.locator('[data-pg-psql-close]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
+  const count = downloads; await page.reload({waitUntil: 'domcontentloaded'});
+  await ready(); assert(downloads > count, 'reload starts a fresh session automatically');
+  await command('SELECT 78 AS after_reload;', /\n\s*78\s*\n/);
+  assert.equal(await page.locator('dialog[open]').count(), 1, 'first paste after page reload expands');
+  await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+  await input.press('Control+d');
+  await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
+  passed('quit-enter-to-restart-reset-close-active-query-reload-autostart-ctrl-d');
+  // A controlled service worker owns requests in the Pages profile; inject
+  // the unavailable-package response on the native-header host instead.
+  if (!values['static-host']) {
+    await context.route('**/assets/wasm/demo.json', route => route.fulfill({json: {available: false}}));
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Could not start');
+    assert.match(await read(), /has not been bundled/);
+    const failedReport = await openReport();
+    assert.equal(failedReport.phase, 'failed');
+    assert.equal(failedReport.errors.at(-1).phase, 'fetching-package-metadata');
+    assert.match(failedReport.errors.at(-1).message, /has not been bundled/);
+    assert(failedReport.errors.at(-1).stack.length > 0, 'original error stack survives startup cleanup');
+    await closeReport();
+    await context.unroute('**/assets/wasm/demo.json');
+    await input.press('Enter'); await ready();
+    assert.equal(await page.locator('dialog[open]').count(), 0, 'Enter to retry is not text input');
+    await input.focus(); await page.keyboard.insertText('中');
+    await page.waitForSelector('dialog[open]');
+    await page.waitForFunction(() => window.psqlText().endsWith('postgres=# 中'));
+    await input.press('Escape'); await page.waitForSelector('dialog', {state: 'detached'});
+    await input.press('Control+u');
+    await command('SELECT 79 AS after_startup_retry;', /\n\s*79\s*\n/);
+    const retryReport = await openReport();
+    assert.equal(retryReport.runtime.attempts, 2);
+    assert.match(retryReport.errors.at(-1).message, /has not been bundled/, 'retry retains the original error');
+    await closeReport();
+    assert.equal(await page.locator('dialog[open]').count(), 0, 'input events expand only once');
+    await page.locator('[data-pg-psql-close]').click();
+    await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
+    passed('automatic-startup-error-visible-and-enter-to-retry');
+    // Replacing an already loaded module across reload also catches stale
+    // preload caches: the changed response must reach the normal error path.
+    await context.route('**/assets/javascripts/psql-terminal.js', route => route.fulfill({contentType: 'text/javascript', body: 'throw new Error("terminal module failed for test");'}));
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent.includes('terminal module failed'));
+    const terminalReport = await openReport();
+    assert.equal(terminalReport.errors.at(-1).phase, 'loading-terminal');
+    assert.match(terminalReport.errors.at(-1).message, /terminal module failed/);
+    assert.equal(terminalReport.runtime.active, false);
+    await closeReport();
+    passed('diagnostic-report-survives-startup-retry-and-terminal-module-failure');
+  }
+  // Some embedded browsers expose no usable ServiceWorkerContainer. A native
+  // header host must still run; a Pages host must explain the missing capability
+  // without attempting registration or repeatedly reloading.
+  const restricted = await browser.newContext();
+  try {
+    await restricted.addInitScript(() => Object.defineProperty(navigator, 'serviceWorker', {value: undefined}));
+    const phone = await restricted.newPage();
+    phone.on('pageerror', error => report.errors.push(String(error)));
+    let phoneNavigations = 0, phoneDownloads = 0;
+    phone.on('framenavigated', frame => {if (frame === phone.mainFrame()) phoneNavigations++;});
+    phone.on('request', request => {if (/postgamma\.(wasm|data)/.test(request.url())) phoneDownloads++;});
+    await phone.goto(values.url, {waitUntil: 'domcontentloaded'});
+    await phone.waitForFunction(() => ['Ready', 'Could not start'].includes(document.querySelector('[data-pg-psql-status]')?.textContent));
+    await phone.locator('[data-pg-psql-report-open]').click();
+    const diagnostic = JSON.parse(await phone.locator('[data-pg-psql-report-text]').inputValue());
+    assert.equal(phoneNavigations, 1);
+    assert.equal(diagnostic.environment.serviceWorker, null);
+    if (values['static-host']) {
+      assert.equal(diagnostic.phase, 'failed');
+      assert.match(diagnostic.errors.at(-1).message, /Service Worker is unavailable.*COOP\/COEP/);
+      assert.equal(diagnostic.errors.at(-1).name, 'Error');
+      assert.equal(phoneDownloads, 0);
+      passed('missing-service-worker-explains-hosting-requirement-without-download-or-reload');
+    } else {
+      assert.equal(diagnostic.phase, 'ready');
+      assert.equal(diagnostic.runtime.active, true);
+      assert.equal(diagnostic.environment.isolated, true);
+      assert.deepEqual(diagnostic.errors, []);
+      await phone.locator('[data-pg-psql-report-back]').click();
+      await phone.locator('[data-pg-psql-close]').click();
+      await phone.waitForFunction(() => document.querySelector('[data-pg-psql-status]').textContent === 'Database closed');
+      passed('native-headers-run-real-psql-without-service-worker-api');
+    }
+  } finally {await restricted.close();}
+  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.requestsFailed, []);
+  assert.deepEqual(report.webSockets, []);
+  report.status = 'passed';
+} catch (error) {
+  report.error = error.stack; process.exitCode = 1;
+  if (page && !page.isClosed()) {
+    report.ui = await page.evaluate(() => ({status: document.querySelector('[data-pg-psql-status]')?.textContent,
+      examples: document.querySelector('[data-pg-example-results]')?.textContent,
+      exampleStatus: document.querySelector('[data-pg-example-status]')?.textContent,
+      output: window.psqlText?.()})).catch(() => null);
+    await page.screenshot({path: values.output.replace(/\.json$/, '-failure.png')}).catch(() => {});
+  }
+} finally {await browser?.close(); writeFileSync(values.output, JSON.stringify(report, null, 2) + '\n');}
+console.log(JSON.stringify(report));

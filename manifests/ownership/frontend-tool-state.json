@@ -29,6 +29,13 @@
       "synchronization": "pthread_once publishes the selected CRC implementation"
     },
     {
+      "availability": "conditional",
+      "condition": "!USE_SSE2 && !__i386__",
+      "id": "external:pg_cpu_x86_dummy_variable",
+      "owner": "library_immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
+    },
+    {
       "id": "external:pg_dir_create_mode",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
@@ -76,6 +83,13 @@
       "owner": "library_synchronized",
       "rationale": "one process-wide value with an explicit publication contract",
       "synchronization": "pthread_once publishes the selected popcount implementation"
+    },
+    {
+      "availability": "conditional",
+      "condition": "!HAVE_X86_64_POPCNTQ",
+      "id": "external:pg_popcount_x86_dummy_variable",
+      "owner": "library_immutable",
+      "rationale": "constant zero placeholder for an unavailable CPU-specific translation unit"
     },
     {
       "id": "external:progname",
@@ -290,6 +304,14 @@
       "replacement": "copy command status into result-owned storage and use numeric OID access"
     },
     {
+      "availability": "conditional",
+      "condition": "!WIN32 && !TRANSLATE_FROM_LANGINFO && !HAVE_LOCALECONV_L",
+      "id": "function_static:src/port/pg_localeconv_r.c:src/port/pg_localeconv_r.c:pg_localeconv_r:big_lock",
+      "owner": "library_synchronized",
+      "rationale": "the libc localeconv scratch buffer needs serialization across frontend tool invocations",
+      "synchronization": "the static pthread mutex protects copying from localeconv and is never cloned into tool state"
+    },
+    {
       "id": "function_static:src/port/strerror.c:src/port/strerror.c:pg_strerror:errorstr_buf",
       "owner": "forbidden",
       "rationale": "the upstream process-global behavior is unsafe in an embedded host",
@@ -302,24 +324,39 @@
       "synchronization": "pthread_once constructs and publishes the immutable GMT state"
     },
     {
+      "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:get_rand_u64:initialized",
+      "owner": "tool",
+      "rationale": "Random temporary-name initialization state belongs to one tool invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:infile:nada",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:inrule:r",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:inzsub:z",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "function_static:src/timezone/zic.c:src/timezone/zic.c:writezone:tzh",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/bin/initdb/findtimezone.c:src/bin/initdb/findtimezone.c::tzdirpath",
@@ -1278,12 +1315,23 @@
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::comment_leapexpires",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::corr",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::creat_perms",
+      "owner": "tool",
+      "rationale": "Per-invocation temporary output permissions.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::desigidx",
@@ -1296,6 +1344,13 @@
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
     },
     {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::directory_ends_in_slash",
+      "owner": "tool",
+      "rationale": "Cached property of the invocation output directory.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::errors",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
@@ -1303,7 +1358,23 @@
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::filename",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::filenum",
+      "owner": "tool",
+      "rationale": "Current input file index for invocation diagnostics.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::got_signal",
+      "owner": "tool",
+      "rationale": "Pending signal state for the current tool invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::hi_time",
@@ -1319,6 +1390,20 @@
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::lcltime",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leap",
+      "owner": "tool",
+      "rationale": "Invocation-owned dynamically allocated leap-second records.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leap_alloc",
+      "owner": "tool",
+      "rationale": "Capacity of the invocation leap-second array.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::leapcnt",
@@ -1364,6 +1449,13 @@
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::lo_time",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::main_argv",
+      "owner": "tool",
+      "rationale": "Argument vector borrowed only for this invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::max_abbrvar_len",
@@ -1421,6 +1513,27 @@
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
     },
     {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::output_group",
+      "owner": "tool",
+      "rationale": "Requested output group for this invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::output_mode",
+      "owner": "tool",
+      "rationale": "Requested output mode for this invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::output_owner",
+      "owner": "tool",
+      "rationale": "Requested output owner for this invocation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::print_abbrevs",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
@@ -1441,9 +1554,25 @@
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
     },
     {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::redundant_time",
+      "owner": "tool",
+      "rationale": "Invocation option controlling output transition retention.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
+    },
+    {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rfilename",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rfilenum",
+      "owner": "tool",
+      "rationale": "Related input file index for invocation diagnostics.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rlinenum",
@@ -1453,12 +1582,21 @@
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::roll",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::rules",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::skip_mkdir",
+      "owner": "tool",
+      "rationale": "Invocation option controlling directory creation.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::timecnt",
@@ -1473,7 +1611,9 @@
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::trans",
       "owner": "tool",
-      "rationale": "mutable state belongs to one transformed frontend tool invocation"
+      "rationale": "mutable state belongs to one transformed frontend tool invocation",
+      "availability": "conditional",
+      "condition": "Present in PostgreSQL 19; removed or made automatic by PostgreSQL 20 source changes."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::ttisstds",
@@ -1494,6 +1634,13 @@
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::tzdefault",
       "owner": "tool",
       "rationale": "mutable state belongs to one transformed frontend tool invocation"
+    },
+    {
+      "id": "internal:src/timezone/zic.c:src/timezone/zic.c::unspecifiedtype",
+      "owner": "tool",
+      "rationale": "Invocation index of the unspecified time-zone type.",
+      "availability": "conditional",
+      "condition": "Introduced in PostgreSQL 20; absent from PostgreSQL 19 source."
     },
     {
       "id": "internal:src/timezone/zic.c:src/timezone/zic.c::utoffs",

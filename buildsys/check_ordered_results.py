@@ -60,6 +60,7 @@ COMMON_MARKER_VALUES = {
 CANDIDATE_ONLY_MARKER_VALUES = {
     "connections": "2",
     "sql_length": "true",
+    "parameter_length": "true",
     "ownership": "true",
     "transaction_pin": "true",
     "advisory_pin": "true",

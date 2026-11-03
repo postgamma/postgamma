@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "postgamma/guc_runtime.h"
 #include "postgamma/path_runtime.h"
@@ -75,8 +77,13 @@ main(void)
 	assert(fclose(stream) == 0);
 	assert(postgamma_path_rename(
 		"nested/payload", "nested/renamed") == 0);
-	assert(postgamma_path_link(
-		"nested/renamed", "nested/hard-link") == 0);
+#ifdef __EMSCRIPTEN__
+	errno = 0;
+	assert(postgamma_path_link("nested/renamed", "nested/hard-link") == -1);
+	assert(errno == EMLINK);
+#else
+	assert(postgamma_path_link("nested/renamed", "nested/hard-link") == 0);
+#endif
 	assert(postgamma_path_symlink("renamed", "nested/symbolic-link") == 0);
 	link_length = postgamma_path_readlink(
 		"nested/symbolic-link", link_target, sizeof(link_target) - 1);
@@ -132,7 +139,9 @@ main(void)
 	assert(postgamma_path_rmdir("resources") == 0);
 
 	assert(postgamma_path_unlink("nested/symbolic-link") == 0);
+#ifndef __EMSCRIPTEN__
 	assert(postgamma_path_unlink("nested/hard-link") == 0);
+#endif
 	assert(postgamma_path_remove("nested/renamed") == 0);
 	assert(postgamma_path_rmdir("nested") == 0);
 	assert(postgamma_path_runtime_telemetry(
