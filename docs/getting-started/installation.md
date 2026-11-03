@@ -2,7 +2,9 @@
 
 Choose the artifact that matches the application boundary. Python applications
 install one wheel. Native applications link the static C SDK and deploy its
-matching resource pack.
+matching resource pack. For a standalone database service, follow the
+[threaded server quickstart](../server/quickstart.md); for web applications, use
+the [browser preview guide](browser.md).
 
 Binary users do not need the source-build packages below. They are required
 only when compiling PostGamma itself.
@@ -30,8 +32,12 @@ Product compilation uses the host's headers and libraries. AST and C++17 test
 tools use the private toolchain's sysroot and library paths, so old hosts do not
 need a newer system C++ runtime to run the build tools. It validates the current
 checkout's clean, committed source directly, runs the environment preflight,
-and starts `make complete-source-check static-sdk-package`, followed by tests
+and starts `make full-test static-sdk-package`, followed by tests
 of the packaged SDK and pip-installed wheel with build-library overrides removed.
+The full test prepares the pinned Wasm SDK and Chromium, Firefox and Linux WebKit,
+checks their dependencies, then runs native validation and the release Wasm suite
+serially. Browser setup errors stop before the long native gate; either suite
+failing makes the command fail.
 The source gate also generates the C and Python API references and builds the
 documentation website with warnings treated as errors. The provisioner installs
 missing Doxygen packages and the pinned `docs/requirements.txt` dependencies;
@@ -132,7 +138,39 @@ checks, and the dedicated timeout/cancellation tests are unchanged.
 workload and defaults to 1800 seconds in the clean-host runner for older
 `strace` implementations without seccomp filtering.
 Use `--prepare-only` to stop after source initialization and the complete
-environment preflight.
+environment preflight, including the Wasm SDK and browser matrix. Cached tools
+and browsers are reused. Browser execution has additional host-library and OS
+requirements beyond the native glibc floor; unsupported browser environments
+fail preflight rather than silently skipping Wasm.
+
+## Product build and test commands
+
+After installing the host compiler prerequisites, run these commands from the
+repository root. Each build initializes the pinned source dependencies itself:
+
+| Product | Check installed prerequisites | Build | Product tests |
+| --- | --- | --- | --- |
+| Threaded PostgreSQL server | `make server-doctor` | `make server-build JOBS=2` | `make server-test JOBS=2` |
+| Embedded C SDK archive | `make c-doctor` | `make c-build JOBS=2` | `make c-test JOBS=2` |
+| Python wheel | `make python-doctor` | `make python-build JOBS=2` | `make python-test JOBS=2` |
+| Browser Wasm SDK | `make wasm-doctor` | `make wasm-build JOBS=2` | `make wasm-test JOBS=2` |
+
+`wasm-build` prepares/reuses Emscripten and Node, generates target code, then
+builds the npm tarball without installing browsers. It defaults to release; `WASM_MODE=debug` selects debug
+for both generation and packaging. The C SDK build retains its static-consumer
+and host-safety packaging gates. Other builds do not run full acceptance.
+Existing lower-level target names remain available.
+Doctor commands inspect installed dependencies without downloading tools or
+initializing submodules. For a fresh Wasm checkout, run `make source-init` and
+`make wasm-toolchain-setup` before a standalone `make wasm-doctor`.
+
+On a prepared host, `make full-test JOBS=2` runs the complete native gate followed
+by Wasm acceptance. Native-only CI can keep using `make complete-source-check`.
+`make full-test-prepare` checks both environments without kernel compilation or
+full acceptance and installs missing Wasm tools/browsers. Use
+`make full-test-doctor` to only check an already prepared environment.
+Multi-hour Wasm alpha qualification is explicit:
+`make wasm-alpha-test JOBS=2`.
 
 After a successful full test, `build/full-test/artifacts/` contains the exact
 SDK archive, wheel, wheel receipt, and a manifest binding their hashes to the
@@ -158,7 +196,7 @@ other CPython versions remain separate release gates.
 
 ## Source-build prerequisites
 
-Source builds are supported on x86-64 Linux with glibc 2.17 or newer. Official
+Native source builds are supported on x86-64 Linux with glibc 2.17 or newer. Official
 Linux binaries are compiled and tested at that floor with the generic x86-64
 CPU baseline. A full local release build needs a C/C++ toolchain, matching LLVM
 and Clang development files, PostgreSQL's generator and native-library
@@ -263,7 +301,7 @@ intended build:
 
 ```bash
 make source-init
-make doctor
+make doctor-native
 ```
 
 Both PostgreSQL and pgvector are pinned Git submodules. This command populates
@@ -284,16 +322,24 @@ The available preflights are:
 
 | Command | Validates |
 | --- | --- |
-| `make doctor` | Every local development and release-candidate dependency |
-| `make doctor-threaded` | PostgreSQL source transformation and threaded build dependencies |
-| `make doctor-sdk` | Native kernel, static C SDK, and runtime dependencies |
-| `make doctor-python` | Native build plus the active CPython ABI and `Python.h` |
-| `make doctor-docs` | Doxygen and the pinned MkDocs environment |
+| `make doctor` | Native/Python/docs/Wasm tools, plus libraries and startup of all three browsers |
+| `make server-doctor` | PostgreSQL source transformation and threaded build dependencies |
+| `make c-doctor` | Native kernel, static C SDK, and runtime dependencies |
+| `make python-doctor` | Native build plus the active CPython ABI and `Python.h` |
+| `make wasm-doctor` | Host build tools, pinned Emscripten/Node/npm, SDK contracts and target-header compatibility; no browser required |
+| `make wasm-browser-doctor` | Installed Chromium, Firefox and Linux WebKit libraries and actual page startup; no kernel build |
+| `make docs-doctor` | Doxygen and the pinned MkDocs environment |
+| `make full-test-doctor` | Native, documentation and Wasm test prerequisites, including all three browsers |
+| `make doctor-native` / `make doctor-release` | Native/Python/docs release prerequisites; no Wasm tools or browsers required |
 
-`make doctor` is the single complete environment check. The workflow-specific
-commands are focused checks used by their matching build targets; adding a
-future artifact such as WebAssembly does not change the meaning of the complete
-check.
+`make doctor` is the complete environment check. The product-specific commands
+check only their own prerequisites. Doctors run small probes and write reports;
+they do not install tools, modify source inputs or run kernel acceptance. Missing
+dependencies fail with a remedy. The complete doctor continues independent
+checks and returns nonzero if any fail. Browser startup is a preflight, not SQL,
+OPFS or release qualification. Legacy `doctor-threaded`, `doctor-sdk`,
+`doctor-python` and `doctor-docs` remain valid. The older `doctor-wasm` is the
+internal SDK/Chromium probe check; use `wasm-doctor` for the SDK build environment.
 
 The checks use the actual `CC`, `CXX`, `CFLAGS`, `LDFLAGS`, `LLVM_CONFIG`,
 `CLANGXX`, and `PG_CONFIGURE_ARGS` selections. For example,
@@ -310,6 +356,8 @@ evidence also requires `/proc`, `strace`/ptrace, and, for sanitizer gates,
 permission to disable ASLR with `setarch -R`; restricted containers may need a
 different security policy or a host build.
 
+### Threaded server process limits
+
 The generated threaded server shares one process-wide file-descriptor limit
 across PostgreSQL roles. Complete source validation therefore needs a hard
 `RLIMIT_NOFILE` of at least 300000. Check it with `ulimit -Hn`; when the hard
@@ -318,12 +366,16 @@ systemd-managed runner, use `LimitNOFILE=1048576`.
 
 ## Threaded PostgreSQL developer build
 
+For an installed server, cluster initialization, and a psql connection, follow
+the [server quickstart](../server/quickstart.md). This section covers building
+and validating the generated tree during development.
+
 Build the transformed PostgreSQL tree without running the complete validation
 suite:
 
 ```bash
-make doctor-threaded JOBS=4
-make threaded-postgresql-build JOBS=4
+make server-doctor JOBS=4
+make server-build JOBS=4
 ```
 
 The generated source is written to `build/generated/postgres/`, and its
@@ -335,7 +387,7 @@ Run the full reference-versus-threaded PostgreSQL and isolation gate before
 submitting changes to the transformation:
 
 ```bash
-make threaded-postgresql-check JOBS=4
+make server-test JOBS=4
 ```
 
 Both builds keep the pinned source checkout clean. The reference server uses
@@ -385,11 +437,10 @@ It does not require an installed PostgreSQL server or a separate
 
 ### Build a wheel from source
 
-After `make doctor-python` succeeds, run the product target:
+After `make python-doctor` succeeds, run the product target:
 
 ```bash
-make source-init
-make python-wheel JOBS=8
+make python-build JOBS=8
 ```
 
 The wheel is written below `build/python-product/wheel/`. A developer build is
@@ -436,9 +487,8 @@ SDK prefix; its `resource-pack/` child is the runtime resource root.
 ### Build and validate from source
 
 ```bash
-make source-init
-make doctor-sdk
-make static-sdk-package JOBS=8
+make c-doctor
+make c-build JOBS=8
 ```
 
 This runs the static consumer and host-safety gates, then creates the same
@@ -472,7 +522,7 @@ From a complete source checkout, one target builds and tests the static SDK,
 the wheel for the active CPython interpreter, and this documentation website:
 
 ```sh
-make doctor
+make doctor-release
 make release-candidate JOBS=8
 ```
 

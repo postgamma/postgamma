@@ -1,0 +1,365 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+(function () {
+  "use strict";
+  const script = document.currentScript.src;
+  const assetBase = new URL("../wasm/", script), siteBase = new URL("../../", script);
+  const workerURL = new URL("live-worker.js", siteBase);
+  const resumeKey = "postgamma-psql-resume:" + siteBase.pathname;
+  async function initialize() {
+    if (new URLSearchParams(location.search).get("client") === "js") return;
+    const panel = document.querySelector("[data-pg-psql]");
+    if (!panel) return;
+    const element = name => panel.querySelector("[data-pg-psql-" + name + "]");
+    const status = element("status"), cancel = element("cancel");
+    const isolationMessage = "Live requires cross-origin isolation and shared memory.\r\nOpen this page in a standalone browser, or check the host's COOP/COEP headers.";
+    const reset = element("reset"), close = element("close"), screen = element("terminal");
+    const loading = element("loading");
+    const widget = document.getElementById("live-demo"), expand = widget.querySelector("[data-pg-live-expand]");
+    let dialog, autoExpandPending = true;
+    let examples, examplesLoading, exampleCommand;
+    const sidebar = panel.querySelector('[data-pg-examples]');
+    const examplesToggle = panel.querySelector('[data-pg-examples-toggle]');
+    let session, opening, openingWork, stopping, view, loadingTimer, loadingAt, loadingStep = 0;
+    let attempts = 0, submittedLines = 0, lastOutputAt = null, lastSample = null, lastMetrics = null;
+    const diagnostics = globalThis.PostGammaLiveReport ? new PostGammaLiveReport(panel, {
+      screen, assetBase, scriptBase: new URL("./", script), workerURL, visibility: screenVisibility,
+      snapshot: () => {
+        rememberRuntime(session?.database);
+        return {storage: "memory", attempts, submittedLines, lastOutputAt,
+          status: status.textContent, state: status.dataset.state, opening: !!opening, closing: !!stopping,
+          active: !!session?.active, inputReady: !!view?.active,
+          estimatedStartupPercent: null,
+          sample: lastSample, metrics: lastMetrics, examples: examples?.snapshot() ?? null,
+          sampling: "Last observed values; no database request is made."};
+      }
+    }) : null;
+    if (!diagnostics) {element("report-open").disabled = true; element("report-open").title = "Report script could not be loaded";}
+    function rememberRuntime(database) {
+      if (!database) return;
+      lastSample = database.sample() ?? lastSample;
+      lastMetrics = database.diagnostics() ?? lastMetrics;
+    }
+    function screenVisibility() {
+      const blocked = !loading.hidden || !element("report").hidden ||
+        (!sidebar.hidden && matchMedia('(max-width: 800px)').matches);
+      screen.inert = blocked;
+      if (blocked) screen.setAttribute("aria-hidden", "true"); else screen.removeAttribute("aria-hidden");
+      if (!element("report").hidden) loading.setAttribute("aria-hidden", "true"); else loading.removeAttribute("aria-hidden");
+    }
+    function state(text, kind = "idle") {
+      if (status.textContent !== text) status.textContent = text;
+      if (status.dataset.state !== kind) status.dataset.state = kind;
+      examples?.refresh();
+    }
+    function startLoading() {
+      loading.hidden = false; screenVisibility();
+      if (loadingTimer) return;
+      loadingAt = performance.now(); loadingStep = 0;
+      renderLoading(); loadingTimer = setInterval(renderLoading, 1000);
+    }
+    function renderLoading() {
+      // Show completed stages, not a percentage inferred from elapsed time.
+      // Downloading, compilation and engine startup share the SDK's open call.
+      element("loading-percent").textContent = (loadingStep + 1) + " / 3";
+      element("progress").setAttribute("aria-valuenow", String(loadingStep));
+      element("progress").setAttribute("aria-valuetext", "Step " + (loadingStep + 1) + " of 3");
+      element("progress").firstElementChild.style.width = (loadingStep / 3 * 100) + "%";
+      element("loading-time").textContent = Math.floor((performance.now() - loadingAt) / 1000) + "s";
+    }
+    function loadingStage(step, title, detail) {
+      loadingStep = step;
+      element("loading-title").textContent = title; element("loading-detail").textContent = detail;
+      renderLoading();
+    }
+    function stopLoading() {
+      clearInterval(loadingTimer); loadingTimer = undefined;
+      loading.hidden = true; screenVisibility();
+    }
+    function focusWhenReady() {
+      if (!diagnostics?.visible && (document.activeElement === document.body || panel.contains(document.activeElement)) &&
+          !matchMedia("(pointer: coarse)").matches) view.focus();
+    }
+    function controls() {
+      reset.disabled = !!opening || !!stopping;
+      reset.textContent = session ? "Reset" : "Restart";
+      cancel.disabled = !session;
+      close.disabled = (!session && !opening) || !!stopping;
+      screen.setAttribute("aria-busy", String(!!opening));
+      examples?.refresh();
+    }
+    function failure(error) {
+      diagnostics?.failure(error); diagnostics?.phase("failed");
+      stopLoading(); state(error.message, "error"); controls();
+    }
+    async function isolate(signal) {
+      diagnostics?.phase("preparing-browser");
+      if (crossOriginIsolated) {
+        if (typeof SharedArrayBuffer !== "function") throw new Error(isolationMessage);
+        return true;
+      }
+      if (!isSecureContext) throw new Error("Open this page over HTTPS or localhost to run psql.");
+      if (typeof navigator.serviceWorker?.register !== "function")
+        throw new Error("Service Worker is unavailable in this browser. This host must send COOP/COEP headers to run Live; see the browser guide.");
+      state("Preparing browser…", "loading");
+      const registration = await navigator.serviceWorker.getRegistration(siteBase.href);
+      const owner = registration?.active || registration?.waiting || registration?.installing;
+      if (owner && owner.scriptURL !== workerURL.href) throw new Error("Another service worker owns this page. Use a host with isolation headers.");
+      await navigator.serviceWorker.register(workerURL, {scope: siteBase.pathname, updateViaCache: "none"});
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => finish(new Error("Browser preparation timed out")), 15000);
+        function finish(error) {
+          clearTimeout(timer); navigator.serviceWorker.removeEventListener("controllerchange", changed);
+          signal.removeEventListener("abort", aborted); error ? reject(error) : resolve();
+        }
+        function changed() {if (navigator.serviceWorker.controller?.scriptURL === workerURL.href) finish();}
+        function aborted() {finish(signal.reason);}
+        navigator.serviceWorker.addEventListener("controllerchange", changed);
+        signal.addEventListener("abort", aborted, {once: true});
+        if (signal.aborted) aborted(); else changed();
+      });
+      signal.throwIfAborted();
+      // Refuse a second automatic reload if browser policy prevented isolation.
+      try {sessionStorage.setItem(resumeKey, String(Date.now()));}
+      catch (_) {throw new Error("Browser preparation needs session storage or a host with isolation headers.");}
+      state("Preparing browser — reloading once…", "loading"); location.reload(); return false;
+    }
+    async function release() {
+      if (stopping) return stopping;
+      examples?.cancel(); finishExampleCommand(new Error('The session was closed.'));
+      diagnostics?.phase("closing-database");
+      opening?.abort(new DOMException("Startup canceled", "AbortError"));
+      const previous = session; session = undefined;
+      rememberRuntime(previous?.database);
+      if (previous) previous.active = false;
+      stopLoading();
+      view.pending = "";
+      stopping = (async () => {
+        await openingWork;
+        try {await previous?.database.close();} finally {rememberRuntime(previous?.database);}
+      })();
+      controls();
+      try {await stopping; await view.enqueue(() => view.forget());}
+      finally {stopping = undefined; controls();}
+    }
+    async function pump(owned) {
+      const decoder = new TextDecoder();
+      try {
+        while (owned.active) {
+          const revision = owned.revision, batch = await owned.terminal.read();
+          if (!owned.active) return;
+          if (batch.data.length) lastOutputAt = new Date().toISOString();
+          const text = decoder.decode(batch.data, {stream: batch.state !== "exited"});
+          if (exampleCommand?.owner === owned && owned.revision === exampleCommand.revision)
+            exampleCommand.output = (exampleCommand.output + text).slice(-65536);
+          await view.output(text,
+            () => batch.state === "input" && owned.active && revision === owned.revision);
+          if (!owned.active) return;
+          if (view.active && !loading.hidden) {stopLoading(); focusWhenReady();}
+          if (batch.state === "exited") {
+            await release(); state("psql exited (" + batch.exitCode + ")", batch.exitCode ? "error" : "idle");
+            diagnostics?.phase("psql-exited");
+            await view.message("\r\nPress Enter to start a fresh session.\r\n"); return;
+          }
+          state(view.active ? "Ready" : "Running…", view.active ? "ready" : "loading");
+          diagnostics?.phase(view.active ? "ready" : "executing");
+          if (view.active && exampleCommand?.owner === owned && owned.revision === exampleCommand.revision)
+            finishExampleCommand();
+          await new Promise(resolve => setTimeout(resolve, batch.data.length ? 0 : 30));
+        }
+      } catch (error) {
+        if (!owned.active) return;
+        diagnostics?.failure(error, "psql-read");
+        await view.message("\r\n" + error.message + "\r\n");
+        try {await release();} catch (cleanup) {failure(cleanup);}
+        state("Terminal failed — press Enter to retry", "error");
+        diagnostics?.phase("failed");
+      }
+    }
+    function open() {
+      if (opening || session || stopping) return;
+      attempts++;
+      opening = new AbortController(); const signal = opening.signal;
+      startLoading(); loadingStage(0, "Starting PostgreSQL", "Preparing your browser");
+      controls(); state("Loading PostgreSQL…", "loading");
+      openingWork = (async () => {
+        let database;
+        try {
+          await view.clear(); await view.message("Loading PostgreSQL…\r\n");
+          if (!await isolate(signal)) return;
+          loadingStage(1, "Loading PostgreSQL", "Downloading, compiling and starting the engine");
+          diagnostics?.phase("fetching-package-metadata");
+          const response = await fetch(new URL("demo.json", assetBase), {signal, cache: "no-cache"});
+          if (!response.ok) throw new Error("Browser package metadata request failed (HTTP " + response.status + ").");
+          const metadata = await response.json();
+          if (diagnostics) diagnostics.metadata = metadata;
+          if (!metadata.available) throw new Error("The browser package has not been bundled for this preview.");
+          diagnostics?.phase("importing-sdk");
+          const {Database} = await import(new URL("src/index.js", assetBase));
+          signal.throwIfAborted();
+          diagnostics?.phase("opening-database");
+          database = await Database.open({assetBase, signal});
+          rememberRuntime(database);
+          loadingStage(2, "Opening psql", "Connecting to your database");
+          diagnostics?.phase("starting-psql");
+          const terminal = await database.psql(); signal.throwIfAborted();
+          await view.clear();
+          session = {database, terminal, active: true, revision: 0}; database = undefined;
+          diagnostics?.phase("waiting-for-prompt");
+          void pump(session);
+        } catch (error) {
+          if (!signal.aborted) diagnostics?.failure(error);
+          diagnostics?.phase(signal.aborted ? "canceled" : "failed");
+          stopLoading();
+          await view.message("\r\n" + error.message + "\r\nPress Enter to retry.\r\n");
+          state(signal.aborted ? "Canceled" : "Could not start", signal.aborted ? "idle" : "error");
+          await database?.close();
+        } finally {opening = undefined; openingWork = undefined; controls();}
+      })();
+      void openingWork.catch(failure);
+    }
+    async function submit(text) {
+      const owned = session;
+      if (!owned || stopping) return;
+      submittedLines++; diagnostics?.phase("executing");
+      owned.revision++; state("Running…", "loading");
+      if (exampleCommand?.owner === owned) exampleCommand.revision = owned.revision;
+      await owned.terminal.write(text);
+    }
+    async function interrupt() {
+      if (!session || stopping) return;
+      examples?.cancel();
+      const owned = session; owned.revision++;
+      if (exampleCommand?.owner === owned && exampleCommand.revision !== null) exampleCommand.revision = owned.revision;
+      try {await view.cancel(); await owned.terminal.interrupt();}
+      catch (error) {failure(error);}
+    }
+    async function shutdown() {
+      state("Closing…", "loading");
+      try {await release(); state("Database closed"); diagnostics?.phase("closed"); await view.message("\r\nSession closed. Press Enter to restart.\r\n");}
+      catch (error) {failure(error);}
+    }
+    startLoading();
+    diagnostics?.phase("loading-terminal");
+    try {
+      const {PsqlScreen} = await import(new URL("psql-terminal.js", script));
+      view = new PsqlScreen(screen, {line: submit, interrupt, eof: shutdown, restart: open,
+        closed: () => !session && !opening && !stopping, error: failure, textInput: expandOnFirstInput,
+        busy: () => !!examples?.busy, changed: () => examples?.refresh()});
+    } catch (error) {
+      screen.textContent = "Could not load the terminal: " + error.message; failure(error);
+      reset.textContent = "Reload"; reset.addEventListener("click", () => location.reload()); return;
+    }
+    cancel.addEventListener("click", () => {void interrupt(); view.focus();});
+    close.addEventListener("click", () => void shutdown());
+    reset.addEventListener("click", () => {
+      state("Resetting…", "loading"); void release().then(open, failure); view.focus();
+    });
+    document.querySelectorAll("[data-pg-try-live]").forEach(link => link.addEventListener("click", () => {
+      document.getElementById("pg-tab-browser").click(); view.focus();
+    }));
+    function expandOnFirstInput() {
+      if (!autoExpandPending || !session || !loading.hidden || stopping) return;
+      autoExpandPending = false;
+      expandTerminal();
+    }
+    function expandTerminal() {
+      if (dialog) return;
+      const placeholder = document.createComment("live demo position"); widget.before(placeholder);
+      dialog = document.createElement("dialog"); dialog.className = "pg-live-dialog"; dialog.setAttribute("aria-label", "psql terminal");
+      placeholder.after(dialog); dialog.append(widget);
+      const overflow = document.body.style.overflow; document.body.style.overflow = "hidden";
+      expand.setAttribute("aria-label", "Collapse demo");
+      dialog.addEventListener("close", () => {
+        showExamples(false);
+        placeholder.replaceWith(widget); dialog.remove(); dialog = undefined; document.body.style.overflow = overflow;
+        expand.setAttribute("aria-label", "Expand demo"); focusCurrentView();
+      }, {once: true});
+      dialog.showModal(); focusCurrentView();
+      void prepareExamples();
+      showExamples(!matchMedia('(max-width: 800px)').matches);
+    }
+    function exampleUnavailable(sessionOnly = false) {
+      if (!session || opening || stopping) return 'Wait for PostgreSQL to be ready.';
+      if (sessionOnly) return '';
+      if (!view.active) return 'Wait for the current command to finish.';
+      if (view.line.length || view.pending) return 'Finish or clear the current terminal input first.';
+      if (!/^[^\r\n]*=[#>] $/.test(view.prefix)) return 'Return to a standard idle psql prompt first (finish the statement, COPY or transaction).';
+      return '';
+    }
+    function finishExampleCommand(error) {
+      const command = exampleCommand;
+      if (!command) return;
+      exampleCommand = undefined; clearTimeout(command.timer);
+      if (!error && /(?:^|\n)(?:ERROR|FATAL|PANIC):/.test(command.output))
+        error = new Error(command.output.trim().slice(0, 1200));
+      error ? command.reject(error) : command.resolve(command.output);
+    }
+    function executeExample(sql, owner) {
+      if (!owner || session !== owner || stopping || !view.active || exampleCommand)
+        return Promise.reject(new Error('The example session is no longer ready.'));
+      return new Promise((resolve, reject) => {
+        exampleCommand = {owner, revision: null, output: '', resolve, reject,
+          timer: setTimeout(() => {
+            finishExampleCommand(new Error('Example command timed out. Use Ctrl+C or Reset to recover.'));
+            void interrupt();
+          }, 30000)};
+        void view.insert(sql, true).catch(finishExampleCommand);
+      });
+    }
+    async function prepareExamples() {
+      if (examples || examplesLoading) return;
+      examplesLoading = true;
+      try {
+        const {PsqlExamples} = await import(new URL('psql-examples.js', script));
+        examples = new PsqlExamples(sidebar, {unavailable: exampleUnavailable,
+          owner: () => session, connected: owner => owner === session && !!owner?.active && !stopping,
+          execute: executeExample, insert: text => view.insert(text),
+          focus: () => {if (matchMedia('(max-width: 800px)').matches) showExamples(false); view.focus();}});
+        examples.refresh();
+      } catch (error) {
+        sidebar.querySelector('[data-pg-example-description]').textContent = 'Examples could not load. Reload the page to retry.';
+        diagnostics?.failure(error, 'loading-examples');
+      } finally {examplesLoading = false;}
+    }
+    function showExamples(show) {
+      sidebar.hidden = !show;
+      panel.classList.toggle('pg-psql--examples', show);
+      examplesToggle.setAttribute('aria-expanded', String(show));
+      screenVisibility();
+    }
+    examplesToggle.addEventListener('click', () => {
+      void prepareExamples(); showExamples(sidebar.hidden);
+      if (!sidebar.hidden) sidebar.querySelector('[data-pg-examples-hide]').focus(); else view.focus();
+    });
+    sidebar.querySelector('[data-pg-examples-hide]').addEventListener('click', () => {showExamples(false); examplesToggle.focus();});
+    sidebar.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); showExamples(false); view.focus();}
+    });
+    element('report-open').addEventListener('click', () => {
+      if (matchMedia('(max-width: 800px)').matches) showExamples(false);
+    });
+    matchMedia('(max-width: 800px)').addEventListener('change', screenVisibility);
+    function focusCurrentView() {
+      if (diagnostics?.visible) element("report-text").focus({preventScroll: true}); else view.focus();
+    }
+    expand.addEventListener("click", () => {
+      // Respect a manual size choice for the rest of this page visit, including
+      // database resets. Automatic expansion never toggles an open dialog shut.
+      autoExpandPending = false;
+      if (dialog) dialog.close(); else expandTerminal();
+    });
+    let resumed;
+    try {resumed = Number(sessionStorage.getItem(resumeKey)); sessionStorage.removeItem(resumeKey);} catch (_) {}
+    if (resumed && Date.now() - resumed < 60000 && !crossOriginIsolated) {
+      diagnostics?.phase("preparing-browser");
+      failure(new Error(isolationMessage));
+      state("Browser setup unavailable", "error");
+      await view.message(isolationMessage + "\r\n");
+    } else if (document.readyState === "complete") open();
+    // Start without a click, but after the page's own resources have loaded:
+    // on slow networks the engine download otherwise delays the whole page.
+    else addEventListener("load", () => open(), {once: true});
+  }
+  function start() {void initialize().catch(error => {const status = document.querySelector('[data-pg-psql-status]'); if (status) status.textContent = error.message;});}
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once: true}); else start();
+}());

@@ -12,17 +12,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "buildsys"))
 
-from check_c_api_release import load_document  # noqa: E402
+from check_c_api_release import ReleaseCheckError, load_document  # noqa: E402
 from check_embedded_release import (  # noqa: E402
     BASELINE_KIND,
     EmbeddedReleaseCheckError,
     exact_abi_metadata,
     validate_canary_contract,
     validate_abi,
+    validate_static_module_summary,
 )
 
 
 class EmbeddedReleaseTests(unittest.TestCase):
+    def test_static_module_gate_matches_the_product_manifest(self) -> None:
+        manifest = json.loads(
+            (ROOT / "manifests/extensions/embedded-static.json").read_text()
+        )
+        modules = manifest["modules"]
+        counts = {
+            "module_count": len(modules),
+            "sdk_module_count": sum(bool(module["sdk_contract"]) for module in modules),
+            "registered_symbol_count": sum(len(module["symbols"]) for module in modules),
+        }
+        validate_static_module_summary({"bundle": counts})
+        for field in counts:
+            for delta in (-1, 1):
+                with self.subTest(field=field, delta=delta):
+                    changed = dict(counts)
+                    changed[field] += delta
+                    with self.assertRaises(ReleaseCheckError):
+                        validate_static_module_summary({"bundle": changed})
+
     def test_accepts_frozen_abi_metadata(self) -> None:
         baseline = load_document(ROOT / "manifests/api/c-abi-v1-4.json", BASELINE_KIND)
         self.assertEqual(exact_abi_metadata(baseline)["encoded_version"], 65540)
@@ -83,7 +103,7 @@ class EmbeddedReleaseTests(unittest.TestCase):
         self.assertEqual(
             validate_abi(baseline, prior, catalog, closure, api)["function_count"], 76
         )
-        for field in ("signature", "layout", "numeric"):
+        for field in ("signature", "layout", "numeric", "restore-flag", "unknown-numeric"):
             with self.subTest(field=field):
                 changed, changed_closure = copy.deepcopy(catalog), copy.deepcopy(
                     closure
@@ -100,10 +120,16 @@ class EmbeddedReleaseTests(unittest.TestCase):
                         for r in changed["records"]
                         if r["name"] == "pgm_bundled_extension_info"
                     )["size"] = 56
-                else:
+                elif field == "numeric":
                     changed_closure["numeric_registry"]["values"][
                         "PGM_CAP_BUNDLED_EXTENSIONS"
                     ] = 0
+                elif field == "restore-flag":
+                    changed_closure["numeric_registry"]["values"][
+                        "PGM_LOGICAL_SINGLE_TRANSACTION"
+                    ] = 128
+                else:
+                    changed_closure["numeric_registry"]["values"]["PGM_UNREVIEWED"] = 1
                 with self.assertRaises(EmbeddedReleaseCheckError):
                     validate_abi(baseline, prior, changed, changed_closure, api)
 

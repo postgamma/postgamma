@@ -161,7 +161,7 @@ long
 postgamma_virtual_timer_adjust_wait(PostgammaVirtualTimer *timer,
 								   long requested_timeout, int64_t now)
 {
-	int64_t		remaining_us;
+	uint64_t	remaining_us;
 	int64_t		remaining_ms;
 
 	if (timer == NULL)
@@ -171,13 +171,20 @@ postgamma_virtual_timer_adjust_wait(PostgammaVirtualTimer *timer,
 		timer->timeout_wait_shortened = false;
 		return requested_timeout;
 	}
-	remaining_us = timer->timeout_due_at - now;
-	if (remaining_us <= 0)
+	if (timer->timeout_due_at <= now)
 		remaining_ms = 0;
 	else
-		remaining_ms = (remaining_us + 999) / 1000;
+	{
+		remaining_us = (uint64_t) timer->timeout_due_at - (uint64_t) now;
+		remaining_ms = remaining_us / 1000 + (remaining_us % 1000 != 0);
+	}
 	if (remaining_ms > LONG_MAX)
 		remaining_ms = LONG_MAX;
+#ifdef __EMSCRIPTEN__
+	/* Re-sample armed wall-clock timers after clock changes or suspension. */
+	if (remaining_ms > 1000)
+		remaining_ms = 1000;
+#endif
 	if (requested_timeout < 0 || remaining_ms < requested_timeout)
 	{
 		timer->timeout_wait_shortened = true;

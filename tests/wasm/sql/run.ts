@@ -1,0 +1,155 @@
+/* Copyright 2026 Shujie Zhang; SPDX-License-Identifier: Apache-2.0 */
+import {Database, DatabaseError} from '../src/api/database.js';
+import type {Connection, Result} from '../src/api/database.js';
+import {Op, type Handle, type Reader} from '../src/protocol/wire.js';
+import {assert, scalar, errorState} from './helpers.js';
+import {concurrency, saturated} from './concurrency.js';
+import {errors} from './errors.js';
+import {results} from './results.js';
+import {lifecycle, disconnectTimeout, fatal, closeAuditFailure, failedOpenRecovery, repeatedFatal} from './lifecycle.js';
+import {budget} from './budget.js';
+import {capacity} from './capacity.js';
+import {scripts} from './scripts.js';
+import {notifications} from './notifications.js';
+import {contrib} from './contrib.js';
+import {parallel} from './parallel.js';
+import {soak} from './soak.js';
+import {bindings} from './bindings.js';
+import {statements} from './statements.js';
+import {controls} from './controls.js';
+import {types} from './types.js';
+import {streams} from './streams.js';
+import {logical} from './logical.js';
+import {nodeRecursion} from './nodes.js';
+import {controlProgress, controlTimeout, connectProgress, connectReservation, connectWatchdog} from './control_progress.js';
+import {storage} from '../storage-tests/run.js';
+import {durability} from '../storage-tests/durability.js';
+import {storageErrors} from '../storage-tests/errors.js';
+import {archive} from '../storage-tests/archive.js';
+import {storageBudget} from '../storage-tests/budget.js';
+import {loadVector} from '../vector-tests/load.js';
+import {vectorQueries} from '../vector-tests/query.js';
+import {vectorStorage} from '../vector-tests/storage.js';
+import {vectorExample} from '../vector-tests/example.js';
+import {vectorBudget} from '../vector-tests/budget.js';
+const page = window as unknown as {probeResult: unknown; probeEvents: unknown[]};
+page.probeResult = null; page.probeEvents = [];
+const scenario = new URL(location.href).searchParams.get('scenario') || 'abi';
+let pageTicks = 0;
+const timer = setInterval(() => pageTicks++, 1);
+const checks: string[] = [];
+async function abi(db: Database) {
+  const c = await db.connect();
+  const values = await c.query('SELECT $1::int8 AS exact, $2::numeric AS numeric, $3::text AS missing, $4::text AS unicode', {
+    parameters: [{typeOid: 20, value: '9223372036854775807'},
+      {typeOid: 1700, value: '12345678901234567890.123456789'}, {typeOid: 25, value: null},
+      {typeOid: 25, value: 'caf\u00e9 \ud83d\udc18'}],
+  });
+  assert(JSON.stringify(values[0].rows[0]) === JSON.stringify([
+    '9223372036854775807', '12345678901234567890.123456789', null, 'caf\u00e9 \ud83d\udc18']), 'Exact/null/Unicode values');
+  assert(values[0].columns[0].typeOid === 20 && values[0].columns[0].name === 'exact', 'Column metadata');
+  const bytes = new Uint8Array([0, 1, 127, 128, 255]);
+  const binary = await c.query('SELECT $1::bytea', {binary: true, parameters: [{typeOid: 17, value: bytes}]});
+  assert(String(binary[0].rows[0][0]) === String(bytes), 'Binary roundtrip');
+  const empty = await c.query('SELECT $1::text, $2::bytea, $3::bytea', {binary: true, parameters: [
+    {typeOid: 25, value: ''}, {typeOid: 17, value: new Uint8Array()}, {typeOid: 17, value: null}]});
+  assert((empty[0].rows[0][0] as Uint8Array).length === 0 &&
+    (empty[0].rows[0][1] as Uint8Array).length === 0 && empty[0].rows[0][2] === null, 'Empty differs from NULL');
+  const e = await errorState(() => c.query('SELECT 1/0'), '22012');
+  assert(e.diagnostics[1] === 'ERROR' && e.diagnostics[2] === 'division by zero', 'SQL diagnostics');
+  const detail = await errorState(() => c.query("DO $$ BEGIN RAISE EXCEPTION 'message' USING DETAIL = 'detail', HINT = 'hint'; END $$"), 'P0001');
+  assert(detail.diagnostics[3] === 'detail' && detail.diagnostics[4] === 'hint' && detail.diagnostics[8], 'Diagnostic detail/hint/context');
+  assert(scalar(await c.query('SELECT 7')) === '7', 'Connection recovers after SQL ERROR');
+  const old = await c.execute('SELECT 8'); await old.next(); await old.next(); await old.close();
+  const fresh = await c.execute('SELECT 9');
+  let staleRejected = false;
+  const transport = (db as unknown as {transport: {call(op: number, handle: Handle): Promise<Reader>}}).transport;
+  try {await transport.call(Op.cancel, (old as unknown as {handle: Handle}).handle);}
+  catch (error) {staleRejected = error instanceof DatabaseError && error.status === 1;}
+  assert(staleRejected && scalar([await fresh.next() as Result]) === '9', 'Stale generation rejected without touching fresh request');
+  await fresh.next(); await fresh.close();
+  await c.close();
+  await nodeRecursion(db, checks);
+  checks.push('parameters-exact-null-unicode', 'binary-copy', 'column-metadata', 'sqlstate-diagnostics', 'stale-generation');
+}
+try {
+  const metrics: unknown[] = [];
+  if (scenario === 'storage') await storage(checks, metrics);
+  else if (scenario === 'archive') await archive(checks, metrics);
+  else if (scenario === 'logical') await logical(checks, metrics);
+  else if (scenario === 'contrib') await contrib(checks, metrics);
+  else if (scenario === 'parallel') await parallel(checks, metrics);
+  else if (scenario === 'soak') await soak(checks, metrics);
+  else if (scenario === 'durability') await durability(checks, metrics);
+  else if (scenario === 'storage-errors') await storageErrors(checks, metrics);
+  else if (scenario === 'vector-storage') await vectorStorage(checks, metrics);
+  else if (scenario === 'vector-example') await vectorExample(checks, metrics);
+  else if (scenario === 'close-audit') metrics.push(await closeAuditFailure(checks));
+  else if (scenario === 'open-failed') metrics.push(await failedOpenRecovery(checks));
+  else if (scenario.startsWith('fatal-opfs-') && new URL(location.href).searchParams.has('repetitions')) {
+    const repetitions = Number(new URL(location.href).searchParams.get('repetitions'));
+    assert(Number.isInteger(repetitions) && repetitions >= 1 && repetitions <= 100, 'Valid fatal repetition count');
+    assert(scenario === 'fatal-opfs-trap' || scenario === 'fatal-opfs-abort', 'Valid fatal scenario');
+    await repeatedFatal(checks, metrics, scenario.endsWith('trap') ? 1 : 2, repetitions);
+  }
+  else {
+  const storage = scenario.startsWith('fatal-opfs-') || scenario === 'diagnostics' ?
+    {type: 'opfs' as const, name: 'fatal-' + crypto.randomUUID()} : undefined;
+  const db = await Database.open({storage});
+  if (scenario === 'abi') await abi(db);
+  else if (scenario === 'bindings') await bindings(db, checks);
+  else if (scenario === 'statements') await statements(db, checks);
+  else if (scenario === 'controls') await controls(db, checks);
+  else if (scenario === 'types') await types(db, checks);
+  else if (scenario === 'streams') await streams(db, checks);
+  else if (scenario === 'sdk') {
+    await statements(db, checks); await controls(db, checks);
+    await types(db, checks); await streams(db, checks);
+  }
+  else if (scenario === 'vector-load') await loadVector(db, checks);
+  else if (scenario === 'vector-query') await vectorQueries(db, checks);
+  else if (scenario === 'concurrency') await concurrency(db, checks);
+  else if (scenario === 'errors') await errors(db, checks);
+  else if (scenario === 'results') await results(db, checks);
+  else if (scenario === 'budget') await budget(db, checks);
+  else if (scenario === 'capacity') await capacity(db, checks);
+  else if (scenario === 'scripts') await scripts(db, checks);
+  else if (scenario === 'notifications') await notifications(db, checks);
+  else if (scenario === 'diagnostics') {
+    const transport = (db as unknown as {transport: {call(op: number): Promise<Reader>}}).transport;
+    const held = transport.call(65530);
+    page.probeEvents.push({kind: 'diagnostic-hold'});
+    (await held).end();
+    const c = await db.connect();
+    assert(scalar(await c.query('SELECT 11')) === '11', 'Driver resumes after read-only diagnostic');
+    await c.close();
+    checks.push('timeout-snapshot', 'snapshot-does-not-resume', 'resume-after-snapshot');
+  }
+  else if (scenario === 'lifecycle') await lifecycle(db, checks);
+  else if (scenario === 'disconnect-timeout') await disconnectTimeout(db, checks);
+  else if (scenario === 'control-progress') await controlProgress(db, checks);
+  else if (scenario === 'control-timeout') await controlTimeout(db, checks);
+  else if (scenario === 'connect-progress') await connectProgress(db, checks);
+  else if (['fatal-trap', 'fatal-abort', 'fatal-opfs-trap', 'fatal-opfs-abort'].includes(scenario))
+    await fatal(db, checks, scenario.endsWith('trap') ? 1 : 2, storage);
+  else throw new Error(`Unknown SQL scenario: ${scenario}`);
+  metrics.push(scenario.startsWith('fatal-') ? db.diagnostics() : await db.close());
+  if (scenario === 'concurrency') {
+    const small = await Database.open({workers: 2});
+    await saturated(small, checks); metrics.push(await small.close());
+  }
+  if (scenario === 'connect-progress') {
+    const small = await Database.open({workers: 2});
+    await connectReservation(small, checks); metrics.push(await small.close());
+    await connectWatchdog(checks, metrics);
+  }
+  }
+  const resourceBudget = ['storage', 'durability', 'storage-errors'].includes(scenario) ? storageBudget(metrics, page.probeEvents) :
+    scenario.startsWith('vector') || scenario === 'abi' && new URL(location.href).searchParams.get('extension') === 'pgvector'
+      ? vectorBudget(metrics, scenario === 'vector-query') : undefined;
+  page.probeResult = {status: 'passed', scenario, checks, metrics, pageTicks, resourceBudget,
+    isolated: crossOriginIsolated, worker: true, sharedMemory: true};
+} catch (error) {
+  page.probeResult = {status: 'failed', scenario, checks, pageTicks,
+    error: String(error), stack: error instanceof Error ? error.stack : undefined, isolated: crossOriginIsolated};
+} finally {clearInterval(timer);}

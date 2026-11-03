@@ -1,0 +1,102 @@
+"""A partial or short endurance run cannot satisfy a requested long gate."""
+import copy
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'buildsys'))
+from wasm_soak import CHECKS, validate, validate_firefox_identity
+from wasm_toolchain import WasmError
+
+
+class SoakReceiptTests(unittest.TestCase):
+    def setUp(self):
+        self.parameters = dict(seconds=7200, seed=20261003, rounds=0, reopenEvery=50)
+        self.row = dict(status='passed', probe=dict(checks=list(CHECKS)), parameters=self.parameters.copy(),
+                        complete=dict(iteration=100, elapsedMs=7200000, crashes=2, orderly=1, cancellations=10),
+                        resourceGate=dict(status='passed'))
+
+    def test_long_run_requires_duration_workload_and_resource_evidence(self):
+        validate(self.row, self.parameters)
+        for field, value in (('elapsedMs', 7199999), ('crashes', 0), ('orderly', 0), ('cancellations', 0)):
+            row = copy.deepcopy(self.row); row['complete'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+        row = copy.deepcopy(self.row); row['resourceGate']['status'] = 'not-run'
+        with self.assertRaises(WasmError): validate(row, self.parameters)
+        row = copy.deepcopy(self.row); row['probe']['checks'].pop()
+        with self.assertRaises(WasmError): validate(row, self.parameters)
+
+    def test_seed_and_exact_replay_rounds_are_required(self):
+        row = copy.deepcopy(self.row); row['parameters']['seed'] += 1
+        with self.assertRaises(WasmError): validate(row, self.parameters)
+        self.parameters.update(seconds=120, rounds=100)
+        self.row['parameters'] = self.parameters.copy()
+        self.row['resourceGate']['status'] = 'not-run'; self.row['complete']['elapsedMs'] = 10
+        validate(self.row, self.parameters)
+        self.row['complete']['iteration'] -= 1
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+
+    def test_profiling_receipt_cannot_qualify_even_with_passed_fields(self):
+        self.row['kind'] = 'postgamma.wasm-memory-diagnostic'
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+
+    def test_post_failure_snapshots_cannot_be_relabelled_as_passing(self):
+        for field in ('failureMemory', 'failureObservation', 'failureObservationError'):
+            row = copy.deepcopy(self.row); row[field] = {'phase': 'after-failed-gate'}
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+
+    def test_production_failure_source_must_match_the_requested_workload(self):
+        self.parameters['faultSource'] = 'control-worker'
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+        self.row['parameters']['faultSource'] = 'control-worker'
+        validate(self.row, self.parameters)
+
+    def test_native_webkit_requires_both_owned_and_physical_retirement(self):
+        self.row.update(driver='native-wpe', engine='webkit', finalPhysicalWorkerThreads=0,
+                        browserProtocolCommands=[], finalIdle=dict(seconds=60, elapsedSeconds=60, physicalWorkerThreads=0),
+                        workerOwnership=dict(active=[], activePthreads=[], created=3, terminated=3,
+                                             pthreadCreated=39, pthreadTerminated=39, nativeOwnerPosts=0))
+        validate(self.row, self.parameters)
+        for field, value in (('active', ['3']), ('activePthreads', ['pthread-1']),
+                             ('terminated', 2), ('pthreadTerminated', 38), ('nativeOwnerPosts', 1), ('nativeOwnerPosts', None)):
+            row = copy.deepcopy(self.row); row['workerOwnership'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+        for value in (1, None):
+            row = copy.deepcopy(self.row); row['finalPhysicalWorkerThreads'] = value
+            with self.subTest(physical=value), self.assertRaises(WasmError): validate(row, self.parameters)
+
+    def test_native_firefox_requires_complete_idle_and_no_protocol(self):
+        self.row.update(driver='native-firefox', engine='firefox', finalPhysicalWorkerThreads=0,
+                        networkScope={'loopbackOnly': True, 'interfaces': ['lo']},
+                        browserProtocolCommands=[], finalIdle=dict(seconds=60, elapsedSeconds=60, physicalWorkerThreads=0),
+                        workerOwnership=dict(active=[], activePthreads=[], created=3, terminated=3,
+                                             pthreadCreated=39, pthreadTerminated=39, nativeOwnerPosts=0))
+        validate(self.row, self.parameters)
+        for field, value in (('seconds', 0), ('elapsedSeconds', 59.99), ('physicalWorkerThreads', 1)):
+            row = copy.deepcopy(self.row); row['finalIdle'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError): validate(row, self.parameters)
+        self.row['browserProtocolCommands'] = ['session.new']
+        with self.assertRaises(WasmError): validate(self.row, self.parameters)
+
+    def test_native_firefox_cannot_substitute_an_automation_browser(self):
+        expected = {'path': '/deps/firefox-native/155.0/bundle/firefox/firefox', 'sha256': '1' * 64}
+        browser = {'driver': 'native-firefox', 'browserExecutable': expected.copy(),
+                   'networkScope': {'loopbackOnly': True, 'interfaces': ['lo']}}
+        validate_firefox_identity(browser, expected)
+        for field, value in (('path', '/deps/playwright/firefox'), ('sha256', '2' * 64)):
+            row = copy.deepcopy(browser); row['browserExecutable'][field] = value
+            with self.subTest(field=field), self.assertRaises(WasmError):
+                validate_firefox_identity(row, expected)
+        with self.assertRaises(WasmError): validate_firefox_identity({'driver': 'native-firefox'}, expected)
+
+    def test_native_firefox_cannot_accept_unisolated_background_network(self):
+        expected = {'path': '/deps/firefox', 'sha256': '1' * 64}
+        for network in ({}, {'loopbackOnly': False, 'interfaces': ['lo']},
+                        {'loopbackOnly': True, 'interfaces': ['lo', 'eth0']}):
+            with self.subTest(network=network), self.assertRaises(WasmError):
+                validate_firefox_identity({'driver': 'native-firefox', 'browserExecutable': expected,
+                                           'networkScope': network}, expected)
+
+
+if __name__ == '__main__': unittest.main()

@@ -240,7 +240,7 @@ class EventsEvidenceTests(unittest.TestCase):
     def test_rejects_notify_before_registration(self) -> None:
         source = """
         void
-        pgm_connection_open(void)
+        postgamma_public_connection_step(void)
         {
             postgamma_private_libpq_set_notify();
             postgamma_public_event_register_connection();

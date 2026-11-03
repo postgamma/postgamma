@@ -66,6 +66,7 @@ class PrepareSourcesTests(unittest.TestCase):
         shutil.copytree(
             PROJECT_ROOT / "buildsys/make", self.root / "buildsys/make"
         )
+        shutil.copy(PROJECT_ROOT / "buildsys/wasm.mk", self.root / "buildsys/wasm.mk")
         shutil.copy(
             PROJECT_ROOT / "buildsys/prepare_sources.py",
             self.root / "buildsys/prepare_sources.py",

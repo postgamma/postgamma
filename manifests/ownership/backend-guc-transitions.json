@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.backend-guc-transitions",
+  "transitions": [
+    {
+      "id": "external:recoveryTargetName",
+      "parameter": "recovery_target_name",
+      "previous_owner": "role",
+      "rationale": "PostgreSQL 20 binds recoveryTargetName directly to the instance GUC; PostgreSQL 19 assigns an alias from its GUC hook."
+    }
+  ]
+}

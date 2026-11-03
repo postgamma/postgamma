@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-probe-profile",
+  "status": "candidate",
+  "target": "wasm32-emscripten-pthreads",
+  "emsdk": {
+    "version": "6.0.9",
+    "repository": "https://github.com/emscripten-core/emsdk.git",
+    "commit": "5eb0bde7585670252e8ba05e9d361627bffd08b5"
+  },
+  "legacy_linux_tools": {
+    "browser_runtime": {
+      "manifest": "manifests/wasm/browser-runtime-ubuntu22-amd64.json",
+      "sha256": "792e1587f51be26801420dc67c869815d58b48b86d38fe4ca2d1a5ededeebc14"
+    },
+    "node": {
+      "version": "v22.23.4",
+      "directory": "node-v22.23.4-linux-x64-glibc-217",
+      "filename": "node-v22.23.4-linux-x64-glibc-217.tar.xz",
+      "url": "https://unofficial-builds.nodejs.org/download/release/v22.23.4/node-v22.23.4-linux-x64-glibc-217.tar.xz",
+      "sha256": "021b9ef3861926d32d0323c24a554c29f26d95895bfc56f5fdc3c2be7d062aa5",
+      "binary_sha256": "407cc5ecee974474ff84487c9e197ca70200df6e10f63112a371b3b6272da65f"
+    },
+    "binaryen": {
+      "commit": "d03c25ea43d8f147fc222f9b88ff3bf641abe8da",
+      "filename": "binaryen-d03c25ea43d8f147fc222f9b88ff3bf641abe8da.tar.gz",
+      "url": "https://codeload.github.com/WebAssembly/binaryen/tar.gz/d03c25ea43d8f147fc222f9b88ff3bf641abe8da",
+      "sha256": "f16d9e97dc1b7ce3397f0cf10336f015d7aee9ef54f0d6dd98632436388be81a",
+      "emscripten_release": "f04ea239d533260dd1db760dd2d668d5f9a88d6b"
+    },
+    "linker_runtime": {
+      "version": "2.28",
+      "filename": "sysroot_linux-64-2.28-h4ee821c_9.conda",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda",
+      "sha256": "c47299fe37aebb0fcf674b3be588e67e4afb86225be4b0d452c7eb75c086b851",
+      "library_directory": "x86_64-conda-linux-gnu/sysroot/lib64"
+    },
+    "cmake": {
+      "version": "3.31.6",
+      "filename": "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/59/e8/096984b89133681533650b9078c5ed1c5c9b534e869b5487f22d4de1935c/cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec"
+    }
+  },
+  "browser_host_packages": {
+    "ubuntu-24.04-x86_64": [
+      "libasound2t64", "libatk-bridge2.0-0t64", "libatk1.0-0t64",
+      "libatspi2.0-0t64", "libcairo2", "libcups2t64", "libdbus-1-3",
+      "libdrm2", "libgbm1", "libglib2.0-0t64", "libnspr4", "libnss3",
+      "libpango-1.0-0", "libx11-6", "libxcb1", "libxcomposite1",
+      "libxdamage1", "libxext6", "libxfixes3", "libxkbcommon0", "libxrandr2"
+    ]
+  },
+  "browser_matrix_host_packages": {
+    "ubuntu-24.04-x86_64": [
+      "libgtk-3-0t64",
+      "libxcursor1",
+      "liblcms2-2",
+      "libxslt1.1",
+      "libevent-2.1-7t64",
+      "libopus0",
+      "libgstreamer-plugins-base1.0-0",
+      "libgstreamer-gl1.0-0",
+      "libgstreamer-plugins-bad1.0-0",
+      "libflite1",
+      "libwebpdemux2",
+      "libavif16",
+      "libharfbuzz-icu0",
+      "libepoxy0",
+      "libwebpmux3",
+      "libsoup-3.0-0",
+      "libenchant-2-2",
+      "libhyphen0",
+      "libsecret-1-0",
+      "libwayland-server0",
+      "libwayland-egl1",
+      "libwayland-client0",
+      "libmanette-0.2-0",
+      "libgles2"
+    ]
+  },
+  "compile_flags": ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"],
+  "link_flags": [
+    "--no-entry",
+    "-pthread",
+    "-sMODULARIZE=1",
+    "-sEXPORT_ES6=1",
+    "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\"]",
+    "-sENVIRONMENT=worker",
+    "-sPTHREAD_POOL_SIZE=1",
+    "-sPTHREAD_POOL_SIZE_STRICT=2",
+    "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",
+    "-sINITIAL_MEMORY=33554432",
+    "-sMAXIMUM_MEMORY=134217728",
+    "-sALLOW_MEMORY_GROWTH=1",
+    "-sSTACK_SIZE=1048576",
+    "-sDEFAULT_PTHREAD_STACK_SIZE=1048576",
+    "-sFILESYSTEM=0"
+  ],
+  "modes": {
+    "debug": {
+      "compile_flags": ["-O0", "-g3"],
+      "link_flags": ["-O0", "-g3", "-sASSERTIONS=2"]
+    },
+    "release": {
+      "compile_flags": ["-O2"],
+      "link_flags": ["-O2", "-sASSERTIONS=1"]
+    }
+  },
+  "probes": {
+    "deployment": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sINCOMING_MODULE_JS_API=[\"wasmBinary\",\"print\",\"printErr\"]",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
+    "opfs": {
+      "link_flags": [
+        "-sWASMFS=1",
+        "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[\"$stringToUTF8OnStack\"]",
+        "-sFILESYSTEM=1",
+        "-sPTHREAD_POOL_SIZE=4",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
+    "recovery": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
+    "wait": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ]
+    },
+    "platform": {
+      "link_flags": [
+        "-sPTHREAD_POOL_SIZE=3",
+        "-sFILESYSTEM=1",
+        "-sSTACK_OVERFLOW_CHECK=2",
+        "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"UTF8ToString\"]"
+      ],
+      "module_link_flags": {
+        "stack-overflow": [
+          "-sSTACK_SIZE=65536",
+          "-sDEFAULT_PTHREAD_STACK_SIZE=65536",
+          "-sPTHREAD_POOL_SIZE=1",
+          "-sFILESYSTEM=0"
+        ]
+      }
+    }
+  }
+}

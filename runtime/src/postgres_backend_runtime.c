@@ -170,6 +170,9 @@ typedef struct PostgammaClientSession
 	bool		transport_notify_bound;
 	bool		memory_contexts_initialized;
 	bool		dsm_control_handle_set;
+#ifdef __EMSCRIPTEN__
+	bool		main_shmem_attached;
+#endif
 	bool		wait_support_initialized;
 	bool		backend_initialized;
 	bool		syslogger_pipe_pending;
@@ -286,8 +289,11 @@ static bool postgamma_quantum_is_pooled_client(
 	const PostgammaClientSession *state);
 static bool postgamma_quantum_update_pin_state(
 	PostgammaClientSession *state);
+static uint64_t postgamma_quantum_drain_interrupts(
+	PostgammaClientSession *state);
 static bool postgamma_quantum_prepare_yield(
-	PostgammaClientSession *state, bool yield_when_runnable);
+	PostgammaClientSession *state, uint64_t schedule_epoch,
+	bool yield_when_runnable);
 Datum pg_postgamma_crash_backend(PG_FUNCTION_ARGS);
 Datum pg_postgamma_pause_backend(PG_FUNCTION_ARGS);
 
@@ -1547,6 +1553,16 @@ postgamma_backend_setlocale(int category, const char *locale)
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 
+#ifdef __EMSCRIPTEN__
+	if (!postgamma_platform_locale_supported(locale))
+	{
+		errno = ENOENT;
+		return NULL;
+	}
+	if (locale != NULL && locale[0] == '\0')
+		locale = "C";
+#endif
+
 	if (state == NULL)
 	{
 		if (postgamma_postmaster_control_runtime_is_bound())
@@ -1581,7 +1597,12 @@ postgamma_backend_setitimer(int which, const struct itimerval *new_value,
 			errno = ENOTSUP;
 			return -1;
 		}
+#ifdef __EMSCRIPTEN__
+		errno = ENOTSUP;
+		return -1;
+#else
 		return setitimer(which, new_value, old_value);
+#endif
 	}
 #ifdef POSTGAMMA_EVENT_TIMERS
 	previous = *timer;
@@ -1709,39 +1730,56 @@ postgamma_quantum_update_pin_state(PostgammaClientSession *state)
 }
 
 
-static bool
-postgamma_quantum_prepare_yield(
-	PostgammaClientSession *state, bool yield_when_runnable)
+static uint64_t
+postgamma_quantum_drain_interrupts(PostgammaClientSession *state)
 {
-	bool		runnable;
-	uint32_t	transport_events;
 	uint64_t	schedule_epoch;
 	int			status;
 
-	for (;;)
-	{
-		status = postgamma_backend_schedule_epoch(
-			state->registry, state->handle.id, &schedule_epoch);
-		if (status != 0)
-			postgamma_runtime_contract_violation();
-		transport_events = 0;
-		status = state->transport_ops.ready(
-			state->transport, state->transport_generation, &transport_events);
-		if (status != 0)
-			postgamma_runtime_contract_violation();
-		/* A prior read can leave the next protocol message in PostgreSQL. */
-		runnable = pq_buffer_remaining_data() > 0 || (transport_events &
-			(POSTGAMMA_KERNEL_TRANSPORT_READABLE |
-			 POSTGAMMA_KERNEL_TRANSPORT_PEER_CLOSED)) != 0;
-		if (runnable && !yield_when_runnable)
-			return false;
-		status = postgamma_backend_prepare_yield(
-			state->registry, state->handle.id, schedule_epoch, runnable);
-		if (status == 0)
-			break;
-		if (status != EAGAIN)
-			postgamma_runtime_contract_violation();
-	}
+	/*
+	 * Both yield seams precede ReadCommand at a clean message boundary.
+	 * The source seams enable DoingCommandRead before entering this helper.
+	 * Snapshot BEFORE draining: a later snapshot could
+	 * acknowledge a signal whose role-local work has not been processed yet.
+	 */
+	status = postgamma_backend_schedule_epoch(
+		state->registry, state->handle.id, &schedule_epoch);
+	if (status != 0)
+		postgamma_runtime_contract_violation();
+	ProcessClientReadInterrupt(false);
+	if (PG_STATE(error_context_stack) != NULL || pq_is_reading_msg())
+		postgamma_runtime_contract_violation();
+	return schedule_epoch;
+}
+
+
+static bool
+postgamma_quantum_prepare_yield(
+	PostgammaClientSession *state, uint64_t schedule_epoch,
+	bool yield_when_runnable)
+{
+	bool		runnable;
+	uint32_t	transport_events = 0;
+	int			status;
+
+	status = state->transport_ops.ready(
+		state->transport, state->transport_generation, &transport_events);
+	if (status != 0)
+		postgamma_runtime_contract_violation();
+	/* A prior read can leave the next protocol message in PostgreSQL. */
+	runnable = pq_buffer_remaining_data() > 0 || (transport_events &
+		(POSTGAMMA_KERNEL_TRANSPORT_READABLE |
+		 POSTGAMMA_KERNEL_TRANSPORT_PEER_CLOSED)) != 0;
+	if (runnable && !yield_when_runnable)
+		return false;
+	status = postgamma_backend_prepare_yield(
+		state->registry, state->handle.id, schedule_epoch, runnable);
+	/*
+	 * EAGAIN leaves the newer reschedule request intact.  Return to the pool
+	 * and drain it on resume; refreshing the epoch here would erase the wake.
+	 */
+	if (status != 0 && status != EAGAIN)
+		postgamma_runtime_contract_violation();
 	PG_STATE(PG_exception_stack) = NULL;
 	state->quantum_yielded = true;
 	return true;
@@ -1756,6 +1794,7 @@ postgamma_postgres_quantum_yield_ready(
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	uint64_t	deadline_ns = 0;
+	uint64_t	schedule_epoch;
 	int			status;
 
 	if (!postgamma_quantum_is_pooled_client(state))
@@ -1807,7 +1846,8 @@ postgamma_postgres_quantum_yield_ready(
 		state->registry, state->handle.id, deadline_ns);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	return postgamma_quantum_prepare_yield(state, true);
+	schedule_epoch = postgamma_quantum_drain_interrupts(state);
+	return postgamma_quantum_prepare_yield(state, schedule_epoch, true);
 }
 
 
@@ -1819,6 +1859,7 @@ postgamma_postgres_quantum_yield_command_read(
 {
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	uint64_t	deadline_ns;
+	uint64_t	schedule_epoch;
 	int			status;
 
 	if (!postgamma_quantum_is_pooled_client(state))
@@ -1842,9 +1883,7 @@ postgamma_postgres_quantum_yield_command_read(
 	 * message has started, so returning from PostgresMain cannot discard
 	 * partially consumed protocol state.
 	 */
-	ProcessClientReadInterrupt(false);
-	if (PG_STATE(error_context_stack) != NULL || pq_is_reading_msg())
-		postgamma_runtime_contract_violation();
+	schedule_epoch = postgamma_quantum_drain_interrupts(state);
 	/*
 	 * secure_read() may have filled PostgreSQL's receive buffer with more than
 	 * one complete frontend message.  Those bytes are runnable work even when
@@ -1874,7 +1913,7 @@ postgamma_postgres_quantum_yield_command_read(
 		state->registry, state->handle.id, deadline_ns);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	return postgamma_quantum_prepare_yield(state, false);
+	return postgamma_quantum_prepare_yield(state, schedule_epoch, false);
 }
 
 
@@ -2023,7 +2062,12 @@ postgamma_kill(pid_t pid, int signal_number)
 			errno = status;
 			return -1;
 		}
+#ifdef __EMSCRIPTEN__
+		errno = ENOTSUP;
+		return -1;
+#else
 		return kill(pid, signal_number);
+#endif
 	}
 	if (registry == NULL)
 	{
@@ -2101,13 +2145,23 @@ postgamma_waitpid(pid_t pid, int *exit_status, int options)
 		errno = ECHILD;
 		return -1;
 	}
+#ifdef __EMSCRIPTEN__
+	errno = ECHILD;
+	return -1;
+#else
 	return waitpid(pid, exit_status, options);
+#endif
 }
 
 
 int
 postgamma_system(const char *command)
 {
+#ifdef __EMSCRIPTEN__
+	(void) command;
+	errno = ENOTSUP;
+	return -1;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2120,12 +2174,19 @@ postgamma_system(const char *command)
 	if (state != NULL)
 		return postgamma_external_system(&state->external_processes, command);
 	return system(command);
+#endif
 }
 
 
 FILE *
 postgamma_popen(const char *command, const char *mode)
 {
+#ifdef __EMSCRIPTEN__
+	(void) command;
+	(void) mode;
+	errno = ENOTSUP;
+	return NULL;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2138,12 +2199,18 @@ postgamma_popen(const char *command, const char *mode)
 	if (state != NULL)
 		return postgamma_external_popen(&state->external_processes, command, mode);
 	return popen(command, mode);
+#endif
 }
 
 
 int
 postgamma_pclose(FILE *stream)
 {
+#ifdef __EMSCRIPTEN__
+	(void) stream;
+	errno = ENOTSUP;
+	return -1;
+#else
 	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	PostgammaInstanceRuntime *runtime = postgamma_current_instance_runtime();
 
@@ -2156,6 +2223,7 @@ postgamma_pclose(FILE *stream)
 		return -1;
 	}
 	return pclose(stream);
+#endif
 }
 
 
@@ -2528,6 +2596,13 @@ postgamma_postgres_backend_cleanup(
 		dsm_detach_all();
 		state->dsm_control_handle_set = false;
 	}
+#ifdef __EMSCRIPTEN__
+	if (state->main_shmem_attached)
+	{
+		PGSharedMemoryDetach();
+		state->main_shmem_attached = false;
+	}
+#endif
 	if (state->memory_contexts_initialized)
 		postgamma_destroy_postgres_memory_contexts(!crash_exit);
 	if (state->execution.postgres_guc_control != NULL)
@@ -2782,6 +2857,11 @@ postgamma_initialize_backend_thread(
 
 		if (header == NULL)
 			postgamma_runtime_contract_violation();
+#ifdef __EMSCRIPTEN__
+		/* Pin the segment to this logical role, independent of its carrier. */
+		PGSharedMemoryReAttach();
+		state->main_shmem_attached = true;
+#endif
 		dsm_set_control_handle(header->dsm_control);
 		state->dsm_control_handle_set = true;
 		InitShmemAllocator(header);

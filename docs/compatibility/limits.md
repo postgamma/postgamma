@@ -1,5 +1,10 @@
 # Limits and unsupported features
 
+This page describes the native embedded Python and C APIs. The
+[threaded server](../server/compatibility.md) and
+[browser preview](../getting-started/browser.md) have separate support and
+resource boundaries.
+
 ## Default resource limits
 
 | Limit | Default | Override |

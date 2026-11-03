@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,32 @@ TOOLCHAIN_LOCK = (
 
 
 class FullTestScriptTests(unittest.TestCase):
+    def test_cpp_wrapper_keeps_project_system_headers_ahead_of_toolchain_fallback(self) -> None:
+        compiler = shutil.which("clang++") or shutil.which("clang++-22")
+        if not compiler:
+            self.skipTest("Clang is required for the compiler-wrapper regression")
+        source = SCRIPT.read_text()
+        function = source[source.index("install_compiler_wrappers()\n"):source.index("raise_open_file_limit()\n")]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            toolchain, project = root / "toolchain", root / "project"
+            (toolchain / "bin").mkdir(parents=True)
+            (toolchain / "bin/clang++").symlink_to(compiler)
+            (toolchain / "x86_64-conda-linux-gnu").mkdir()
+            (toolchain / "x86_64-conda-linux-gnu/sysroot").symlink_to("/", target_is_directory=True)
+            for directory, value in [(toolchain / "include", 1), (project, 2)]:
+                (directory / "llvm").mkdir(parents=True)
+                (directory / "llvm/probe.h").write_text(f"int selected_header = {value};\n")
+            subprocess.run(["bash", "-c", 'toolchain=$1; system_bridge=$2; SCRIPT_NAME=test;\n' + function +
+                            '\ninstall_compiler_wrappers', "wrapper-test", str(toolchain), str(root / "bridge")],
+                           check=True, capture_output=True, text=True)
+            wrapper = toolchain / "bin/postgamma-ast-clangxx"
+            for arguments, value in [([], 1), (["-isystem", str(project)], 2)]:
+                result = subprocess.run([str(wrapper), "-E", "-x", "c++", *arguments, "-"],
+                                        input="#include <llvm/probe.h>\n", capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"int selected_header = {value};", result.stdout)
+
     def test_validation_dependencies_use_the_managed_interpreter_without_sudo(self) -> None:
         source = SCRIPT.read_text()
         function = source[source.index("install_validation_dependencies()\n"):source.index("install_git()\n")]
@@ -129,6 +156,10 @@ class FullTestScriptTests(unittest.TestCase):
         self.assertIn(f"git_prefix={state_root / 'git'}\n", result.stdout)
         self.assertIn(f"perl_modules={state_root / 'perl'}\n", result.stdout)
         self.assertIn("jobs=2\n", result.stdout)
+        self.assertIn("test_target=full-test\n", result.stdout)
+        self.assertIn("test_suites=native,wasm-release\n", result.stdout)
+        self.assertIn("wasm_tools=pinned-emsdk,node,chromium,firefox,webkit\n", result.stdout)
+        self.assertIn("wasm_alpha_endurance=separate\n", result.stdout)
         self.assertIn("swap_swappiness=60\n", result.stdout)
         self.assertIn("session_executor_timeout_seconds=3600\n", result.stdout)
         self.assertIn(
@@ -500,7 +531,7 @@ class FullTestScriptTests(unittest.TestCase):
                     with self.subTest(mode=mode, git_status=git_status):
                         log_path.write_text("", encoding="utf-8")
                         result = subprocess.run(
-                            ["bash", str(work / "run/complete-source-check.sh"), mode],
+                            ["bash", str(work / "run/full-test.sh"), mode],
                             env={**environment, "TEST_GIT_STATUS": str(git_status)},
                             text=True, capture_output=True, check=False,
                         )
@@ -521,8 +552,8 @@ class FullTestScriptTests(unittest.TestCase):
                             self.assertEqual(git_record["git_config"], "1")
                         if git_status == 0:
                             target = (
-                                "doctor-full-test" if mode == "preflight"
-                                else "complete-source-check"
+                                "full-test-prepare" if mode == "preflight"
+                                else "full-test"
                             )
                             self.assertEqual(records[2]["arguments"][1], target)
                             if mode == "run":
@@ -533,12 +564,10 @@ class FullTestScriptTests(unittest.TestCase):
                                 self.assertEqual(records[4]["arguments"][0], "buildsys/check_full_test_artifacts.py")
                                 arguments = records[4]["arguments"]
                                 self.assertEqual(arguments[arguments.index("--python") + 1], environment["runtime_python"])
-                            else:
-                                self.assertIn("doctor-docs", records[2]["arguments"])
 
             log_path.write_text("", encoding="utf-8")
             subprocess.run(
-                ["bash", str(work / "run/complete-source-check.sh"), "artifacts"],
+                ["bash", str(work / "run/full-test.sh"), "artifacts"],
                 env=environment, check=True, capture_output=True,
             )
             records = [json.loads(line) for line in log_path.read_text().splitlines()]
@@ -548,7 +577,7 @@ class FullTestScriptTests(unittest.TestCase):
             arguments = records[0]["arguments"]
             self.assertEqual(arguments[arguments.index("--python") + 1], environment["runtime_python"])
             result = subprocess.run(
-                ["bash", str(work / "run/complete-source-check.sh"), "run"],
+                ["bash", str(work / "run/full-test.sh"), "run"],
                 env={**environment, "TEST_GIT_STATUS": "0", "TEST_ARTIFACT_STATUS": "17"},
                 capture_output=True,
             )
@@ -608,9 +637,60 @@ class FullTestScriptTests(unittest.TestCase):
         )[1]
         source_init = runner.index('"\\$MAKE" source-init')
         clear = runner.index("unset PG_REPOSITORY PG_REPOSITORY_FALLBACK")
-        complete = runner.index('"\\$MAKE" -j1 complete-source-check')
+        complete = runner.index('"\\$MAKE" -j1 full-test')
         self.assertLess(source_init, clear)
         self.assertLess(clear, complete)
+
+    def test_generated_runner_selects_full_preflight_and_full_test_and_propagates_failure(self):
+        source = SCRIPT.read_text()
+        function = source[source.index("write_runner()\n"):source.index("\nreset_managed_directory\n")]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "run").mkdir()
+            (root / "bin").mkdir()
+            log = root / "make.jsonl"
+            make = root / "bin/make"
+            make.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                f"with open({str(log)!r}, 'a') as output:\n"
+                "    output.write(json.dumps({'args': sys.argv[1:],\n"
+                "        'mirror': os.environ.get('PG_REPOSITORY')}) + '\\n')\n"
+                "if os.environ.get('RUNNER_TEST_FAIL') in sys.argv[1:]:\n"
+                "    sys.exit(71)\n"
+            )
+            make.chmod(0o755)
+            python = root / "bin/python3"
+            python.write_text("#!/bin/sh\nexit 0\n")
+            python.chmod(0o755)
+            # Exercise the actual emitted shell script without provisioning or
+            # compiling: only its external make commands are replaced.
+            harness = (
+                'work_root=$1; source_dir=$2; test_home=$1; test_user=tester;\n'
+                'toolchain=$1; system_bridge=$1; git_prefix=$1; perl_modules=$1;\n'
+                'jobs=2; session_timeout=3600; session_request_timeout=300;\n'
+                'logical_management_timeout=1800; events_timeout=1200; events_request_timeout=300;\n'
+                'git_executable=/usr/bin/git; runtime_python=$1/bin/python3; test_artifacts=$1/artifacts;\n' + function + '\nwrite_runner\n'
+            )
+            subprocess.run(["bash", "-c", harness, "runner-test", str(root), str(PROJECT_ROOT)],
+                           check=True, text=True, capture_output=True)
+            runner = root / "run/full-test.sh"
+            for mode, target in (("preflight", "full-test-prepare"), ("run", "full-test")):
+                for failure in ("", target):
+                    with self.subTest(mode=mode, failure=failure):
+                        log.unlink(missing_ok=True)
+                        result = subprocess.run(
+                            [str(runner), mode], text=True, capture_output=True,
+                            env={**os.environ, "RUNNER_TEST_FAIL": failure,
+                                 "PG_REPOSITORY": "must-be-cleared"},
+                        )
+                        self.assertEqual(result.returncode, 71 if failure else 0, result.stderr)
+                        calls = [json.loads(line) for line in log.read_text().splitlines()]
+                        self.assertEqual(calls[0]["args"][0], "source-init")
+                        self.assertEqual(calls[1]["args"][:2], ["-j1", target])
+                        self.assertIn("JOBS=2", calls[1]["args"])
+                        self.assertIn(f"BUILD_DIR={root / 'build'}", calls[1]["args"])
+                        self.assertIsNone(calls[1]["mirror"])
 
 
 if __name__ == "__main__":

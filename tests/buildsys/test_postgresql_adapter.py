@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -103,6 +104,78 @@ class PostgreSQLAdapterTests(unittest.TestCase):
         self.assertIn("sem_timedwait(PG_SEM_REF(sema), &deadline)", generated)
         self.assertIn("postgamma_dispatch_pending_signals();", generated)
         self.assertIn("errStatus = sem_wait(PG_SEM_REF(sema));", generated)
+
+    def test_project_adapter_preserves_wait_deadlines_after_timer_dispatch(self) -> None:
+        compiler = shlex.split(os.environ.get("CC", "cc"))
+        if not os.environ.get("CC") and shutil.which("cc") is None:
+            self.skipTest("A host C compiler is required for the generated wait regression")
+        document = postgresql_adapter.load_adapter(
+            PROJECT_ROOT / "manifests/postgresql/adapter.json"
+        )
+        path = "src/backend/storage/ipc/waiteventset.c"
+        edits = [edit for edit in document["generated_support"]["edits"] if edit["path"] == path]
+        generated = postgresql_adapter.apply_non_overlapping_edits(
+            edits, (PROJECT_ROOT / "postgres" / path).read_text(encoding="utf-8")
+        )
+        begin = generated.index("int\nWaitEventSetWait(")
+        end = generated.index("\n}\n", begin) + 3
+        backend = (PROJECT_ROOT / "runtime/src/postgres_backend_runtime.c").read_text()
+        timer_begin = backend.index("long\npostgamma_backend_adjust_wait_timeout")
+        timer_end = backend.index("\n\nbool\npostgamma_postgres_quantum_begin", timer_begin)
+        # Execute the actual transformed PostgreSQL loop and runtime timer;
+        # the fixture supplies readiness, the clock and a rearming alarm handler.
+        with tempfile.TemporaryDirectory(prefix="postgamma-wait-regression-") as temporary:
+            directory = Path(temporary)
+            (directory / "wait.inc").write_text(generated[begin:end])
+            (directory / "timer-wait.inc").write_text(backend[timer_begin:timer_end])
+            executable = directory / "wait-probe"
+            command = [*compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                       "-I" + str(PROJECT_ROOT / "runtime/include"), "-I" + temporary,
+                       str(PROJECT_ROOT / "tests/runtime/waiteventset_wait_fixture.c"),
+                       str(PROJECT_ROOT / "runtime/src/virtual_signal.c"), "-o", str(executable)]
+            compiled = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_project_adapter_preserves_atomic_latch_layout_on_wasm(self) -> None:
+        compiler = shlex.split(os.environ.get("CC", "cc"))
+        if not os.environ.get("CC") and shutil.which("cc") is None:
+            self.skipTest("A C compiler is required for the latch layout contract")
+        document = postgresql_adapter.load_adapter(PROJECT_ROOT / "manifests/postgresql/adapter.json")
+        path = "src/include/storage/latch.h"
+        upstream = (PROJECT_ROOT / "postgres" / path).read_text()
+        edits = [edit for edit in document["generated_support"]["edits"] if edit["path"] == path]
+        generated = postgresql_adapter.apply_non_overlapping_edits(edits, upstream)
+        begin, end = generated.index("typedef struct Latch"), generated.index("} Latch;")
+        declaration = generated[begin:end + len("} Latch;")]
+        source = """#include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+""" + declaration + """
+typedef struct {sig_atomic_t is_set, maybe_sleeping; bool is_shared; int owner_pid;} NativeLatch;
+_Static_assert(sizeof(Latch) == sizeof(NativeLatch), "Latch size");
+_Static_assert(_Alignof(Latch) == _Alignof(NativeLatch), "Latch alignment");
+_Static_assert(offsetof(Latch, maybe_sleeping) == offsetof(NativeLatch, maybe_sleeping), "sleeping offset");
+_Static_assert(offsetof(Latch, owner_pid) == offsetof(NativeLatch, owner_pid), "owner offset");
+#ifdef __EMSCRIPTEN__
+_Static_assert(_Generic(&((Latch *)0)->is_set, _Atomic(sig_atomic_t) *: 1, default: 0), "atomic is_set");
+_Static_assert(_Generic(&((Latch *)0)->maybe_sleeping, _Atomic(sig_atomic_t) *: 1, default: 0), "atomic sleeping");
+_Static_assert(__atomic_always_lock_free(sizeof(sig_atomic_t), 0), "lock-free signal flags");
+#else
+_Static_assert(_Generic(&((Latch *)0)->is_set, sig_atomic_t *: 1, default: 0), "native flag type");
+#endif
+"""
+        with tempfile.TemporaryDirectory(prefix="postgamma-latch-layout-") as temporary:
+            directory = Path(temporary)
+            fixture = directory / "layout.c"
+            fixture.write_text(source)
+            for wasm in (False, True):
+                command = [*compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                           *(["-D__EMSCRIPTEN__"] if wasm else []), "-c", str(fixture),
+                           "-o", str(directory / ("wasm.o" if wasm else "native.o"))]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_project_adapter_exercises_semaphore_wait_during_crash(self) -> None:
         document = postgresql_adapter.load_adapter(
@@ -270,6 +343,22 @@ class PostgreSQLAdapterTests(unittest.TestCase):
                 validated, root, "product"
             )
             self.assertNotIn("test-edit", [record["id"] for record in product_records])
+
+    def test_append_requires_a_unique_anchor_and_rejects_reapplication(self) -> None:
+        edit = {"id": "end", "path": "source.c", "mode": "append", "match": "void final(void)",
+                "content": "\n#endif /* target */\n", "expected_matches": 1,
+                "reject_if_present": "#endif /* target */"}
+        text = "void final(void) { transformed_state = 0; }\n"
+        generated = postgresql_adapter.apply_non_overlapping_edits([edit], text)
+        self.assertEqual(generated, text + edit["content"])
+        self.assertEqual(postgresql_adapter.apply_edit(edit, text), generated)
+        for bad, status in (("changed signature", "anchor_mismatch"),
+                            (text + text, "anchor_mismatch"), (generated, "marker_present")):
+            self.assertEqual(postgresql_adapter.inspect_edit_anchor(edit, bad)["status"], status)
+        document = adapter_document()
+        document["generated_support"]["edits"] = [dict(edit, expected_matches=2)]
+        with self.assertRaisesRegex(postgresql_adapter.AdapterError, "must be 1 for append"):
+            postgresql_adapter.validate_adapter(document)
 
     def test_replace_between_uses_short_ordered_boundaries(self) -> None:
         edit = {

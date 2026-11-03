@@ -42,6 +42,14 @@
 #endif
 
 #define PGM_OPEN_TIMEOUT_NS UINT64_C(60000000000)
+#ifdef __EMSCRIPTEN__
+/* Browser-backed initdb creates and syncs more than a thousand files. Keep a
+ * separate creation budget; existing-instance and connection waits retain
+ * their ordinary deadline. This does not skip initdb's publication checks. */
+#define PGM_CREATE_TIMEOUT_NS UINT64_C(120000000000)
+#else
+#define PGM_CREATE_TIMEOUT_NS PGM_OPEN_TIMEOUT_NS
+#endif
 #define PGM_CONNECT_TIMEOUT_NS INT64_C(30000000000)
 #define PGM_CANCEL_PROPAGATION_TIMEOUT_NS UINT64_C(1000000000)
 #define PGM_CANCEL_REDISPATCH_INTERVAL_NS UINT64_C(10000000)
@@ -302,7 +310,8 @@ instance_open(
 		return return_simple_error(
 			error, PGM_STATUS_UNSUPPORTED,
 			"cluster creation currently requires logical_umask 0077");
-	status = deadline_after(PGM_OPEN_TIMEOUT_NS, &deadline_ns);
+	status = deadline_after(mode == PGM_OPEN_EXISTING ?
+		PGM_OPEN_TIMEOUT_NS : PGM_CREATE_TIMEOUT_NS, &deadline_ns);
 	if (status != 0)
 		return return_simple_error(
 			error, status_from_errno(status),
@@ -775,22 +784,16 @@ pgm_instance_get_telemetry(
 
 
 pgm_status
-pgm_connection_open(
+postgamma_public_connection_begin(
 	pgm_instance *instance,
 	const pgm_connection_options *options,
 	pgm_connection **connection,
 	pgm_error **error)
 {
 	PostgammaPrivateLibpqOptions private_options;
-	PostgammaKernelConnectRequest connect_request =
-		POSTGAMMA_KERNEL_CONNECT_REQUEST_INIT;
-	PostgammaSupervisorTicket *ticket = NULL;
 	PostgammaMemoryEndpoint *backend_endpoint = NULL;
 	pgm_connection *created = NULL;
 	char	   *startup_options = NULL;
-	int64_t		private_deadline;
-	uint64_t	supervisor_deadline;
-	int			operation_status = 0;
 	int			status = 0;
 	PostgammaPrivateLibpqStatus private_status;
 
@@ -852,6 +855,9 @@ pgm_connection_open(
 	created->callback_user_data = options->user_data;
 	atomic_init(&created->event_pending_next, NULL);
 	atomic_init(&created->event_ready_pending, false);
+#ifdef __EMSCRIPTEN__
+	atomic_init(&created->wasm_ready_sequence, 0);
+#endif
 	status = postgamma_mutex_create(&created->mutex);
 	if (status != 0)
 		goto fail_locked;
@@ -882,63 +888,20 @@ pgm_connection_open(
 		status = EPROTO;
 		goto fail_locked;
 	}
+	created->backend_monitor = backend_endpoint;
+	backend_endpoint = NULL;
 	status = postgamma_memory_server_connect_init(
-		instance->generation, backend_endpoint, &connect_request);
-	connect_request.connection_id = created->identity;
+		instance->generation, created->backend_monitor, &created->connect_payload);
+	created->connect_payload.connection_id = created->identity;
 	if (status == 0)
-		status = postgamma_supervisor_submit(
-			instance->supervisor, instance->generation,
-			POSTGAMMA_SUPERVISOR_CONTROL_CONNECT, &connect_request, &ticket);
+		status = deadline_after(PGM_OPEN_TIMEOUT_NS, &created->connect_deadline_ns);
 	if (status == 0)
-		status = deadline_after(PGM_OPEN_TIMEOUT_NS, &supervisor_deadline);
-	if (status == 0)
-		status = wait_and_destroy_ticket(
-			&ticket, supervisor_deadline, &operation_status);
-	if (status == 0 && operation_status != 0)
-		status = operation_status;
-	if (status != 0 || connect_request.backend_pid <= 0)
-	{
-		if (status == 0)
-			status = EPROTO;
-		goto fail_locked;
-	}
-	created->backend_pid = connect_request.backend_pid;
-	if (postgamma_memory_endpoint_retain(
-			backend_endpoint, instance->generation,
-			&created->backend_monitor) != POSTGAMMA_MEMORY_STATUS_OK)
-	{
-		status = EPROTO;
-		goto fail_locked;
-	}
-	if (postgamma_memory_endpoint_release(
-			&backend_endpoint, instance->generation) !=
-		POSTGAMMA_MEMORY_STATUS_OK)
-	{
-		status = EPROTO;
-		goto fail_locked;
-	}
-	connect_request.transport = NULL;
-	status = private_deadline_after(PGM_CONNECT_TIMEOUT_NS, &private_deadline);
+		status = postgamma_supervisor_submit(instance->supervisor, instance->generation,
+			POSTGAMMA_SUPERVISOR_CONTROL_CONNECT, &created->connect_payload,
+			&created->connect_ticket);
 	if (status != 0)
 		goto fail_locked;
-	private_status = postgamma_private_libpq_connect(
-		created->private_connection, private_deadline);
-	if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
-	{
-		status = EPROTO;
-		goto fail_locked;
-	}
-	status = postgamma_public_event_register_connection(created);
-	if (status != 0)
-		goto fail_locked;
-	private_status = postgamma_private_libpq_set_notify(
-		created->private_connection, notify_frontend_waitable,
-		created);
-	if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
-	{
-		status = EPROTO;
-		goto fail_locked;
-	}
+	/* Reserve lifetime under the instance lock, then return before any wait. */
 	instance->connection_count++;
 	created->registered_with_instance = true;
 	(void) postgamma_mutex_unlock(instance->mutex);
@@ -948,8 +911,6 @@ pgm_connection_open(
 
 fail_locked:
 	(void) postgamma_mutex_unlock(instance->mutex);
-	if (ticket != NULL)
-		(void) postgamma_supervisor_ticket_destroy(ticket);
 	if (backend_endpoint != NULL)
 	{
 		(void) postgamma_memory_endpoint_abort(
@@ -984,6 +945,136 @@ fail_locked:
 		strerror(status != 0 ? status : EIO)));
 	return status == ENOMEM ? PGM_STATUS_OUT_OF_MEMORY :
 		PGM_STATUS_CONNECTION_FAILED;
+}
+
+
+pgm_status
+postgamma_public_connection_step(pgm_connection **connection, bool *done, pgm_error **error)
+{
+	pgm_connection *created;
+	pgm_status result;
+	char		failure_detail[256];
+	int status = 0, operation_status = 0;
+	uint64_t now = postgamma_monotonic_now_ns();
+
+	if (error != NULL)
+		*error = NULL;
+	if (connection == NULL || !connection_is_valid(*connection) || done == NULL)
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT, "invalid connection startup step");
+	*done = false;
+	created = *connection;
+	if (!process_is_valid(created->owner_pid))
+		return return_simple_error(error, PGM_STATUS_FORKED_PROCESS, "connection belongs to another process");
+	if (public_instance_reentrant(created->instance))
+		return return_simple_error(error, PGM_STATUS_REENTRANT_CALL, "callback cannot reenter the same instance");
+	if (!created->connect_error && now >= created->connect_deadline_ns)
+		created->connect_error = ETIMEDOUT;
+	if (created->connect_error)
+		(void) postgamma_memory_endpoint_abort(created->backend_monitor,
+			created->instance->generation, POSTGAMMA_MEMORY_ABORT_DEADLINE);
+	if (created->connect_ticket != NULL)
+	{
+		status = postgamma_supervisor_ticket_wait(created->connect_ticket, now, &operation_status);
+		/* Expiry aborts transport, but payload ownership outlives the ticket.
+		 * Continue yielding during retirement, even after the startup deadline. */
+		if (status == ETIMEDOUT)
+			return PGM_STATUS_OK;
+		if (status != 0)
+			return return_simple_error(error, status_from_errno(status), "could not poll connection ticket");
+		status = postgamma_supervisor_ticket_destroy(created->connect_ticket);
+		if (status != 0)
+			return return_simple_error(error, status_from_errno(status), "could not retire connection ticket");
+		created->connect_ticket = NULL;
+		if (!created->connect_error)
+			created->connect_error = operation_status ? operation_status :
+				created->connect_payload.backend_pid <= 0 ? EPROTO : 0;
+		created->backend_pid = created->connect_payload.backend_pid;
+		created->connect_payload.transport = NULL;
+		created->connect_deadline_ns = now + (uint64_t) PGM_CONNECT_TIMEOUT_NS;
+	}
+	if (!created->connect_error && !created->connect_handshake)
+	{
+		PostgammaPrivateLibpqStatus private_status = postgamma_private_libpq_connect_step(
+			created->private_connection, &created->connect_handshake);
+
+		if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+			created->connect_error = EPROTO;
+		else if (!created->connect_handshake)
+			return PGM_STATUS_OK;
+	}
+	if (!created->connect_error)
+	{
+		status = postgamma_public_event_register_connection(created);
+		if (status == 0 && postgamma_private_libpq_set_notify(
+				created->private_connection, notify_frontend_waitable, created) != POSTGAMMA_PRIVATE_LIBPQ_OK)
+			status = EPROTO;
+		if (status == 0)
+		{
+			*done = true;
+			return PGM_STATUS_OK;
+		}
+		created->connect_error = status;
+	}
+	status = created->connect_error;
+	/* Preserve the server's startup diagnostic before retirement frees libpq.
+	 * Closing may take several steps, so the diagnostic belongs to the pending
+	 * connection until its final close, not to a single poll's stack frame. */
+	if (created->private_connection != NULL &&
+		created->connect_error_detail[0] == '\0')
+	{
+		PostgammaPrivateLibpqTelemetry telemetry;
+
+		if (postgamma_private_libpq_telemetry(
+				created->private_connection, &telemetry) == POSTGAMMA_PRIVATE_LIBPQ_OK)
+			snprintf(created->connect_error_detail,
+				sizeof(created->connect_error_detail), "%s", telemetry.last_error);
+	}
+	snprintf(failure_detail, sizeof(failure_detail), "%s",
+		created->connect_error_detail);
+	(void) postgamma_memory_endpoint_abort(created->backend_monitor,
+		created->instance->generation, POSTGAMMA_MEMORY_ABORT_SHUTDOWN);
+	/* Closing an aborted frontend reports transport failure after freeing it.
+	 * Keep retirement separate from that expected startup error. */
+	if (created->private_connection != NULL)
+	{
+		(void) postgamma_private_libpq_close(&created->private_connection);
+		if (created->private_connection != NULL)
+			return PGM_STATUS_OK;
+	}
+	result = pgm_connection_close(created, 0, error);
+	if (result == PGM_STATUS_TIMEOUT || result == PGM_STATUS_BUSY)
+	{
+		if (error != NULL) {pgm_error_free(*error); *error = NULL;}
+		return PGM_STATUS_OK;
+	}
+	if (result != PGM_STATUS_OK)
+		return result;
+	*connection = NULL;
+	*done = true;
+	result = status == ETIMEDOUT ? PGM_STATUS_TIMEOUT : PGM_STATUS_CONNECTION_FAILED;
+	return_error(error, make_error(result, NULL, NULL,
+		failure_detail[0] ? failure_detail : NULL,
+		"embedded connection startup failed"));
+	return result;
+}
+
+
+pgm_status
+pgm_connection_open(pgm_instance *instance, const pgm_connection_options *options,
+                    pgm_connection **connection, pgm_error **error)
+{
+	pgm_status status = postgamma_public_connection_begin(instance, options, connection, error);
+	bool done = false;
+
+	while (status == PGM_STATUS_OK && !done)
+	{
+		struct timespec pause = {0, 1000000L};
+
+		status = postgamma_public_connection_step(connection, &done, error);
+		if (status == PGM_STATUS_OK && !done)
+			(void) nanosleep(&pause, NULL);
+	}
+	return status;
 }
 
 
@@ -1032,6 +1123,7 @@ pgm_connection_close(
 	}
 	connection->closing = true;
 	(void) postgamma_mutex_unlock(connection->mutex);
+	/* A previous close may have released libpq before its backend timed out. */
 	if (connection->private_connection != NULL)
 	{
 		private_status = postgamma_private_libpq_set_notify(
@@ -1143,10 +1235,10 @@ request_start(
 	*request = NULL;
 	if (!connection_is_valid(connection) || sql == NULL || sql[0] == '\0' ||
 		mode < POSTGAMMA_PUBLIC_REQUEST_EXTENDED ||
-		mode > POSTGAMMA_PUBLIC_REQUEST_PREPARED ||
-		(mode == POSTGAMMA_PUBLIC_REQUEST_PREPARED &&
+		mode > POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE ||
+		(mode >= POSTGAMMA_PUBLIC_REQUEST_PREPARED &&
 		 (!statement_is_valid(statement) || statement->connection != connection)) ||
-		(mode != POSTGAMMA_PUBLIC_REQUEST_PREPARED && statement != NULL) ||
+		(mode < POSTGAMMA_PUBLIC_REQUEST_PREPARED && statement != NULL) ||
 		(mode == POSTGAMMA_PUBLIC_REQUEST_SCRIPT && parameter_count != 0) ||
 		result_format > 1 || parameter_count > INT32_MAX ||
 		(parameter_count != 0 && parameters == NULL) ||
@@ -1256,6 +1348,14 @@ request_start(
 			private_status = postgamma_private_libpq_operation_start_script_ex(
 				connection->private_connection, created->generation,
 				created->sql, &private_policy, &created->operation);
+		else if (mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE ||
+				 mode == POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE)
+			private_status = postgamma_private_libpq_statement_start(
+				connection->private_connection, created->generation,
+				statement->name,
+				mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE ? created->sql : NULL,
+				created->parameters, created->parameter_count,
+				&private_policy, &created->operation);
 		else if (mode == POSTGAMMA_PUBLIC_REQUEST_PREPARED)
 			private_status = postgamma_private_libpq_operation_start_prepared_ex(
 				connection->private_connection, created->generation,
@@ -1693,7 +1793,7 @@ pgm_request_cancel(pgm_request *request, pgm_error **error)
 	request->cancel_requested = true;
 	copy_active = request->active_copy != NULL;
 	(void) postgamma_mutex_unlock(request->mutex);
-	if (copy_active)
+	/* A buffered result is not evidence that cancellation was dispatched. */
 	{
 		PostgammaPrivateLibpqStatus private_status =
 			postgamma_private_libpq_cancel(
@@ -1702,9 +1802,10 @@ pgm_request_cancel(pgm_request *request, pgm_error **error)
 		if (private_status != POSTGAMMA_PRIVATE_LIBPQ_OK)
 			return return_simple_error(
 				error, status_from_private(private_status),
-				"could not cancel an active COPY request");
-		return PGM_STATUS_OK;
+				"could not dispatch request cancellation");
 	}
+	if (copy_active)
+		return PGM_STATUS_OK;
 	for (;;)
 	{
 		PostgammaPrivateLibpqStatus private_status;
@@ -2717,6 +2818,13 @@ copy_request_parameters(
 		}
 		if (source->is_null == 0)
 		{
+			/* libpq uses strlen for text parameters, ignoring their length. */
+			if (source->format == PGM_FORMAT_TEXT &&
+				memchr(source->data, '\0', source->size) != NULL)
+			{
+				free_request_parameters(created, parameter_count);
+				return EINVAL;
+			}
 			data = malloc(source->size + 1);
 			if (data == NULL)
 			{
@@ -2910,6 +3018,148 @@ retire_active_request(pgm_request *request)
 }
 
 
+pgm_status
+postgamma_public_cancel_dispatch_step(
+	pgm_request *request, bool submit, bool *done, pgm_error **error)
+{
+	int status = 0, operation_status = 0;
+	uint64_t now = postgamma_monotonic_now_ns();
+
+	if (error != NULL)
+		*error = NULL;
+	if (done == NULL || !request_is_valid(request))
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"invalid cancellation step");
+	*done = false;
+	if (!process_is_valid(request->owner_pid))
+		return return_simple_error(error, PGM_STATUS_FORKED_PROCESS,
+			"request belongs to a different host process");
+	if (public_instance_reentrant(request->connection->instance))
+		return return_simple_error(error, PGM_STATUS_REENTRANT_CALL,
+			"callback cannot reenter the same instance");
+	if (postgamma_mutex_lock(request->mutex) != 0)
+		return PGM_STATUS_INTERNAL_ERROR;
+	if (request->cancel_ticket != NULL)
+	{
+		status = postgamma_supervisor_ticket_wait(
+			request->cancel_ticket, now, &operation_status);
+		if (status == ETIMEDOUT)
+		{
+			(void) postgamma_mutex_unlock(request->mutex);
+			return PGM_STATUS_OK;
+		}
+		if (status == 0)
+		{
+			status = postgamma_supervisor_ticket_destroy(request->cancel_ticket);
+			if (status == 0)
+			{
+				request->cancel_ticket = NULL;
+				request->cancel_dispatched = true;
+				request->cancel_next_ns = now + PGM_CANCEL_REDISPATCH_INTERVAL_NS;
+				status = operation_status;
+				if (status == 0 && request->cancel_payload.dispatched != 1)
+					status = EPROTO;
+				*done = status == 0;
+			}
+		}
+	}
+	else if (!submit || (request->cancel_dispatched && now < request->cancel_next_ns))
+		*done = true;
+	else
+	{
+		pgm_connection *connection = request->connection;
+
+		request->cancel_requested = true;
+		request->cancel_payload = (PostgammaKernelCancelRequest)
+			POSTGAMMA_KERNEL_CANCEL_REQUEST_INIT;
+		request->cancel_payload.generation = connection->instance->generation;
+		request->cancel_payload.request_generation = request->generation;
+		request->cancel_payload.backend_pid = connection->backend_pid;
+		status = postgamma_supervisor_submit(connection->instance->supervisor,
+			connection->instance->generation, POSTGAMMA_SUPERVISOR_CONTROL_CANCEL,
+			&request->cancel_payload, &request->cancel_ticket);
+	}
+	(void) postgamma_mutex_unlock(request->mutex);
+	if (status != 0)
+		return return_simple_error(error, status_from_errno(status),
+			"could not dispatch request cancellation");
+	return PGM_STATUS_OK;
+}
+
+
+pgm_status
+postgamma_public_request_cancel_step(
+	pgm_request *request, bool *done, pgm_error **error)
+{
+	pgm_status status;
+	bool dispatched;
+
+	if (done == NULL)
+		return PGM_STATUS_INVALID_ARGUMENT;
+	*done = false;
+	status = postgamma_public_cancel_dispatch_step(
+		request, request_is_active(request), &dispatched, error);
+	if (status != PGM_STATUS_OK || !dispatched)
+		return status;
+	if (postgamma_mutex_lock(request->mutex) != 0)
+		return PGM_STATUS_INTERNAL_ERROR;
+	/* A transferred COPY has its own bounded I/O consumer. */
+	if (request->active_copy != NULL)
+		*done = true;
+	else
+	{
+		status = progress_request_locked(request);
+		*done = request->result != NULL ||
+			(request->state != PGM_REQUEST_PENDING && request->state != PGM_REQUEST_RUNNING);
+	}
+	(void) postgamma_mutex_unlock(request->mutex);
+	postgamma_public_dispatch_progress_events(request);
+	return status;
+}
+
+
+pgm_status
+postgamma_public_request_release_step(
+	pgm_request *request, bool *done, pgm_error **error)
+{
+	pgm_result *discarded;
+	pgm_status status;
+	bool dispatched, handled, progressed, terminal;
+
+	if (done == NULL || !request_is_valid(request))
+		return return_simple_error(error, PGM_STATUS_INVALID_ARGUMENT,
+			"invalid request release step");
+	*done = false;
+	if (request->active_copy != NULL)
+		return return_simple_error(error, PGM_STATUS_BUSY,
+			"close the COPY handle before releasing its request");
+	status = postgamma_public_cancel_dispatch_step(
+		request, request_is_active(request), &dispatched, error);
+	if (status != PGM_STATUS_OK)
+		return status;
+	if (postgamma_mutex_lock(request->mutex) != 0)
+		return PGM_STATUS_INTERNAL_ERROR;
+	discarded = request->result;
+	request->result = NULL;
+	/* At most one COPY chunk and one result per turn, even when data is ready. */
+	if (!progress_unclaimed_copy(request, &handled, &progressed))
+		status = PGM_STATUS_CONNECTION_FAILED;
+	else if (!handled)
+		status = progress_request_locked(request);
+	terminal = request->state != PGM_REQUEST_PENDING && request->state != PGM_REQUEST_RUNNING;
+	(void) postgamma_mutex_unlock(request->mutex);
+	pgm_result_free(discarded);
+	postgamma_public_dispatch_progress_events(request);
+	if (status == PGM_STATUS_OK && terminal && dispatched)
+	{
+		/* No pending ticket or active operation can reference this allocation. */
+		request_destroy(request);
+		*done = true;
+	}
+	return status;
+}
+
+
 static void
 abort_active_request(pgm_request *request)
 {
@@ -3007,6 +3257,21 @@ progress_request_locked(pgm_request *request)
 			operation_status, NULL, NULL, NULL,
 			"private libpq request failed: %s",
 			postgamma_private_libpq_status_name(private_status));
+	if (operation_status == PGM_STATUS_OK &&
+		request->mode == POSTGAMMA_PUBLIC_REQUEST_PREPARE)
+	{
+		request->statement->description =
+			postgamma_private_libpq_take_description(request->operation);
+		if (request->statement->description == NULL)
+		{
+			operation_status = PGM_STATUS_INTERNAL_ERROR;
+			request->error = make_error(operation_status, NULL, NULL, NULL,
+				"prepared statement description is missing");
+		}
+	}
+	if (operation_status == PGM_STATUS_OK &&
+		request->mode == POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE)
+		request->statement->remote_closed = true;
 	request->operation_status = operation_status;
 	if (operation_status == PGM_STATUS_OK)
 		request->state = PGM_REQUEST_COMPLETED;

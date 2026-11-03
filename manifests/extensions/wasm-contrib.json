@@ -1,0 +1,900 @@
+{
+  "schema_version": 2,
+  "kind": "postgamma.embedded-static-module-manifest",
+  "id": "postgresql-19-wasm-contrib",
+  "postgresql_major": 19,
+  "capability_vocabulary": [
+    "thread-safe",
+    "multi-instance-safe",
+    "session-mobility-safe",
+    "parallel-worker-safe",
+    "instance-shmem",
+    "background-worker",
+    "filesystem-read",
+    "filesystem-write",
+    "host-library-dependency",
+    "process-global-state"
+  ],
+  "modules": [
+    {
+      "id": "pg_trgm",
+      "logical_name": "pg_trgm",
+      "version": "1.6",
+      "postgresql_major": 19,
+      "sdk_contract": false,
+      "sdk_abi_version": 0,
+      "build": {
+        "kind": "postgres-link-output",
+        "link_output_suffix": "contrib/pg_trgm/pg_trgm.so"
+      },
+      "capabilities": {
+        "thread-safe": true,
+        "multi-instance-safe": true,
+        "session-mobility-safe": true,
+        "parallel-worker-safe": true,
+        "instance-shmem": false,
+        "background-worker": false,
+        "filesystem-read": true,
+        "filesystem-write": false,
+        "host-library-dependency": false,
+        "process-global-state": false
+      },
+      "lifecycle": [],
+      "state_policy": null,
+      "resources": [
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.0--1.1.sql",
+          "logical_path": "share/extension/pg_trgm--1.0--1.1.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.1--1.2.sql",
+          "logical_path": "share/extension/pg_trgm--1.1--1.2.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.2--1.3.sql",
+          "logical_path": "share/extension/pg_trgm--1.2--1.3.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.3--1.4.sql",
+          "logical_path": "share/extension/pg_trgm--1.3--1.4.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.3.sql",
+          "logical_path": "share/extension/pg_trgm--1.3.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.4--1.5.sql",
+          "logical_path": "share/extension/pg_trgm--1.4--1.5.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/pg_trgm/pg_trgm--1.5--1.6.sql",
+          "logical_path": "share/extension/pg_trgm--1.5--1.6.sql",
+          "required": true
+        },
+        {
+          "kind": "control",
+          "source": "postgres/contrib/pg_trgm/pg_trgm.control",
+          "logical_path": "share/extension/pg_trgm.control",
+          "required": true
+        }
+      ],
+      "dependencies": [],
+      "symbols": [
+        {
+          "logical_name": "Pg_magic_func",
+          "linker_name": "postgamma_module_pg_trgm_Pg_magic_func"
+        },
+        {
+          "logical_name": "_PG_init",
+          "linker_name": "postgamma_module_pg_trgm__PG_init"
+        },
+        {
+          "logical_name": "gin_extract_query_trgm",
+          "linker_name": "postgamma_module_pg_trgm_gin_extract_query_trgm"
+        },
+        {
+          "logical_name": "gin_extract_value_trgm",
+          "linker_name": "postgamma_module_pg_trgm_gin_extract_value_trgm"
+        },
+        {
+          "logical_name": "gin_trgm_consistent",
+          "linker_name": "postgamma_module_pg_trgm_gin_trgm_consistent"
+        },
+        {
+          "logical_name": "gin_trgm_triconsistent",
+          "linker_name": "postgamma_module_pg_trgm_gin_trgm_triconsistent"
+        },
+        {
+          "logical_name": "gtrgm_compress",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_compress"
+        },
+        {
+          "logical_name": "gtrgm_consistent",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_consistent"
+        },
+        {
+          "logical_name": "gtrgm_decompress",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_decompress"
+        },
+        {
+          "logical_name": "gtrgm_distance",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_distance"
+        },
+        {
+          "logical_name": "gtrgm_in",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_in"
+        },
+        {
+          "logical_name": "gtrgm_options",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_options"
+        },
+        {
+          "logical_name": "gtrgm_out",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_out"
+        },
+        {
+          "logical_name": "gtrgm_penalty",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_penalty"
+        },
+        {
+          "logical_name": "gtrgm_picksplit",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_picksplit"
+        },
+        {
+          "logical_name": "gtrgm_same",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_same"
+        },
+        {
+          "logical_name": "gtrgm_union",
+          "linker_name": "postgamma_module_pg_trgm_gtrgm_union"
+        },
+        {
+          "logical_name": "pg_finfo_gin_extract_query_trgm",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gin_extract_query_trgm"
+        },
+        {
+          "logical_name": "pg_finfo_gin_extract_value_trgm",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gin_extract_value_trgm"
+        },
+        {
+          "logical_name": "pg_finfo_gin_trgm_consistent",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gin_trgm_consistent"
+        },
+        {
+          "logical_name": "pg_finfo_gin_trgm_triconsistent",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gin_trgm_triconsistent"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_compress",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_compress"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_consistent",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_consistent"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_decompress",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_decompress"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_distance",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_distance"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_in",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_in"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_options",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_options"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_out",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_out"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_penalty",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_penalty"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_picksplit",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_picksplit"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_same",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_same"
+        },
+        {
+          "logical_name": "pg_finfo_gtrgm_union",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_gtrgm_union"
+        },
+        {
+          "logical_name": "pg_finfo_set_limit",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_set_limit"
+        },
+        {
+          "logical_name": "pg_finfo_show_limit",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_show_limit"
+        },
+        {
+          "logical_name": "pg_finfo_show_trgm",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_show_trgm"
+        },
+        {
+          "logical_name": "pg_finfo_similarity",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_similarity"
+        },
+        {
+          "logical_name": "pg_finfo_similarity_dist",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_similarity_dist"
+        },
+        {
+          "logical_name": "pg_finfo_similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_similarity_op"
+        },
+        {
+          "logical_name": "pg_finfo_strict_word_similarity",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_strict_word_similarity"
+        },
+        {
+          "logical_name": "pg_finfo_strict_word_similarity_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_strict_word_similarity_commutator_op"
+        },
+        {
+          "logical_name": "pg_finfo_strict_word_similarity_dist_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_strict_word_similarity_dist_commutator_op"
+        },
+        {
+          "logical_name": "pg_finfo_strict_word_similarity_dist_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_strict_word_similarity_dist_op"
+        },
+        {
+          "logical_name": "pg_finfo_strict_word_similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_strict_word_similarity_op"
+        },
+        {
+          "logical_name": "pg_finfo_word_similarity",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_word_similarity"
+        },
+        {
+          "logical_name": "pg_finfo_word_similarity_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_word_similarity_commutator_op"
+        },
+        {
+          "logical_name": "pg_finfo_word_similarity_dist_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_word_similarity_dist_commutator_op"
+        },
+        {
+          "logical_name": "pg_finfo_word_similarity_dist_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_word_similarity_dist_op"
+        },
+        {
+          "logical_name": "pg_finfo_word_similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_pg_finfo_word_similarity_op"
+        },
+        {
+          "logical_name": "set_limit",
+          "linker_name": "postgamma_module_pg_trgm_set_limit"
+        },
+        {
+          "logical_name": "show_limit",
+          "linker_name": "postgamma_module_pg_trgm_show_limit"
+        },
+        {
+          "logical_name": "show_trgm",
+          "linker_name": "postgamma_module_pg_trgm_show_trgm"
+        },
+        {
+          "logical_name": "similarity",
+          "linker_name": "postgamma_module_pg_trgm_similarity"
+        },
+        {
+          "logical_name": "similarity_dist",
+          "linker_name": "postgamma_module_pg_trgm_similarity_dist"
+        },
+        {
+          "logical_name": "similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_similarity_op"
+        },
+        {
+          "logical_name": "strict_word_similarity",
+          "linker_name": "postgamma_module_pg_trgm_strict_word_similarity"
+        },
+        {
+          "logical_name": "strict_word_similarity_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_strict_word_similarity_commutator_op"
+        },
+        {
+          "logical_name": "strict_word_similarity_dist_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_strict_word_similarity_dist_commutator_op"
+        },
+        {
+          "logical_name": "strict_word_similarity_dist_op",
+          "linker_name": "postgamma_module_pg_trgm_strict_word_similarity_dist_op"
+        },
+        {
+          "logical_name": "strict_word_similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_strict_word_similarity_op"
+        },
+        {
+          "logical_name": "word_similarity",
+          "linker_name": "postgamma_module_pg_trgm_word_similarity"
+        },
+        {
+          "logical_name": "word_similarity_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_word_similarity_commutator_op"
+        },
+        {
+          "logical_name": "word_similarity_dist_commutator_op",
+          "linker_name": "postgamma_module_pg_trgm_word_similarity_dist_commutator_op"
+        },
+        {
+          "logical_name": "word_similarity_dist_op",
+          "linker_name": "postgamma_module_pg_trgm_word_similarity_dist_op"
+        },
+        {
+          "logical_name": "word_similarity_op",
+          "linker_name": "postgamma_module_pg_trgm_word_similarity_op"
+        }
+      ]
+    },
+    {
+      "id": "hstore",
+      "logical_name": "hstore",
+      "version": "1.8",
+      "postgresql_major": 19,
+      "sdk_contract": false,
+      "sdk_abi_version": 0,
+      "build": {
+        "kind": "postgres-link-output",
+        "link_output_suffix": "contrib/hstore/hstore.so"
+      },
+      "capabilities": {
+        "thread-safe": true,
+        "multi-instance-safe": true,
+        "session-mobility-safe": true,
+        "parallel-worker-safe": true,
+        "instance-shmem": false,
+        "background-worker": false,
+        "filesystem-read": true,
+        "filesystem-write": false,
+        "host-library-dependency": false,
+        "process-global-state": false
+      },
+      "lifecycle": [],
+      "state_policy": null,
+      "resources": [
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.1--1.2.sql",
+          "logical_path": "share/extension/hstore--1.1--1.2.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.2--1.3.sql",
+          "logical_path": "share/extension/hstore--1.2--1.3.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.3--1.4.sql",
+          "logical_path": "share/extension/hstore--1.3--1.4.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.4--1.5.sql",
+          "logical_path": "share/extension/hstore--1.4--1.5.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.4.sql",
+          "logical_path": "share/extension/hstore--1.4.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.5--1.6.sql",
+          "logical_path": "share/extension/hstore--1.5--1.6.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.6--1.7.sql",
+          "logical_path": "share/extension/hstore--1.6--1.7.sql",
+          "required": true
+        },
+        {
+          "kind": "sql",
+          "source": "postgres/contrib/hstore/hstore--1.7--1.8.sql",
+          "logical_path": "share/extension/hstore--1.7--1.8.sql",
+          "required": true
+        },
+        {
+          "kind": "control",
+          "source": "postgres/contrib/hstore/hstore.control",
+          "logical_path": "share/extension/hstore.control",
+          "required": true
+        }
+      ],
+      "dependencies": [],
+      "symbols": [
+        {
+          "logical_name": "Pg_magic_func",
+          "linker_name": "postgamma_module_hstore_Pg_magic_func"
+        },
+        {
+          "logical_name": "ghstore_compress",
+          "linker_name": "postgamma_module_hstore_ghstore_compress"
+        },
+        {
+          "logical_name": "ghstore_consistent",
+          "linker_name": "postgamma_module_hstore_ghstore_consistent"
+        },
+        {
+          "logical_name": "ghstore_decompress",
+          "linker_name": "postgamma_module_hstore_ghstore_decompress"
+        },
+        {
+          "logical_name": "ghstore_in",
+          "linker_name": "postgamma_module_hstore_ghstore_in"
+        },
+        {
+          "logical_name": "ghstore_options",
+          "linker_name": "postgamma_module_hstore_ghstore_options"
+        },
+        {
+          "logical_name": "ghstore_out",
+          "linker_name": "postgamma_module_hstore_ghstore_out"
+        },
+        {
+          "logical_name": "ghstore_penalty",
+          "linker_name": "postgamma_module_hstore_ghstore_penalty"
+        },
+        {
+          "logical_name": "ghstore_picksplit",
+          "linker_name": "postgamma_module_hstore_ghstore_picksplit"
+        },
+        {
+          "logical_name": "ghstore_same",
+          "linker_name": "postgamma_module_hstore_ghstore_same"
+        },
+        {
+          "logical_name": "ghstore_union",
+          "linker_name": "postgamma_module_hstore_ghstore_union"
+        },
+        {
+          "logical_name": "gin_consistent_hstore",
+          "linker_name": "postgamma_module_hstore_gin_consistent_hstore"
+        },
+        {
+          "logical_name": "gin_extract_hstore",
+          "linker_name": "postgamma_module_hstore_gin_extract_hstore"
+        },
+        {
+          "logical_name": "gin_extract_hstore_query",
+          "linker_name": "postgamma_module_hstore_gin_extract_hstore_query"
+        },
+        {
+          "logical_name": "hstore_akeys",
+          "linker_name": "postgamma_module_hstore_hstore_akeys"
+        },
+        {
+          "logical_name": "hstore_avals",
+          "linker_name": "postgamma_module_hstore_hstore_avals"
+        },
+        {
+          "logical_name": "hstore_cmp",
+          "linker_name": "postgamma_module_hstore_hstore_cmp"
+        },
+        {
+          "logical_name": "hstore_concat",
+          "linker_name": "postgamma_module_hstore_hstore_concat"
+        },
+        {
+          "logical_name": "hstore_contained",
+          "linker_name": "postgamma_module_hstore_hstore_contained"
+        },
+        {
+          "logical_name": "hstore_contains",
+          "linker_name": "postgamma_module_hstore_hstore_contains"
+        },
+        {
+          "logical_name": "hstore_defined",
+          "linker_name": "postgamma_module_hstore_hstore_defined"
+        },
+        {
+          "logical_name": "hstore_delete",
+          "linker_name": "postgamma_module_hstore_hstore_delete"
+        },
+        {
+          "logical_name": "hstore_delete_array",
+          "linker_name": "postgamma_module_hstore_hstore_delete_array"
+        },
+        {
+          "logical_name": "hstore_delete_hstore",
+          "linker_name": "postgamma_module_hstore_hstore_delete_hstore"
+        },
+        {
+          "logical_name": "hstore_each",
+          "linker_name": "postgamma_module_hstore_hstore_each"
+        },
+        {
+          "logical_name": "hstore_eq",
+          "linker_name": "postgamma_module_hstore_hstore_eq"
+        },
+        {
+          "logical_name": "hstore_exists",
+          "linker_name": "postgamma_module_hstore_hstore_exists"
+        },
+        {
+          "logical_name": "hstore_exists_all",
+          "linker_name": "postgamma_module_hstore_hstore_exists_all"
+        },
+        {
+          "logical_name": "hstore_exists_any",
+          "linker_name": "postgamma_module_hstore_hstore_exists_any"
+        },
+        {
+          "logical_name": "hstore_fetchval",
+          "linker_name": "postgamma_module_hstore_hstore_fetchval"
+        },
+        {
+          "logical_name": "hstore_from_array",
+          "linker_name": "postgamma_module_hstore_hstore_from_array"
+        },
+        {
+          "logical_name": "hstore_from_arrays",
+          "linker_name": "postgamma_module_hstore_hstore_from_arrays"
+        },
+        {
+          "logical_name": "hstore_from_record",
+          "linker_name": "postgamma_module_hstore_hstore_from_record"
+        },
+        {
+          "logical_name": "hstore_from_text",
+          "linker_name": "postgamma_module_hstore_hstore_from_text"
+        },
+        {
+          "logical_name": "hstore_ge",
+          "linker_name": "postgamma_module_hstore_hstore_ge"
+        },
+        {
+          "logical_name": "hstore_gt",
+          "linker_name": "postgamma_module_hstore_hstore_gt"
+        },
+        {
+          "logical_name": "hstore_hash",
+          "linker_name": "postgamma_module_hstore_hstore_hash"
+        },
+        {
+          "logical_name": "hstore_hash_extended",
+          "linker_name": "postgamma_module_hstore_hstore_hash_extended"
+        },
+        {
+          "logical_name": "hstore_in",
+          "linker_name": "postgamma_module_hstore_hstore_in"
+        },
+        {
+          "logical_name": "hstore_le",
+          "linker_name": "postgamma_module_hstore_hstore_le"
+        },
+        {
+          "logical_name": "hstore_lt",
+          "linker_name": "postgamma_module_hstore_hstore_lt"
+        },
+        {
+          "logical_name": "hstore_ne",
+          "linker_name": "postgamma_module_hstore_hstore_ne"
+        },
+        {
+          "logical_name": "hstore_out",
+          "linker_name": "postgamma_module_hstore_hstore_out"
+        },
+        {
+          "logical_name": "hstore_populate_record",
+          "linker_name": "postgamma_module_hstore_hstore_populate_record"
+        },
+        {
+          "logical_name": "hstore_recv",
+          "linker_name": "postgamma_module_hstore_hstore_recv"
+        },
+        {
+          "logical_name": "hstore_send",
+          "linker_name": "postgamma_module_hstore_hstore_send"
+        },
+        {
+          "logical_name": "hstore_skeys",
+          "linker_name": "postgamma_module_hstore_hstore_skeys"
+        },
+        {
+          "logical_name": "hstore_slice_to_array",
+          "linker_name": "postgamma_module_hstore_hstore_slice_to_array"
+        },
+        {
+          "logical_name": "hstore_slice_to_hstore",
+          "linker_name": "postgamma_module_hstore_hstore_slice_to_hstore"
+        },
+        {
+          "logical_name": "hstore_subscript_handler",
+          "linker_name": "postgamma_module_hstore_hstore_subscript_handler"
+        },
+        {
+          "logical_name": "hstore_svals",
+          "linker_name": "postgamma_module_hstore_hstore_svals"
+        },
+        {
+          "logical_name": "hstore_to_array",
+          "linker_name": "postgamma_module_hstore_hstore_to_array"
+        },
+        {
+          "logical_name": "hstore_to_json",
+          "linker_name": "postgamma_module_hstore_hstore_to_json"
+        },
+        {
+          "logical_name": "hstore_to_json_loose",
+          "linker_name": "postgamma_module_hstore_hstore_to_json_loose"
+        },
+        {
+          "logical_name": "hstore_to_jsonb",
+          "linker_name": "postgamma_module_hstore_hstore_to_jsonb"
+        },
+        {
+          "logical_name": "hstore_to_jsonb_loose",
+          "linker_name": "postgamma_module_hstore_hstore_to_jsonb_loose"
+        },
+        {
+          "logical_name": "hstore_to_matrix",
+          "linker_name": "postgamma_module_hstore_hstore_to_matrix"
+        },
+        {
+          "logical_name": "hstore_version_diag",
+          "linker_name": "postgamma_module_hstore_hstore_version_diag"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_compress",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_compress"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_consistent",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_consistent"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_decompress",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_decompress"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_in",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_in"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_options",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_options"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_out",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_out"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_penalty",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_penalty"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_picksplit",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_picksplit"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_same",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_same"
+        },
+        {
+          "logical_name": "pg_finfo_ghstore_union",
+          "linker_name": "postgamma_module_hstore_pg_finfo_ghstore_union"
+        },
+        {
+          "logical_name": "pg_finfo_gin_consistent_hstore",
+          "linker_name": "postgamma_module_hstore_pg_finfo_gin_consistent_hstore"
+        },
+        {
+          "logical_name": "pg_finfo_gin_extract_hstore",
+          "linker_name": "postgamma_module_hstore_pg_finfo_gin_extract_hstore"
+        },
+        {
+          "logical_name": "pg_finfo_gin_extract_hstore_query",
+          "linker_name": "postgamma_module_hstore_pg_finfo_gin_extract_hstore_query"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_akeys",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_akeys"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_avals",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_avals"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_cmp",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_cmp"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_concat",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_concat"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_contained",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_contained"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_contains",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_contains"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_defined",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_defined"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_delete",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_delete"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_delete_array",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_delete_array"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_delete_hstore",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_delete_hstore"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_each",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_each"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_eq",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_eq"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_exists",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_exists"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_exists_all",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_exists_all"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_exists_any",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_exists_any"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_fetchval",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_fetchval"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_from_array",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_from_array"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_from_arrays",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_from_arrays"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_from_record",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_from_record"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_from_text",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_from_text"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_ge",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_ge"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_gt",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_gt"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_hash",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_hash"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_hash_extended",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_hash_extended"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_in",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_in"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_le",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_le"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_lt",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_lt"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_ne",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_ne"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_out",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_out"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_populate_record",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_populate_record"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_recv",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_recv"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_send",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_send"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_skeys",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_skeys"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_slice_to_array",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_slice_to_array"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_slice_to_hstore",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_slice_to_hstore"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_subscript_handler",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_subscript_handler"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_svals",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_svals"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_array",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_array"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_json",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_json"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_json_loose",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_json_loose"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_jsonb",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_jsonb"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_jsonb_loose",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_jsonb_loose"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_to_matrix",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_to_matrix"
+        },
+        {
+          "logical_name": "pg_finfo_hstore_version_diag",
+          "linker_name": "postgamma_module_hstore_pg_finfo_hstore_version_diag"
+        }
+      ]
+    }
+  ]
+}

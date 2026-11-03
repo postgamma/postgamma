@@ -1,4 +1,14 @@
 {
+  "conditional_parameters": {
+    "enable_groupagg": {
+      "condition": "Present in PostgreSQL 20 and later; PGC_USERSET planner switch follows the executing session.",
+      "owner": "session"
+    },
+    "log_statement_max_length": {
+      "condition": "Present in PostgreSQL 20 and later; PGC_SUSET statement logging limit follows the executing session.",
+      "owner": "session"
+    }
+  },
   "kind": "postgamma.guc-ownership",
   "parameters": {
     "DateStyle": "session",

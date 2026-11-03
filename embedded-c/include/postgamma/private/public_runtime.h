@@ -44,7 +44,9 @@ typedef enum PostgammaPublicRequestMode
 {
 	POSTGAMMA_PUBLIC_REQUEST_EXTENDED = 0,
 	POSTGAMMA_PUBLIC_REQUEST_SCRIPT,
-	POSTGAMMA_PUBLIC_REQUEST_PREPARED
+	POSTGAMMA_PUBLIC_REQUEST_PREPARED,
+	POSTGAMMA_PUBLIC_REQUEST_PREPARE,
+	POSTGAMMA_PUBLIC_REQUEST_STATEMENT_CLOSE
 } PostgammaPublicRequestMode;
 
 typedef struct PostgammaPublicResultLease
@@ -90,6 +92,7 @@ struct pgm_copy
 	size_t		finish_message_size;
 	bool		finish_message_set;
 	bool		io_ended;
+	bool		released;
 };
 
 struct pgm_operation
@@ -195,12 +198,21 @@ struct pgm_connection
 	struct pgm_connection *event_ready_next;
 	_Atomic(struct pgm_connection *) event_pending_next;
 	_Atomic bool event_ready_pending;
+#ifdef __EMSCRIPTEN__
+	_Atomic uint64_t wasm_ready_sequence;
+#endif
 	unsigned int event_pump_references;
 	bool		event_ready_queued;
 	bool		event_registered;
 	bool		registered_with_instance;
 	bool		failed;
 	bool		closing;
+	PostgammaSupervisorTicket *connect_ticket;
+	PostgammaKernelConnectRequest connect_payload;
+	uint64_t	connect_deadline_ns;
+	int			connect_error;
+	char		connect_error_detail[256];
+	bool		connect_handshake;
 };
 
 struct pgm_statement
@@ -212,6 +224,7 @@ struct pgm_statement
 	PostgammaPrivatePreparedDescription *description;
 	struct pgm_request *active_request;
 	bool		registered_with_connection;
+	bool		remote_closed;
 };
 
 struct pgm_request
@@ -246,6 +259,11 @@ struct pgm_request
 	bool		saw_cancel_error;
 	bool		terminal_accounted;
 	bool		free_pending;
+	/* The single lifecycle owner retains the payload until its ticket completes. */
+	PostgammaSupervisorTicket *cancel_ticket;
+	PostgammaKernelCancelRequest cancel_payload;
+	uint64_t	cancel_next_ns;
+	bool		cancel_dispatched;
 };
 
 bool instance_is_valid(const pgm_instance *instance);
@@ -289,6 +307,12 @@ pgm_status request_start(
 	pgm_request **request,
 	pgm_error **error);
 pgm_status progress_request_locked(pgm_request *request);
+pgm_status postgamma_public_statement_prepare_async(
+	pgm_connection *connection, const char *sql, size_t sql_size,
+	const pgm_prepare_options *options, pgm_statement **statement,
+	pgm_request **request, pgm_error **error);
+pgm_status postgamma_public_statement_close_async(
+	pgm_statement *statement, pgm_request **request, pgm_error **error);
 pgm_error *error_from_result(
 	pgm_status status, const PostgammaPrivateOwnedResult *result);
 pgm_status result_attach_lease(
@@ -296,6 +320,30 @@ pgm_status result_attach_lease(
 void result_lease_release(PostgammaPublicResultLease *lease);
 void request_destroy(pgm_request *request);
 void request_account_terminal(pgm_request *request);
+
+/* Private connection startup for hosts with one driver. A step with !done
+ * retains the connection and any outstanding supervisor payload. A completed
+ * failure sets done and clears *connection after ticket/backend retirement.
+ */
+pgm_status postgamma_public_connection_begin(
+	pgm_instance *instance, const pgm_connection_options *options,
+	pgm_connection **connection, pgm_error **error);
+pgm_status postgamma_public_connection_step(
+	pgm_connection **connection, bool *done, pgm_error **error);
+/* Request/COPY controls: OK + !done and errors retain the handle and payload.
+ * Successful release/close with done destroys the handle; cancel/abort does not.
+ * Cancel may coexist with result consumption; release requires exclusive ownership.
+ */
+pgm_status postgamma_public_cancel_dispatch_step(
+	pgm_request *request, bool submit, bool *done, pgm_error **error);
+pgm_status postgamma_public_request_cancel_step(
+	pgm_request *request, bool *done, pgm_error **error);
+pgm_status postgamma_public_request_release_step(
+	pgm_request *request, bool *done, pgm_error **error);
+pgm_status postgamma_public_copy_close_step(
+	pgm_copy *copy, bool *done, pgm_error **error);
+pgm_status postgamma_public_copy_abort_step(
+	pgm_copy *copy, bool *done, pgm_error **error);
 
 bool postgamma_logical_operation_kind(pgm_operation_kind kind);
 pgm_status postgamma_logical_operation_progress(

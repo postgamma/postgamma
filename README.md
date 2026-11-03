@@ -10,11 +10,20 @@
 
 </div>
 
-PostGamma embeds PostgreSQL 19 directly inside an application process. Open a
-local cluster directory, execute PostgreSQL SQL, and close it without starting
-a database server or opening a network port.
+PostGamma brings PostgreSQL 19 to applications and agents through embedded
+Python and C APIs, a standalone threaded server, and a browser WebAssembly
+preview.
 
-The first release provides:
+| Mode | How you use it | Availability |
+| --- | --- | --- |
+| Embedded | Open a local cluster through Python or C, inside your application process | [Alpha candidate](docs/downloads.md) |
+| Server | Connect with psql or a PostgreSQL driver to a threaded server | [Source build](docs/server/quickstart.md) |
+| Browser | Run SQL locally through WebAssembly and Workers | [Browser preview](docs/getting-started/browser.md) |
+
+Start with the [project overview and quickstarts](docs/overview/index.md) to understand
+the runtime modes and choose an integration path.
+
+The first embedded release provides:
 
 - a CPython package with synchronous, DB-API 2.0, and caller-driven asyncio
   interfaces;
@@ -25,9 +34,10 @@ The first release provides:
   one host process; and
 - bundled pgvector 0.8.6 for local vector search.
 
-This alpha is intended for evaluation and feedback. Read the
-[compatibility limits](docs/compatibility/limits.md) before using it with data
-that cannot be recreated.
+The embedded release is a published alpha intended for evaluation and
+feedback. Read its [compatibility limits](docs/compatibility/limits.md) before
+using it with data that cannot be recreated. The threaded server has a separate
+[source-build and validation boundary](docs/server/compatibility.md).
 
 ## Python quickstart
 
@@ -124,7 +134,7 @@ a fully static glibc executable. Follow the
 [static C quickstart](docs/getting-started/c-static.md) for verification,
 linking, deployment, and lifecycle details.
 
-## Product boundary
+## Embedded product boundary
 
 PostGamma uses PostgreSQL's parser, planner, executor, catalogs, transactions,
 WAL, and recovery code. Its application boundary deliberately differs from a
@@ -149,19 +159,19 @@ separate cluster directory.
 The Python binding has its own API and packaging validation; passing the C ABI
 compatibility gate alone does not validate the Python package.
 
-Use SQLite when a tiny single-file database is the primary requirement, DuckDB
-for analytics-first columnar execution, PGlite for JavaScript/WASM, or a normal
-PostgreSQL server when independent processes must share one live cluster.
+For JavaScript in a web application, see the [browser preview](docs/getting-started/browser.md).
+For independent PostgreSQL clients, see the [threaded server](docs/server/index.md).
+SQLite and DuckDB serve different needs, such as a compact single-file database
+or analytics-first columnar execution.
 
 Read [When to use PostGamma](docs/getting-started/why-postgamma.md) for the
 full comparison.
 
 ## Build from source
 
-PostGamma supports source builds on Linux x86-64 with glibc 2.17 or newer.
+PostGamma supports native source builds on Linux x86-64 with glibc 2.17 or newer.
 Official Linux binaries are compiled and tested at that same glibc floor with
-the generic x86-64 CPU baseline. After cloning the repository, initialize the
-pinned PostgreSQL and pgvector submodules:
+the generic x86-64 CPU baseline.
 
 To provision a clean supported Linux machine and run the entire source gate in
 one command, use:
@@ -172,9 +182,11 @@ one command, use:
 
 The script detects apt, dnf/yum, or zypper systems, installs the host packages
 and checksum-pinned test toolchain, initializes both source dependencies, and
-runs `complete-source-check`, including Doxygen API generation and the strict
-MkDocs website build, as the current regular user. It refuses root and
-never creates an account; only package, swap, and process-limit setup use sudo.
+runs `full-test` as the current regular user: native validation, including
+Doxygen API generation and the strict MkDocs website build, followed by the
+release Wasm suite in Chromium, Firefox and Linux WebKit. It prepares and checks
+the pinned Wasm SDK and browser dependencies before the native tests. It refuses
+root and never creates an account; only package, swap, and process-limit setup use sudo.
 On hosts with less than 3 GiB of memory it uses one build job. On hosts with less than 4 GiB,
 it ensures that 4 GiB of swap is active and temporarily enables swap use while
 the gate runs. Run
@@ -182,8 +194,8 @@ the gate runs. Run
 settings without changing the host. The complete command and overrides are
 documented in the [installation guide](docs/getting-started/installation.md).
 
-For a manually managed development environment, initialize the pinned sources
-directly:
+For a manually managed development environment, the product build commands
+below initialize the pinned sources automatically. To initialize them separately:
 
 ```bash
 make source-init
@@ -213,31 +225,59 @@ a focused environment check and a matching build target:
 
 | Goal | Check the environment | Build target | Primary output |
 | --- | --- | --- | --- |
-| Threaded PostgreSQL core | `make doctor-threaded JOBS=4` | `make threaded-postgresql-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
-| Static C SDK | `make doctor-sdk JOBS=4` | `make static-sdk-package JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
-| Python wheel | `make doctor-python JOBS=4` | `make python-package-check JOBS=4` | `build/python-product/wheel/*.whl` |
-| Documentation site | `make doctor-docs` | `make docs` | `build/docs/site/` |
-| Complete local release | `make doctor JOBS=4` | `make release-candidate JOBS=4` | All of the above plus `build/dist/postgamma-*-local-release.json` |
+| Threaded PostgreSQL core | `make server-doctor JOBS=4` | `make server-build JOBS=4` | `build/generated/postgres/` and `build/generated-build/` |
+| Static C SDK | `make c-doctor JOBS=4` | `make c-build JOBS=4` | `build/dist/postgamma-sdk-*.tar.gz` |
+| Python wheel | `make python-doctor JOBS=4` | `make python-build JOBS=4` | `build/python-product/wheel/*.whl` |
+| Browser Wasm SDK | `make wasm-doctor JOBS=2` | `make wasm-build JOBS=2` | `build/wasm/.../dist/postgamma-wasm-*.tgz` (exact path printed) |
+| Documentation site | `make docs-doctor` | `make docs` | `build/docs/site/` |
+| Native local release | `make doctor-release JOBS=4` | `make release-candidate JOBS=4` | Native artifacts and docs plus `build/dist/postgamma-*-local-release.json` |
 
 The build targets repeat their corresponding environment checks, so the first
 command in each row is optional. Running it separately is recommended on a new
 machine: it stops before the build, compiles small toolchain probes, and prints
-platform-specific installation commands for missing dependencies.
+platform-specific installation commands for missing dependencies. `wasm-build`
+also installs/reuses the pinned Emscripten/Node tools and generates the target
+kernel before packaging. It defaults to release; use `WASM_MODE=debug` for a
+debug package. `wasm-doctor` checks host tools, Emscripten/Node/npm identities,
+locked packages and host AST compatibility with the target SDK headers. Building
+does not install or launch browsers. A standalone doctor does not download
+tools or initialize sources: use `make source-init wasm-toolchain-setup` to
+prepare a fresh Wasm checkout, or let `wasm-build` prepare it automatically.
 
-`make doctor` is deliberately the complete check. It covers the native SDK,
-the full PostgreSQL test toolchain, Python wheel packaging, and documentation.
-Use `doctor-threaded`, `doctor-sdk`, `doctor-python`, or `doctor-docs` when you
-only need that workflow and do not want unrelated tools to block the build.
+Use `make server-test`, `make c-test`, `make python-test`, or `make wasm-test`
+for the corresponding product's validation. On a prepared host,
+`make full-test JOBS=2` checks tools, then runs the complete native source gate and the release
+Wasm suite serially. A failure in either gate fails the command. The native-only
+entry remains `make complete-source-check`; the multi-hour browser endurance
+qualification remains `make wasm-alpha-test`. Existing build/check target names
+remain available. C SDK packaging retains its consumer and host-safety checks;
+the other `*-build` commands do not run their full acceptance suites.
+
+`make doctor` checks installed native, Python, documentation and Wasm tools,
+plus the libraries and startup of Chromium, Firefox and Linux WebKit. It retains
+failures while continuing independent checks. `make full-test-doctor` checks the
+native, documentation and Wasm test environments.
+Use `server-doctor`, `c-doctor`, `python-doctor`, `wasm-doctor` or `docs-doctor`
+for one product, and `wasm-browser-doctor` for the browser matrix alone.
+Doctors only check and print remedies; setup/prepare commands install tools.
+Native release packaging uses `doctor-release`, which does not require Wasm.
+The older doctor names remain available for existing automation.
 The exact package requirements and supported Linux families are listed in the
 [installation guide](docs/getting-started/installation.md).
 
 ### Develop the threaded PostgreSQL core
 
+To install and run it as a standalone server, follow the
+[server quickstart](docs/server/quickstart.md). That guide covers initialization,
+client connections, and shutdown; the [operations guide](docs/server/operations.md)
+covers configuration and logical backup. A separate server binary package is
+not yet available.
+
 Use this path when working on the PostgreSQL source transformation itself:
 
 ```bash
-make doctor-threaded JOBS=4
-make threaded-postgresql-build JOBS=4
+make server-doctor JOBS=4
+make server-build JOBS=4
 ```
 
 The build leaves the transformed source in `build/generated/postgres/` and the
@@ -251,7 +291,7 @@ threaded PostgreSQL, the transformation, sanitizer runtime, and thread
 isolation contracts:
 
 ```bash
-make threaded-postgresql-check JOBS=4
+make server-test JOBS=4
 ```
 
 ### Follow upstream PostgreSQL
@@ -301,8 +341,8 @@ download mirrors for CI too; changing either also causes tests to run.
 Use this path for native applications and for new language bindings:
 
 ```bash
-make doctor-sdk JOBS=4
-make static-sdk-package JOBS=4
+make c-doctor JOBS=4
+make c-build JOBS=4
 ```
 
 The target builds and tests the embedded kernel, then writes a versioned SDK
@@ -318,8 +358,9 @@ intend to test:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-make doctor-python JOBS=4
-make python-package-check JOBS=4
+make python-doctor JOBS=4
+make python-build JOBS=4
+make python-test JOBS=4
 ```
 
 The validated wheel is written to `build/python-product/wheel/`. This is a
@@ -357,7 +398,7 @@ only one entry in the required release matrix.
 ### Build the documentation
 
 ```bash
-make doctor-docs
+make docs-doctor
 make docs
 ```
 
@@ -365,13 +406,94 @@ The documentation build treats warnings and broken references as errors. The
 static site is written to `build/docs/site/`; see
 [Documentation website](#documentation-website) to preview it locally.
 
+### Build and validate the browser SDK
+
+```sh
+make wasm-build JOBS=2
+```
+
+This prepares pinned sources and tools, generates the kernel, and builds the
+release npm tarball. Use `make wasm-test JOBS=2` for complete Wasm acceptance,
+or `make full-test JOBS=2` to include the native source gate too.
+
+Node.js 20 or newer is required; Node 24 is not mandatory. On Linux x86-64
+with glibc older than 2.28, setup caches a checksum-pinned Node 22 build for
+glibc 2.17. On glibc 2.17 it also rebuilds the SDK's exact Binaryen revision
+with the selected C++20 compiler and runs the unchanged SDK linker with a
+checksum-pinned private glibc runtime. These tools live under `WASM_DEPS_DIR` and
+do not replace system libraries. `WASM_NODE=/absolute/path/to/node` selects
+the same Node for Emscripten and the browser tests. Browser dependencies and
+successful execution of all three engines remain separate requirements.
+
+For individual toolchain and platform checks:
+
+```sh
+make wasm-setup
+make wasm-probe-check
+make wasm-platform-check
+make wasm-wait-check
+make wasm-recovery-check
+make wasm-opfs-check
+make wasm-browser-setup
+make wasm-browser-check
+make wasm-resource-check
+make wasm-target-check
+```
+
+These commands install reusable SDK/browser tools and run the toolchain smoke
+probe and ABI, pthread, TLS, stack, libc, wait, deadline, cancellation, error recovery,
+and OPFS storage probes in Chromium. The browser matrix also exercises startup
+and deployment failures in Firefox and WebKit. `make wasm-kernel-capture`
+additionally configures PostgreSQL and captures actual target object compilation.
+`make wasm-kernel-generate` uses those commands to generate target state layouts
+and transformed PostgreSQL sources with the shared ownership rules.
+`make wasm-kernel-link` then compiles the transformed kernel and private support
+libraries, packages matching initialization resources, and audits the linked
+module's imports and static/TLS sizes. `make wasm-check` builds the private
+C/TypeScript bridge and checks browser initdb, parameterized SQL, shutdown,
+and repeated reopen on an in-memory filesystem. The source TypeScript API
+supports independent SQL sessions, bounded results and COPY. Run its complete
+SQL/concurrency/lifecycle/resource gate with:
+
+```sh
+make wasm-kernel-generate JOBS=2
+make wasm-sql-check JOBS=2
+```
+
+Use `WASM_SQL_SCENARIO=abi`, `concurrency`, `errors`, `results`, `lifecycle`,
+`fatal-trap`, `fatal-abort`, or `budget` for a focused check. The full gate uses
+the native reference test installation for its SQL/COPY oracle. The reviewed
+SQL profiles are debug and release Chromium with an ephemeral filesystem, four connections
+and up to 512 MiB of shared linear memory. `make wasm-storage-check JOBS=2`
+runs the separate OPFS suite: ownership, file semantics, WAL barriers, storage
+errors, orderly reopen and Worker/browser crash recovery. Use
+`WASM_STORAGE_SCENARIO=storage`, `durability`, `storage-errors`, or `recovery`
+to select one group. All four groups, including the 32-case Worker/browser
+recovery matrix, have passed in debug and release Chromium.
+`make wasm-vector-check JOBS=2` checks static pgvector loading, exact and ANN
+queries, parallel HNSW/IVFFlat builds, transactions, independent sessions and
+persistent index recovery in an isolated extension variant. It also checks the
+browser example; `make wasm-vector-serve JOBS=2` opens its local server.
+Run the base SQL gate above first for the extension resource comparison.
+`wasm-resource-check`
+refreshes the platform probes and measures platform capacity; the SQL gate
+records actual kernel resource usage.
+`make wasm-package-check JOBS=2` builds a versioned browser npm tarball and
+validates a fresh independent installation, including generated TypeScript
+declarations, four sessions, pgvector, persistent reopen and asset error handling.
+The package has no runtime dependencies; its version derives from `VERSION`
+(`0.1.0a1` becomes `0.1.0-alpha.1`). See the
+[consumer guide](wasm/PACKAGE_README.md) for asset deployment and API usage.
+`make wasm-clean` retains the installed tools. See the
+[Wasm development commands](wasm/README.md) for configuration, reports, and reuse.
+
 ### Build a complete local release candidate
 
 Maintainers can run the complete local release gate with:
 
 ```bash
 python3 -m pip install -r buildsys/requirements.txt
-make doctor JOBS=4
+make doctor-release JOBS=4
 make release-candidate JOBS=4
 ```
 
@@ -438,9 +560,40 @@ interfaces and open the selected port in the host firewall:
 make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000
 ```
 
-Then visit `http://SERVER_IP:8000/`. The development server is for trusted
-networks only; publish `build/docs/site/` behind a normal static web server for
-public access.
+Then visit **`https://SERVER_IP:8000/`**. `DOCS_HTTPS=auto` is the default:
+loopback uses HTTP, and other bind addresses use HTTPS. OpenSSL generates a
+reusable development certificate under `build/docs/tls/`. Copy its public
+certificate to the computer running your browser (the private key stays on the
+server):
+
+```bash
+scp USER@SERVER:/path/to/checkout/build/docs/tls/preview.crt .
+```
+
+Import `preview.crt` into that computer's browser or operating system's trusted
+certificate authorities, then reopen the page. This is a one-time step until
+the development certificate is renewed. Merely bypassing the certificate
+warning [disables Chromium's HTTP cache](https://github.com/chromium/chromium/blob/main/net/http/http_cache_transaction.cc),
+which can make repeated Worker downloads exceed the startup deadline on a slow
+connection. The development server supplies isolation headers, gzip compression
+and cache validation while retaining live reload.
+
+Use `DOCS_TLS_HOSTS=your.hostname,SERVER_IP` to add certificate names when the
+public address differs from a local interface. To use an existing certificate:
+
+```bash
+make docs-serve DOCS_DEV_ADDR=0.0.0.0:8000 \
+  DOCS_TLS_CERT=/path/to/fullchain.pem DOCS_TLS_KEY=/path/to/key.pem
+```
+
+Renewed certificate files are loaded for new connections without restarting the
+preview server. Configure automatic renewal on the host when using a public CA.
+If this checkout is already served by `postgamma-docs-preview.service`, running
+`make docs-serve` again prints its URL and reuses the running preview.
+
+`DOCS_HTTPS=1` forces HTTPS on loopback too. `DOCS_HTTPS=0` explicitly selects
+HTTP, which only supports the live database on localhost. This is a development
+server; deploy `build/docs/site/` to a static HTTPS host for a published website.
 
 Blog articles live in `docs/blog/posts/`. Each article has YAML metadata for
 its title, description, author, date, category, and stable URL slug. Use
@@ -458,6 +611,43 @@ POSTGAMMA_BLOG_DRAFTS=true make docs DOCS_SITE_DIR=build/docs/preview
 Before publishing an article, confirm its date and set `draft: false`.
 The initial three articles and their source notes are listed in
 [the blog editorial notes](drafts/blog/README.md).
+
+The homepage includes an editable browser SQL demo. Bundle a production browser
+package once, then subsequent documentation builds reuse the verified assets:
+
+```bash
+make docs-serve DOCS_WASM_PACKAGE=/path/to/postgamma-wasm-0.1.0-alpha.1.tgz
+```
+
+After `make wasm-build`, use `DOCS_WASM_PACKAGE=auto` to
+select the latest successful local release package. Without a package, the
+documentation still builds and the demo explains why it is unavailable. Binary
+assets stay under `build/docs/browser/` and are included in the generated site.
+
+For the live database, visit **localhost or HTTPS**. A remote HTTP IP address
+can preview the layout but cannot run the threaded Wasm kernel. Use the direct
+HTTPS preview above when `make docs-serve` runs on an SSH host.
+
+On GitHub Pages, clicking Start installs a site-scoped service worker and reloads
+the homepage once to enable cross-origin isolation; the SQL edit survives that
+reload. The worker only adds headers to the homepage and bundled assets, never
+caches SQL or database data, and is not registered before a visitor starts the
+demo. Hosts with native isolation headers need no worker or reload. The demo
+uses a disposable memory database, caps displayed results, and never opens OPFS.
+
+Run the real homepage checks with the pinned browser tools installed. Minimal
+Linux images also need `fontconfig`, `fonts-dejavu-core` and `fonts-liberation`
+for browser rendering, and `glib-networking` for WebKit HTTPS support:
+
+```bash
+make docs-live-check
+```
+
+This checks Chromium, Firefox and Linux WebKit on both a host with isolation
+headers and a headerless host under a project URL prefix. Reports and
+screenshots are written to `build/docs/checks/`, with the latest result at
+`build/docs/live-check.json`. The Pages workflow builds its own matching package
+and requires this gate before uploading the site.
 
 ## Supported release target
 
@@ -487,3 +677,53 @@ Copyright 2026 Shujie Zhang. PostGamma-owned source and documentation are
 licensed under [Apache License 2.0](LICENSE). PostgreSQL and pgvector retain
 their PostgreSQL License terms. See [NOTICE](NOTICE) and
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for attribution and artifact details.
+
+The [browser preview guide](docs/getting-started/browser.md) covers installing
+the generated npm package, serving its assets and choosing ephemeral or OPFS
+storage. Run `make wasm-browser-setup wasm-matrix-check` to measure the last
+validated package in Chromium, Firefox and Linux WebKit.
+
+`make wasm-build JOBS=2` prepares sources and tools, generates the target kernel,
+and packages a release browser SDK without running the full acceptance suite.
+
+`make wasm-test` sets up the pinned source, SDK and browsers, then builds and
+runs the release Wasm acceptance suite in one command. It includes the
+PGlite-derived SQL regression cases across Chromium, Firefox and Linux WebKit,
+each with ephemeral and OPFS storage. Independent stages continue after a
+failure, and the command exits nonzero with all failures and unexecuted stages
+in the report referenced by `build/wasm/reports/ci.json`. It defaults to one
+build job; use `JOBS=2` to increase parallelism.
+It is also included in `make full-test` and `./scripts/full-test.sh`, after
+native validation. The native and Wasm suites keep their separate reports.
+
+`make wasm-release JOBS=2` reuses installed tools and runs the same release
+gates with fail-fast stage handling. Release artifacts remain separate from
+debug builds. Neither entry point publishes the generated package.
+
+`make wasm-alpha-test` adds final alpha qualification in one command. It runs
+the full release suite, then tests that exact production npm archive for two
+active hours in each browser, serially (about six hours plus building and the
+functional suite). Its memory growth budget stays at 128 MiB. The final receipt
+is referenced by `build/wasm/reports/alpha.json`; incomplete duration, a failed
+stage or a changed source/package fails qualification. This command creates an
+installable tarball and does not publish it.
+
+`make wasm-ci JOBS=2` runs the Chromium CI stages locally after Wasm setup.
+Every run includes shared runtime regression. The Browser kernel workflow uses
+these debug gates for relevant pull requests and adds ABI, wait/notify and
+longjmp probes for platform or SDK changes. Use
+`make wasm-ci WASM_PLATFORM_CHECKS=1 JOBS=2` to include those probes locally.
+Relevant pushes to `main` or `feature/wasm`, and manual dispatch, run
+`make wasm-release JOBS=2`. Shared kernel changes select native regression
+separately.
+
+After `make wasm-browser-setup`, `make wasm-check-full JOBS=2` adds all platform
+probes, vector,
+OPFS recovery and the browser matrix against the pinned PostgreSQL source.
+`make wasm-weekly JOBS=2` runs that suite against current PostgreSQL master in
+an isolated checkout. Use `PG_BRANCH=REL_19_STABLE`, `PG_REF=<commit>` or
+`PG_REPOSITORY=https://github.com/postgres/postgres.git` to select the source.
+The PostgreSQL upstream canary workflow exposes the same manual weekly profile
+and runs every Sunday; its Wasm jobs separately track pinned, PG19 and master.
+See [Wasm validation commands](wasm/README.md#continuous-validation) for reports,
+skip behavior and browser acceptance scope.

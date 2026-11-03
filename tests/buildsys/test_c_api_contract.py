@@ -57,7 +57,9 @@ class CApiContractTests(unittest.TestCase):
         self.assertEqual(numerics["PGM_CAP_BUNDLED_EXTENSIONS"], 65536)
         self.assertEqual(numerics["PGM_RESULT_TUPLES_CHUNK"], 5)
         self.assertNotIn("PGM_RESULT_OTHER", numerics)
-        self.assertEqual(len(numerics), 131)
+        self.assertEqual(numerics["PGM_LOGICAL_SINGLE_TRANSACTION"], 64)
+        self.assertEqual(numerics["PGM_LOGICAL_FLAGS_ALL"], 63)
+        self.assertEqual(len(numerics), 132)
 
     def test_rejects_non_power_of_two_capability(self) -> None:
         policy = {

@@ -35,12 +35,13 @@
   "numeric_additions": {
     "PGM_OPEN_EXISTING": 0,
     "PGM_OPEN_OR_CREATE": 1,
-    "PGM_CREATE_NEW": 2
+    "PGM_CREATE_NEW": 2,
+    "PGM_LOGICAL_SINGLE_TRANSACTION": 64
   },
   "exported_symbol_count": 76,
   "complete_record_count": 22,
   "opaque_record_count": 9,
-  "numeric_count": 131,
+  "numeric_count": 132,
   "capabilities": {
     "advertised_value": 112639,
     "advertised": [

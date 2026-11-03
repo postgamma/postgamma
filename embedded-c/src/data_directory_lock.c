@@ -3,9 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "postgamma/private/data_directory_lock.h"
+
+#ifdef __EMSCRIPTEN__
+#include "postgamma/file_platform.h"
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -51,9 +57,11 @@ static size_t PostgammaDataDirectoryActiveCount;
 static bool lock_is_valid(const PostgammaDataDirectoryLock *lock);
 static int open_directory(const char *path);
 static char *join_lock_path(const char *directory);
+#ifndef __EMSCRIPTEN__
 static bool registry_contains(dev_t device, ino_t inode);
 static int acquire_os_lock(int descriptor, int *lock_command);
 static int release_os_lock(int descriptor, int lock_command);
+#endif
 static int write_lock_metadata(int descriptor, uint64_t generation);
 static int close_preserving_status(int descriptor, int status);
 
@@ -121,8 +129,10 @@ postgamma_data_directory_lock_acquire(
 		return ENOMEM;
 	}
 	created->generation = options->generation;
+#ifndef __EMSCRIPTEN__
 	created->device = directory_status.st_dev;
 	created->inode = directory_status.st_ino;
+#endif
 	created->directory_descriptor = -1;
 	created->descriptor = -1;
 	created->canonical_path = canonical_path;
@@ -131,11 +141,13 @@ postgamma_data_directory_lock_acquire(
 	status = pthread_mutex_lock(&PostgammaDataDirectoryRegistryMutex);
 	if (status != 0)
 		goto fail;
+#ifndef __EMSCRIPTEN__
 	if (registry_contains(created->device, created->inode))
 	{
 		status = EBUSY;
 		goto fail_locked;
 	}
+#endif
 #ifdef O_CLOEXEC
 	open_flags |= O_CLOEXEC;
 #endif
@@ -167,13 +179,22 @@ postgamma_data_directory_lock_acquire(
 		status = EINVAL;
 		goto fail_locked;
 	}
+#ifdef __EMSCRIPTEN__
+	status = postgamma_platform_directory_claim(
+		directory_descriptor, created->generation, created);
+#else
 	status = acquire_os_lock(descriptor, &created->lock_command);
+#endif
 	if (status != 0)
 		goto fail_locked;
 	status = write_lock_metadata(descriptor, created->generation);
 	if (status != 0)
 	{
+#ifdef __EMSCRIPTEN__
+		(void) postgamma_platform_file_release(created->generation, created);
+#else
 		(void) release_os_lock(descriptor, created->lock_command);
+#endif
 		goto fail_locked;
 	}
 	created->descriptor = descriptor;
@@ -248,7 +269,11 @@ postgamma_data_directory_lock_release(PostgammaDataDirectoryLock *lock)
 		(void) pthread_mutex_unlock(&PostgammaDataDirectoryRegistryMutex);
 		return EPROTO;
 	}
+#ifdef __EMSCRIPTEN__
+	status = postgamma_platform_file_release(lock->generation, lock);
+#else
 	status = release_os_lock(lock->descriptor, lock->lock_command);
+#endif
 	status = close_preserving_status(lock->descriptor, status);
 	status = close_preserving_status(lock->directory_descriptor, status);
 	*link = lock->next;
@@ -331,6 +356,7 @@ join_lock_path(const char *directory)
 }
 
 
+#ifndef __EMSCRIPTEN__
 static bool
 registry_contains(dev_t device, ino_t inode)
 {
@@ -405,6 +431,8 @@ release_os_lock(int descriptor, int lock_command)
 	return status == 0 ? 0 : errno;
 }
 
+
+#endif
 
 static int
 write_lock_metadata(int descriptor, uint64_t generation)

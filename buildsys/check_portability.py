@@ -24,7 +24,7 @@ EXCLUDED_ROOT_DIRECTORIES = {
     "postgres",
     "third_party",
 }
-EXCLUDED_DIRECTORY_NAMES = {".git", "__pycache__"}
+EXCLUDED_DIRECTORY_NAMES = {".git", "__pycache__", "node_modules"}
 PATH_CONTINUATION_BYTES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./\\-$)}]"
 )

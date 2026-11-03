@@ -15,6 +15,8 @@
 #define _GNU_SOURCE
 #endif
 
+#include "postgamma/locale_platform_redirect.h"
+
 #include "postgamma/postmaster_control_runtime.h"
 
 #include <errno.h>
@@ -419,6 +421,15 @@ postgamma_postmaster_control_current_setlocale(
 	int			category_mask;
 	int			status;
 
+#ifdef __EMSCRIPTEN__
+	if (!postgamma_platform_locale_supported(locale_name))
+	{
+		errno = ENOENT;
+		return NULL;
+	}
+	if (locale_name != NULL && locale_name[0] == '\0')
+		locale_name = "C";
+#endif
 	if (control_runtime == NULL)
 	{
 		errno = ENOENT;
@@ -568,6 +579,10 @@ locale_category_mask(int category)
 static const char *
 effective_locale_name(int category, const char *locale_name)
 {
+#ifdef __EMSCRIPTEN__
+	(void) category;
+	return locale_name != NULL && locale_name[0] != '\0' ? locale_name : "C";
+#else
 	const char *category_environment = NULL;
 	const char *result;
 
@@ -607,6 +622,7 @@ effective_locale_name(int category, const char *locale_name)
 	}
 	result = getenv("LANG");
 	return result != NULL && result[0] != '\0' ? result : "C";
+#endif
 }
 
 

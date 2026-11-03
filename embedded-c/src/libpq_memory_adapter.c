@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include "libpq-fe.h"
 #include "libpq-int.h"
@@ -58,7 +59,9 @@ typedef enum PostgammaPrivateSubmissionKind
 {
 	POSTGAMMA_PRIVATE_SUBMISSION_QUERY = 0,
 	POSTGAMMA_PRIVATE_SUBMISSION_SCRIPT,
-	POSTGAMMA_PRIVATE_SUBMISSION_PREPARED
+	POSTGAMMA_PRIVATE_SUBMISSION_PREPARED,
+	POSTGAMMA_PRIVATE_SUBMISSION_PREPARE,
+	POSTGAMMA_PRIVATE_SUBMISSION_CLOSE
 } PostgammaPrivateSubmissionKind;
 
 struct PostgammaPrivateLibpqOperation
@@ -77,6 +80,10 @@ struct PostgammaPrivateLibpqOperation
 	bool		copy_finish_sent;
 	bool		copy_remote_terminated;
 	bool		copy_sync_pending;
+	char	   *prepare_name;
+	bool		prepare_describing;
+	bool		prepare_failed;
+	PostgammaPrivatePreparedDescription *prepared_description;
 };
 
 struct PostgammaPrivateLibpqConnection
@@ -89,7 +96,9 @@ struct PostgammaPrivateLibpqConnection
 	PGconn     *postgres_connection;
 	PostgammaPrivateLibpqOperation *active_operation;
 	bool		connect_operation;
-	int64_t		operation_deadline_ns;
+	unsigned char *connect_output;
+	size_t		connect_output_size;
+	size_t		connect_output_offset;
 	PostgammaPrivateCancelCallback cancel_callback;
 	void       *cancel_argument;
 	PostgammaPrivateNoticeCallback notice_callback;
@@ -112,6 +121,9 @@ struct PostgammaPrivateLibpqConnection
 static _Thread_local PostgammaPrivateLibpqConnection *
 	PostgammaCurrentPrivateLibpqConnection;
 
+static PostgammaPrivateLibpqStatus postgamma_private_capture_description(
+	PGresult *source, PostgammaPrivatePreparedDescription **description);
+
 static PostgammaPrivateLibpqStatus postgamma_private_operation_start_internal(
 	PostgammaPrivateLibpqConnection *connection,
 	uint64_t request_generation,
@@ -121,6 +133,7 @@ static PostgammaPrivateLibpqStatus postgamma_private_operation_start_internal(
 	size_t parameter_count,
 	uint16_t result_format,
 	const PostgammaPrivateResultPolicy *result_policy,
+	const char *prepare_name,
 	PostgammaPrivateLibpqOperation **operation);
 
 static PostgammaPrivateLibpqStatus postgamma_private_copy_sync_bound(
@@ -322,47 +335,28 @@ postgamma_libpq_memory_secure_write(PGconn *connection, const void *buffer,
 	current->secure_write_calls++;
 	if (current->connect_operation)
 	{
-		const unsigned char *cursor = buffer;
-		size_t		remaining = length;
+		/* pqPacketSend requires an all-or-error flush during PQconnectPoll.
+		 * Retain bounded output here; the next host step flushes it in pieces.
+		 * No transport wait may escape from inside the upstream handshake. */
+		size_t pending = current->connect_output_size - current->connect_output_offset;
+		unsigned char *output;
 
-		while (remaining != 0)
+		if (current->connect_output_offset && pending)
+			memmove(current->connect_output, current->connect_output + current->connect_output_offset, pending);
+		current->connect_output_offset = 0;
+		current->connect_output_size = pending;
+		if (length == 0) { *result = 0; return true; }
+		if (length > 65536U - pending ||
+			(output = realloc(current->connect_output, pending + length)) == NULL)
 		{
-			PostgammaMemoryWaitResult wait_result;
-
-			io = postgamma_memory_endpoint_write(
-				current->endpoint, current->generation, cursor, remaining);
-			if (io.status == POSTGAMMA_MEMORY_STATUS_PROGRESS)
-			{
-				current->bytes_written += io.bytes;
-				cursor += io.bytes;
-				remaining -= io.bytes;
-				continue;
-			}
-			if (io.status != POSTGAMMA_MEMORY_STATUS_RETRY)
-			{
-				postgamma_private_transport_error(
-					connection, "connect write", io.status);
-				*result = -1;
-				SOCK_ERRNO_SET(EPIPE);
-				return true;
-			}
-			wait_result = postgamma_memory_endpoint_wait(
-				current->endpoint, current->generation,
-				POSTGAMMA_MEMORY_WAIT_WRITABLE |
-					POSTGAMMA_MEMORY_WAIT_PEER_CLOSED,
-				0, current->operation_deadline_ns);
-			if (wait_result.status != POSTGAMMA_MEMORY_STATUS_OK ||
-				(wait_result.events & POSTGAMMA_MEMORY_WAIT_WRITABLE) == 0)
-			{
-				postgamma_private_transport_error(
-					connection, "connect write wait", wait_result.status);
-				*result = -1;
-				SOCK_ERRNO_SET(
-					wait_result.status == POSTGAMMA_MEMORY_STATUS_TIMEOUT ?
-					ETIMEDOUT : ECONNRESET);
-				return true;
-			}
+			*result = -1;
+			SOCK_ERRNO_SET(ENOMEM);
+			return true;
 		}
+		current->connect_output = output;
+		memcpy(output + pending, buffer, length);
+		current->connect_output_offset = 0;
+		current->connect_output_size = pending + length;
 		*result = (ssize_t) length;
 		SOCK_ERRNO_SET(0);
 		return true;
@@ -1126,46 +1120,96 @@ postgamma_private_libpq_create(const PostgammaPrivateLibpqOptions *options,
 
 
 PostgammaPrivateLibpqStatus
-postgamma_private_libpq_connect(PostgammaPrivateLibpqConnection *connection,
-								int64_t deadline_ns)
+postgamma_private_libpq_connect_step(PostgammaPrivateLibpqConnection *connection,
+                                    bool *done)
 {
 	PostgammaPrivateLibpqStatus status;
+	PostgresPollingStatusType polled;
 
-	if (!postgamma_private_libpq_valid(connection) || deadline_ns < 0)
+	if (!postgamma_private_libpq_valid(connection) || done == NULL)
 		return POSTGAMMA_PRIVATE_LIBPQ_INVALID_ARGUMENT;
+	*done = false;
 	if (pthread_mutex_lock(&connection->mutex) != 0)
 		return POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
 	status = postgamma_private_bind(connection);
-	connection->connect_operation = true;
-	connection->operation_deadline_ns = deadline_ns;
-	while (status == POSTGAMMA_PRIVATE_LIBPQ_OK)
+	if (status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+		goto unlock;
+	if (connection->connect_output_offset < connection->connect_output_size)
 	{
-		PostgresPollingStatusType poll_status =
-			PQconnectPoll(connection->postgres_connection);
+		PostgammaMemoryTelemetry transport;
+		size_t remaining = connection->connect_output_size - connection->connect_output_offset;
+		PostgammaMemoryIoResult io;
 
-		if (poll_status == PGRES_POLLING_OK)
-			break;
-		if (poll_status == PGRES_POLLING_FAILED)
+		/* A rejected startup can close the backend before consuming the
+		 * packet. The public monitor retains an endpoint reference, so a full
+		 * outbound queue alone cannot detect that its reader has exited. */
+		if (postgamma_memory_endpoint_snapshot(connection->endpoint,
+				connection->generation, &transport) != POSTGAMMA_MEMORY_STATUS_OK ||
+			transport.backend_to_frontend.writer_closed)
 		{
-			status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
-			break;
+			status = POSTGAMMA_PRIVATE_LIBPQ_TRANSPORT_ERROR;
+			goto restore;
 		}
-		status = postgamma_private_wait(
-			connection, true, poll_status == PGRES_POLLING_WRITING,
-			deadline_ns);
+		io = postgamma_memory_endpoint_write(
+			connection->endpoint, connection->generation,
+			connection->connect_output + connection->connect_output_offset,
+			remaining < 8192U ? remaining : 8192U);
+
+		if (io.status == POSTGAMMA_MEMORY_STATUS_PROGRESS)
+		{
+			connection->connect_output_offset += io.bytes;
+			connection->bytes_written += io.bytes;
+		}
+		else if (io.status != POSTGAMMA_MEMORY_STATUS_RETRY)
+			status = POSTGAMMA_PRIVATE_LIBPQ_TRANSPORT_ERROR;
+		/* Even writable output yields after one bounded transfer. */
+		goto restore;
 	}
+	connection->connect_output_offset = connection->connect_output_size = 0;
+	connection->connect_operation = true;
+	polled = PQconnectPoll(connection->postgres_connection);
 	connection->connect_operation = false;
-	connection->operation_deadline_ns = 0;
-	if (status == POSTGAMMA_PRIVATE_LIBPQ_OK)
-		atomic_store_explicit(
-			&connection->backend_pid,
-			PQbackendPID(connection->postgres_connection),
-			memory_order_release);
+	if (polled == PGRES_POLLING_FAILED)
+		status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+	else if (polled == PGRES_POLLING_OK && connection->connect_output_size == 0)
+	{
+		atomic_store_explicit(&connection->backend_pid,
+			PQbackendPID(connection->postgres_connection), memory_order_release);
+		*done = true;
+	}
+restore:
 	postgamma_private_restore(connection);
+unlock:
 	(void) pthread_mutex_unlock(&connection->mutex);
 	return status;
 }
 
+
+PostgammaPrivateLibpqStatus
+postgamma_private_libpq_connect(PostgammaPrivateLibpqConnection *connection,
+                               int64_t deadline_ns)
+{
+	bool done = false;
+
+	if (deadline_ns < 0)
+		return POSTGAMMA_PRIVATE_LIBPQ_INVALID_ARGUMENT;
+	while (!done)
+	{
+		PostgammaPrivateLibpqStatus status =
+			postgamma_private_libpq_connect_step(connection, &done);
+		int64_t now;
+		struct timespec pause = {0, 1000000L};
+
+		if (status != POSTGAMMA_PRIVATE_LIBPQ_OK || done)
+			return status;
+		if (postgamma_memory_clock_now(&now) != POSTGAMMA_MEMORY_STATUS_OK)
+			return POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
+		if (deadline_ns != POSTGAMMA_MEMORY_NO_DEADLINE && now >= deadline_ns)
+			return POSTGAMMA_PRIVATE_LIBPQ_TIMEOUT;
+		(void) nanosleep(&pause, NULL);
+	}
+	return POSTGAMMA_PRIVATE_LIBPQ_OK;
+}
 
 PostgammaPrivateLibpqStatus
 postgamma_private_libpq_tool_borrow(
@@ -1328,7 +1372,7 @@ postgamma_private_libpq_operation_start(
 {
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_QUERY,
-		query, parameters, parameter_count, result_format, NULL, operation);
+		query, parameters, parameter_count, result_format, NULL, NULL, operation);
 }
 
 
@@ -1346,7 +1390,7 @@ postgamma_private_libpq_operation_start_ex(
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_QUERY,
 		query, parameters, parameter_count, result_format, result_policy,
-		operation);
+		NULL, operation);
 }
 
 
@@ -1359,7 +1403,7 @@ postgamma_private_libpq_operation_start_script(
 {
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_SCRIPT,
-		query, NULL, 0, 0, NULL, operation);
+		query, NULL, 0, 0, NULL, NULL, operation);
 }
 
 
@@ -1373,7 +1417,7 @@ postgamma_private_libpq_operation_start_script_ex(
 {
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_SCRIPT,
-		query, NULL, 0, 0, result_policy, operation);
+		query, NULL, 0, 0, result_policy, NULL, operation);
 }
 
 
@@ -1390,7 +1434,7 @@ postgamma_private_libpq_operation_start_prepared(
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_PREPARED,
 		statement_name, parameters, parameter_count, result_format, NULL,
-		operation);
+		NULL, operation);
 }
 
 
@@ -1408,7 +1452,37 @@ postgamma_private_libpq_operation_start_prepared_ex(
 	return postgamma_private_operation_start_internal(
 		connection, request_generation, POSTGAMMA_PRIVATE_SUBMISSION_PREPARED,
 		statement_name, parameters, parameter_count, result_format,
-		result_policy, operation);
+		result_policy, NULL, operation);
+}
+
+PostgammaPrivateLibpqStatus
+postgamma_private_libpq_statement_start(
+	PostgammaPrivateLibpqConnection *connection, uint64_t request_generation,
+	const char *name, const char *query,
+	const PostgammaPrivateParameter *parameters, size_t parameter_count,
+	const PostgammaPrivateResultPolicy *policy,
+	PostgammaPrivateLibpqOperation **operation)
+{
+	if (name == NULL || name[0] == '\0')
+		return POSTGAMMA_PRIVATE_LIBPQ_INVALID_ARGUMENT;
+	return postgamma_private_operation_start_internal(
+		connection, request_generation,
+		query != NULL ? POSTGAMMA_PRIVATE_SUBMISSION_PREPARE :
+		POSTGAMMA_PRIVATE_SUBMISSION_CLOSE,
+		query != NULL ? query : name, parameters, parameter_count, 0,
+		policy, query != NULL ? name : NULL, operation);
+}
+
+PostgammaPrivatePreparedDescription *
+postgamma_private_libpq_take_description(PostgammaPrivateLibpqOperation *operation)
+{
+	PostgammaPrivatePreparedDescription *description;
+	if (!postgamma_private_operation_valid(operation) ||
+		operation->phase != POSTGAMMA_PRIVATE_LIBPQ_OPERATION_COMPLETE)
+		return NULL;
+	description = operation->prepared_description;
+	operation->prepared_description = NULL;
+	return description;
 }
 
 
@@ -1422,6 +1496,7 @@ postgamma_private_operation_start_internal(
 	size_t parameter_count,
 	uint16_t result_format,
 	const PostgammaPrivateResultPolicy *result_policy,
+	const char *prepare_name,
 	PostgammaPrivateLibpqOperation **operation)
 {
 	Oid		   *parameter_types = NULL;
@@ -1440,7 +1515,7 @@ postgamma_private_operation_start_internal(
 		request_generation == 0 || query_or_statement == NULL ||
 		query_or_statement[0] == '\0' ||
 		submission_kind < POSTGAMMA_PRIVATE_SUBMISSION_QUERY ||
-		submission_kind > POSTGAMMA_PRIVATE_SUBMISSION_PREPARED ||
+		submission_kind > POSTGAMMA_PRIVATE_SUBMISSION_CLOSE ||
 		result_format > 1 || parameter_count > INT_MAX ||
 		(parameter_count != 0 && parameters == NULL) ||
 		(result_policy != NULL &&
@@ -1451,6 +1526,15 @@ postgamma_private_operation_start_internal(
 	created = calloc(1, sizeof(*created));
 	if (created == NULL)
 		return POSTGAMMA_PRIVATE_LIBPQ_NO_MEMORY;
+	if (prepare_name != NULL)
+	{
+		created->prepare_name = postgamma_private_duplicate(prepare_name);
+		if (created->prepare_name == NULL)
+		{
+			free(created);
+			return POSTGAMMA_PRIVATE_LIBPQ_NO_MEMORY;
+		}
+	}
 	if (parameter_count != 0)
 	{
 		parameter_types = calloc(parameter_count, sizeof(*parameter_types));
@@ -1518,6 +1602,13 @@ postgamma_private_operation_start_internal(
 		if (submission_kind == POSTGAMMA_PRIVATE_SUBMISSION_SCRIPT)
 			sent = PQsendQuery(
 				connection->postgres_connection, query_or_statement);
+		else if (submission_kind == POSTGAMMA_PRIVATE_SUBMISSION_PREPARE)
+			sent = PQsendPrepare(connection->postgres_connection,
+				prepare_name, query_or_statement, (int) parameter_count,
+				parameter_types);
+		else if (submission_kind == POSTGAMMA_PRIVATE_SUBMISSION_CLOSE)
+			sent = PQsendClosePrepared(connection->postgres_connection,
+				query_or_statement);
 		else if (submission_kind == POSTGAMMA_PRIVATE_SUBMISSION_PREPARED)
 			sent = PQsendQueryPrepared(
 				connection->postgres_connection, query_or_statement,
@@ -1571,6 +1662,8 @@ done:
 		(void) postgamma_private_clear_result_policy(connection);
 	if (locked)
 		(void) pthread_mutex_unlock(&connection->mutex);
+	if (created != NULL)
+		free(created->prepare_name);
 	free(created);
 	free(parameter_formats);
 	free(parameter_lengths);
@@ -1658,6 +1751,26 @@ postgamma_private_libpq_operation_progress(
 			PostgammaPrivateResultStatus result_status =
 				postgamma_private_result_status(PQresultStatus(postgres_result));
 
+			if (operation->prepare_name != NULL)
+			{
+				if (result_status != POSTGAMMA_PRIVATE_RESULT_COMMAND_OK)
+					operation->prepare_failed = true;
+				else if (!operation->prepare_describing)
+				{
+					PQclear(postgres_result);
+					continue;
+				}
+				else
+				{
+					status = postgamma_private_capture_description(
+						postgres_result, &operation->prepared_description);
+					if (status != POSTGAMMA_PRIVATE_LIBPQ_OK)
+					{
+						PQclear(postgres_result);
+						break;
+					}
+				}
+			}
 			status = postgamma_private_capture_owned_result(
 				postgres, postgres_result,
 				operation->result_policy_active ?
@@ -1689,6 +1802,17 @@ postgamma_private_libpq_operation_progress(
 		}
 		if (flush_status == 0)
 		{
+			if (operation->prepare_name != NULL &&
+				!operation->prepare_describing && !operation->prepare_failed)
+			{
+				operation->prepare_describing = true;
+				if (!PQsendDescribePrepared(postgres, operation->prepare_name))
+				{
+					status = POSTGAMMA_PRIVATE_LIBPQ_UPSTREAM_ERROR;
+					break;
+				}
+				continue;
+			}
 			operation->phase = POSTGAMMA_PRIVATE_LIBPQ_OPERATION_COMPLETE;
 			break;
 		}
@@ -2343,6 +2467,8 @@ postgamma_private_libpq_operation_free(
 	}
 	(void) pthread_mutex_unlock(&connection->mutex);
 	closing->magic = 0;
+	free(closing->prepare_name);
+	postgamma_private_libpq_prepared_description_free(closing->prepared_description);
 	free(closing);
 	*operation = NULL;
 }
@@ -2860,6 +2986,7 @@ postgamma_private_libpq_close(PostgammaPrivateLibpqConnection **connection)
 	if (pthread_mutex_destroy(&closing->mutex) != 0 &&
 		status == POSTGAMMA_PRIVATE_LIBPQ_OK)
 		status = POSTGAMMA_PRIVATE_LIBPQ_CONTRACT_VIOLATION;
+	free(closing->connect_output);
 	closing->magic = 0;
 	free(closing);
 	*connection = NULL;

@@ -11,11 +11,17 @@
  *-------------------------------------------------------------------------
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "postgamma/path_runtime.h"
 
 #include "postgamma/guc_runtime.h"
+
+#ifdef __EMSCRIPTEN__
+#include "postgamma/file_platform.h"
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -78,7 +84,11 @@ postgamma_path_runtime_create(
 {
 	PostgammaPathRuntime *created;
 	struct stat descriptor_status;
+#ifndef __EMSCRIPTEN__
 	struct stat path_status;
+#else
+	int identity_status;
+#endif
 	int			descriptor;
 	int			resource_descriptor = -1;
 	const char *resource_root;
@@ -95,11 +105,17 @@ postgamma_path_runtime_create(
 		return errno != 0 ? errno : EIO;
 	if (!S_ISDIR(descriptor_status.st_mode))
 		return ENOTDIR;
+#ifdef __EMSCRIPTEN__
+	identity_status = postgamma_platform_directory_match(
+		options->data_directory_fd, AT_FDCWD, options->canonical_data_directory);
+	if (identity_status != 0) return identity_status;
+#else
 	if (stat(options->canonical_data_directory, &path_status) != 0)
 		return errno != 0 ? errno : EIO;
 	if (descriptor_status.st_dev != path_status.st_dev ||
 		descriptor_status.st_ino != path_status.st_ino)
 		return ESTALE;
+#endif
 	descriptor = duplicate_descriptor(options->data_directory_fd);
 	if (descriptor < 0)
 		return errno != 0 ? errno : EIO;
@@ -523,12 +539,25 @@ postgamma_path_chdir(const char *path)
 {
 	PostgammaPathRuntime *runtime = current_path_runtime();
 	PostgammaPathTarget target;
+#ifndef __EMSCRIPTEN__
 	struct stat target_status;
 	struct stat root_status;
+#else
+	int identity_status;
+#endif
 
 	if (runtime == NULL)
 		return chdir(path);
 	target = resolve_target(path);
+#ifdef __EMSCRIPTEN__
+	identity_status = postgamma_platform_directory_match(
+		runtime->data_directory_fd, target.directory_fd, target.path);
+	if (identity_status != 0)
+	{
+		errno = identity_status == ESTALE ? ENOTSUP : identity_status;
+		return -1;
+	}
+#else
 	if (fstatat(target.directory_fd, target.path, &target_status, 0) != 0 ||
 		fstat(runtime->data_directory_fd, &root_status) != 0)
 		return -1;
@@ -538,6 +567,7 @@ postgamma_path_chdir(const char *path)
 		errno = ENOTSUP;
 		return -1;
 	}
+#endif
 	atomic_fetch_add_explicit(
 		&runtime->virtual_chdir_calls, UINT64_C(1), memory_order_relaxed);
 	return 0;

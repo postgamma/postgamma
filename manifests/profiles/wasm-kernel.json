@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "kind": "postgamma.wasm-kernel-target",
+  "status": "selected-for-initial-port",
+  "target": "wasm32-emscripten-pthreads",
+  "probe_profile": "manifests/profiles/wasm-emscripten.json",
+  "resource_policy": "manifests/profiles/wasm-resource-budget.json",
+  "pointer_bits": 32,
+  "longjmp": "emscripten",
+  "filesystem": "wasmfs",
+  "storage_profile": "ephemeral-wasmfs",
+  "configure": ["--without-icu", "--without-readline", "--without-zlib", "--disable-nls"],
+  "target_configure": ["--disable-rpath", "ac_cv_func_posix_fadvise=no"],
+  "cppflags": ["-DEXEC_BACKEND", "-DWAIT_USE_POLL"],
+  "configure_decisions": {
+    "WAIT_USE_POLL": "WasmFS epoll syscalls return ENOSYS in the pinned SDK; W12 supplies blocking waits around the selected readiness interface.",
+    "disable-rpath": "The Linux configure template supplies portable C declarations; ELF runtime-linker flags do not apply to Wasm.",
+    "cross-run-fallbacks": "No target programs are executed by configure. Preserve upstream cross answers in the report; runtime assumptions require kernel validation.",
+    "posix-fadvise": "The pinned Emscripten implementation is advisory-only and has no writeback effect. Do not enable PostgreSQL pre-sync directory walks for that no-op; retain the real fsync pass and durability barriers."
+  },
+  "compile_flags": ["-pthread", "-sSUPPORT_LONGJMP=emscripten"],
+  "modes": {"debug": ["-O0", "-g1"], "release": ["-O2"]},
+  "capture_targets": {
+    "src/backend": ["objfiles.txt"],
+    "src/common": ["libpgcommon.a", "libpgcommon_srv.a"],
+    "src/port": ["libpgport.a", "libpgport_srv.a"],
+    "src/interfaces/libpq": ["libpq.a"],
+    "src/fe_utils": ["libpgfeutils.a"],
+    "src/bin/initdb": ["initdb.o", "findtimezone.o", "localtime.o"],
+    "src/bin/pg_dump": [
+      "pg_dump.o",
+      "pg_restore.o",
+      "common.o",
+      "pg_dump_sort.o",
+      "compress_gzip.o",
+      "compress_io.o",
+      "compress_lz4.o",
+      "compress_none.o",
+      "compress_zstd.o",
+      "connectdb.o",
+      "dumputils.o",
+      "filter.o",
+      "parallel.o",
+      "pg_backup_archiver.o",
+      "pg_backup_custom.o",
+      "pg_backup_db.o",
+      "pg_backup_directory.o",
+      "pg_backup_null.o",
+      "pg_backup_tar.o",
+      "pg_backup_utils.o"
+    ],
+    "src/pl/plpgsql/src": ["pl_comp.o", "pl_exec.o", "pl_funcs.o", "pl_gram.o", "pl_handler.o", "pl_scanner.o"]
+  },
+  "memory64": {
+    "status": "not-applicable",
+    "probes_executed": false,
+    "reason": "Scoped wasm32 capacity and ABI probes fit the provisional envelope; no concrete target-width blocker or Memory64 adaptation-cost hypothesis is recorded.",
+    "reopen_if": [
+      "target-generated static or TLS layout exceeds reserves",
+      "kernel memory demand exceeds the bounded envelope",
+      "a concrete target-width adaptation cost is identified"
+    ]
+  }
+}
