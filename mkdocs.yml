@@ -8,6 +8,7 @@ strict: true
 exclude_docs: |
   Doxyfile
   requirements.txt
+  blog/SYNDICATION.md
   reference/*.json
   overrides/
 
@@ -72,6 +73,7 @@ plugins:
 
 hooks:
   - buildsys/mkdocs_hooks.py
+  - buildsys/blog_feed.py
 
 markdown_extensions:
   - admonition

@@ -4,7 +4,8 @@
 <section class="pg-blog-index" aria-labelledby="blog-title">
   <header class="pg-blog-heading">
     <h1 id="blog-title">{{ page.title }}</h1>
-    <p class="pg-blog-intro">Notes on PostgreSQL, threads, and building PostGamma.</p>
+    <p class="pg-blog-intro">Notes on PostgreSQL, threads, WebAssembly, and building PostGamma.</p>
+    <p class="pg-blog-subscribe"><a href="{{ 'blog/feed.xml' | url }}">RSS · All posts</a> <span aria-hidden="true">/</span> <a href="{{ 'blog/postgresql.xml' | url }}">RSS · Engineering</a></p>
   </header>
   <nav class="pg-blog-filters" aria-label="Article categories">
     <a href="{{ 'blog/' | url }}" {% if 'category/' not in page.url %}aria-current="page"{% endif %}>All posts</a>
