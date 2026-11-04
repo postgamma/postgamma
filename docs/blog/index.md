@@ -1,3 +1,3 @@
 # Blog
 
-Notes on PostgreSQL, threads, and building PostGamma.
+Notes on PostgreSQL, threads, WebAssembly, and building PostGamma.

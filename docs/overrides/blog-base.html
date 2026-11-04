@@ -4,6 +4,9 @@
 
 {% block extrahead %}
   {{ super() }}
+  <link rel="alternate" type="application/rss+xml" title="PostGamma blog" href="{{ 'blog/feed.xml' | url }}">
+  <link rel="alternate" type="application/rss+xml" title="Engineering articles by Shujie Zhang" href="{{ 'blog/postgresql.xml' | url }}">
+  <script type="module" src="{{ 'assets/javascripts/blog-labs.js' | url }}"></script>
   <link rel="preload" href="{{ 'assets/fonts/inter-latin.woff2' | url }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ 'assets/stylesheets/blog.css' | url }}">
   <meta property="og:title" content="{{ page.title | e }} · PostGamma">
