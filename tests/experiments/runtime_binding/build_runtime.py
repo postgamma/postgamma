@@ -29,8 +29,6 @@ def main():
     prefix = Path(spec["baseline_prefix"])
     report = {"status": "running", "scope": "diagnostic runtime experiment",
               "spec": spec, "commands": [], "baseline_sha256": digest(prefix / "bin/postgres")}
-    if spec.get("view_tool"):
-        report["view_tool_sha256"] = digest(spec["view_tool"])
 
     def run(name, command, cwd):
         report["commands"].append({"name": name, "arguments": command, "directory": str(cwd)})
@@ -70,44 +68,17 @@ def main():
             compiler[1:1] = ["-I" + str(out / "include"),
                             "-iquote", str(Path(record["file"]).parent),
                             *spec.get("flags", [])]
-            transform = None
-            # State accesses can be hidden entirely inside included PG macros.
-            if spec.get("view_tool"):
-                flags = []
-                skip = False
-                for argument in compiler[1:]:
-                    if skip:
-                        skip = False
-                        continue
-                    if argument == "-o":
-                        skip = True
-                    elif argument not in ("-c", str(source)) and not argument.startswith(("-W", "--param=")):
-                        flags.append(argument)
-                candidate = out / (str(number) + "-view.c")
-                facts = out / (str(number) + "-view.json")
-                transform = ("transform-" + str(number),
-                             [spec["view_tool"], str(source), str(candidate), str(facts),
-                              "--borrowed-scope", *spec.get("view_flags", []), *flags,
-                              "-resource-dir=" + spec["clang_resource_dir"], "-w"],
-                             record["directory"])
-                compiler[compiler.index(str(source))] = str(candidate)
-            compilations.append((transform, ("compile-" + str(number), compiler, record["directory"])))
+            compilations.append(("compile-" + str(number), compiler, record["directory"]))
             matches = linked_objects.pop(old_object, [])
             if len(matches) != 1:
                 raise RuntimeError("replacement must match exactly one linked object")
             command[matches[0]] = str(new_object)
             report["units"].append({"source": str(source), "sha256": digest(source)})
-        def compile_unit(transform, compilation):
-            if transform is not None:
-                run(*transform)
-            run(*compilation)
 
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = [pool.submit(compile_unit, *arguments) for arguments in compilations]
+            futures = [pool.submit(run, *arguments) for arguments in compilations]
             for future in futures:
                 future.result()
-        report["transformed_sources"] = {
-            path.name: digest(path) for path in sorted(out.glob("*-view.c"))}
         command[command.index("-o") + 1] = str(out / "postgres")
         run("link", command, link["directory"])
         shutil.copytree(prefix, out / "install", copy_function=os.link, symlinks=True)

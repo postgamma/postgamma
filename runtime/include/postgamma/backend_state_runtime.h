@@ -95,69 +95,21 @@ extern POSTGAMMA_THREAD_LOCAL unsigned char *PostgammaCurrentPreparedRoleState
 
 /* Only the binding boundary publishes this view; taking an address checks it. */
 static inline __attribute__((always_inline)) void *
-postgamma_backend_state_direct_address_in(
-	unsigned char *base, PostgammaBackendStateSlot slot,
-	const volatile void *template_address)
+postgamma_backend_state_direct_address(
+	PostgammaBackendStateSlot slot, const volatile void *template_address)
 {
+	unsigned char *base = PostgammaCurrentPreparedRoleState;
 	size_t offset = postgamma_backend_state_prepared_offset(slot);
 
 	if (POSTGAMMA_UNLIKELY(base == NULL || template_address == NULL || offset == SIZE_MAX))
 		postgamma_runtime_contract_violation();
 	return base + offset;
 }
-
-static inline __attribute__((always_inline)) void *
-postgamma_backend_state_direct_address(
-	PostgammaBackendStateSlot slot, const volatile void *template_address)
-{
-	return postgamma_backend_state_direct_address_in(
-		PostgammaCurrentPreparedRoleState, slot, template_address);
-}
-
-/*
- * Experimental generated implementations may borrow a view for one bound
- * call. It must not escape that call or span a yield. Callbacks must restore
- * the caller's binding before it resumes, including nonlocal error paths.
- * This interface alone does not qualify a call graph for view propagation.
- */
-#define POSTGAMMA_BACKEND_STATE_VALUE_IN(view, slot, original) \
-	(*(__typeof__(&(original))) \
-	 (__builtin_constant_p(slot) && postgamma_backend_state_prepared_offset(slot) != SIZE_MAX ? \
-	  postgamma_backend_state_direct_address_in((view), (slot), &(original)) : \
-	  postgamma_backend_state_address_cached((slot), &(original))))
-#define POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE_IN(view, slot, original, bridge) \
-	(*(__typeof__(&(original))) \
-	 (__builtin_constant_p(slot) && postgamma_backend_state_prepared_offset(slot) != SIZE_MAX ? \
-	  postgamma_backend_state_direct_address_in((view), (slot), &(original)) : \
-	  postgamma_backend_state_checked_bridge((slot), &(original), (bridge))))
-
-/*
- * A function may borrow the bound role without changing its C ABI or cloning
- * its body. A NULL entry view must remain lazy: an access-free return is valid
- * and a callback may establish the first binding before the first access.
- * A non-NULL borrow requires every returning callee to restore its binding.
- */
-#define POSTGAMMA_BACKEND_STATE_SCOPE_VALUE(view, slot, original) \
-	POSTGAMMA_BACKEND_STATE_VALUE_IN( \
-		(view) != NULL ? (view) : PostgammaCurrentPreparedRoleState, slot, original)
-#define POSTGAMMA_BACKEND_STATE_SCOPE_RELOCATED_VALUE(view, slot, original, bridge) \
-	POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE_IN( \
-		(view) != NULL ? (view) : PostgammaCurrentPreparedRoleState, slot, original, bridge)
 #endif
 #undef POSTGAMMA_STATE_TLS_MODEL
 
 int postgamma_backend_state_context_init(PostgammaBackendStateOwner owner,
 									void **storage);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-struct PostgammaMemoryPool;
-int postgamma_backend_state_context_init_in_pool(PostgammaBackendStateOwner owner,
-	void **storage, struct PostgammaMemoryPool *pool);
-#endif
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-int postgamma_backend_state_role_acquire(void *instance_storage, void **storage);
-void postgamma_backend_state_role_cache_usage(void *instance_storage,
-	size_t *bytes, size_t *leases);
-#endif
 void postgamma_backend_state_context_destroy(void **storage);
 void postgamma_backend_state_context_copy_ids(
 	void *destination, const void *source,

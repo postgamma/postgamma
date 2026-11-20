@@ -13,13 +13,13 @@ from wasm_toolchain import WasmError, digest, read_json, write_json
 # The official bundle includes 322643@main (JSVMClientData owns JSHeapData).
 # It is separate from Playwright: its automation protocol is not compatible.
 PIN = {
-    'revision': '322662@main',
-    'commit': '9eb4e2ad5983af0d494b62b38e55ff9010fb5993',
+    'revision': '326998@main',
+    'commit': '0980214d9218c05717ac87f5531910667876d7fa',
     'ownershipFix': '6cf979a79f7bb78c0635ff43f02282d78137583e',
     'url': 'https://wpewebkit.org/built-products/x86_64/release/nightly/MiniBrowser/'
-           'MiniBrowser_wpe_322662@main.tar.xz',
-    'sha256': '3fdcfd73e1f634b7d9df53de95dcaecc319dfd102fb0af7faec3a6d8e491e411',
-    'bytes': 240315992,
+           'MiniBrowser_wpe_326998@main.tar.xz',
+    'sha256': '4cf161e38cc044bbcd195cb5fd6a44fd75247b9336cff0b77d07f2f7e67f48fb',
+    'bytes': 234147904,
 }
 
 

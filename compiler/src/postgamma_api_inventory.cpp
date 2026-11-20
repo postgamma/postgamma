@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "postgamma/source_identity.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/PrettyPrinter.h"
@@ -28,7 +29,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -37,11 +37,12 @@
 #include <utility>
 #include <vector>
 
-namespace fs = std::filesystem;
 using namespace clang;
 using namespace clang::tooling;
 
 namespace {
+
+using namespace postgamma::compiler;
 
 #ifndef POSTGAMMA_CLANG_RESOURCE_DIR
 #define POSTGAMMA_CLANG_RESOURCE_DIR ""
@@ -65,43 +66,6 @@ llvm::cl::opt<std::string> ClangResourceDir(
     "clang-resource-dir", llvm::cl::desc("Clang builtin-header resource directory"),
     llvm::cl::value_desc("path"), llvm::cl::init(POSTGAMMA_CLANG_RESOURCE_DIR),
     llvm::cl::cat(InventoryCategory));
-
-std::string normalizeAbsolutePath(llvm::StringRef value) {
-  if (value.empty())
-    return {};
-  std::error_code error;
-  fs::path path(value.str());
-  if (!path.is_absolute())
-    path = fs::absolute(path, error);
-  if (error)
-    return {};
-  path = path.lexically_normal();
-  fs::path canonical = fs::weakly_canonical(path, error);
-  if (!error)
-    path = std::move(canonical);
-  return path.generic_string();
-}
-
-std::optional<std::string> relativeToRoot(llvm::StringRef absolute,
-                                          llvm::StringRef root) {
-  fs::path path(absolute.str());
-  fs::path base(root.str());
-  auto path_it = path.begin();
-  auto base_it = base.begin();
-  while (path_it != path.end() && base_it != base.end() &&
-         *path_it == *base_it) {
-    ++path_it;
-    ++base_it;
-  }
-  if (base_it != base.end())
-    return std::nullopt;
-  fs::path relative;
-  for (; path_it != path.end(); ++path_it)
-    relative /= *path_it;
-  if (relative.empty())
-    return std::nullopt;
-  return relative.generic_string();
-}
 
 std::string canonicalType(QualType type, const LangOptions &language) {
   PrintingPolicy policy(language);

@@ -1486,7 +1486,8 @@ $(EMBEDDED_BOOTSTRAP_KERNEL_RESPONSE) $(EMBEDDED_BOOTSTRAP_KERNEL_LINK_REPORT) &
 		$(UPSTREAM_MANIFEST) $(POSTGRES_ADAPTER) \
 		$(POSTGRES_EMBEDDED_ADAPTER) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		buildsys/derive_kernel_link.py buildsys/merge_link_db.py \
-		buildsys/postgresql_embedded_adapter.py
+		buildsys/postgresql_embedded_adapter.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/derive_kernel_link.py \
 		--database "$(EMBEDDED_BOOTSTRAP_LINK_DATABASE)" \
 		--build-root "$(EMBEDDED_PG_BUILD)" \
@@ -1564,6 +1565,7 @@ $(EMBEDDED_KERNEL_QUERY_DRIVER): $(EMBEDDED_KERNEL_QUERY_DRIVER_OBJECT) \
 
 $(EMBEDDED_KERNEL_PUBLIC_API_OBJECT): embedded-c/src/postgamma.c VERSION \
 		$(EMBEDDED_KERNEL_PUBLIC_API_HEADER) \
+		embedded-c/include/postgamma/private/error_status.h \
 		embedded-c/include/postgamma/private/public_runtime.h \
 		runtime/include/postgamma/embedded_kernel.h \
 		runtime/include/postgamma/thread_runtime.h \
@@ -1640,6 +1642,7 @@ $(EMBEDDED_KERNEL_PUBLIC_ARROW_OBJECT): \
 $(EMBEDDED_KERNEL_PUBLIC_MANAGEMENT_OBJECT): \
 		embedded-c/src/postgamma_management.c \
 		$(EMBEDDED_KERNEL_PUBLIC_API_HEADER) \
+		embedded-c/include/postgamma/private/error_status.h \
 		embedded-c/include/postgamma/private/public_runtime.h \
 		runtime/include/postgamma/embedded_kernel.h \
 		runtime/include/postgamma/instance_runtime.h \
@@ -1897,7 +1900,8 @@ $(EMBEDDED_KERNEL_LIFECYCLE_EVIDENCE) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(UPSTREAM_MANIFEST) $(EMBEDDED_KERNEL_RESOURCE_BUDGET) \
-		buildsys/check_embedded_lifecycle.py
+		buildsys/check_embedded_lifecycle.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_lifecycle.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -1935,7 +1939,8 @@ $(EMBEDDED_KERNEL_QUERY_EVIDENCE) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(UPSTREAM_MANIFEST) $(EMBEDDED_KERNEL_RESOURCE_BUDGET) \
-		buildsys/check_embedded_query.py
+		buildsys/check_embedded_query.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_query.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -1981,7 +1986,8 @@ $(EMBEDDED_KERNEL_PUBLIC_API_EVIDENCE) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(UPSTREAM_MANIFEST) $(EMBEDDED_API_POLICY) \
-		$(EMBEDDED_API_ABI_BASELINE) buildsys/check_embedded_public_api.py
+		$(EMBEDDED_API_ABI_BASELINE) buildsys/check_embedded_public_api.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_public_api.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2038,7 +2044,8 @@ $(EMBEDDED_SESSION_EXECUTOR_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_session_executor.py
+		$(UPSTREAM_MANIFEST) buildsys/check_session_executor.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_session_executor.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2075,7 +2082,8 @@ $(EMBEDDED_SESSION_ORACLE_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_executor_differential.py
+		$(UPSTREAM_MANIFEST) buildsys/check_executor_differential.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_executor_differential.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2118,7 +2126,8 @@ $(EMBEDDED_KERNEL_INITDB_EVIDENCE) \
 		$(EMBEDDED_KERNEL_STATIC_MODULE_MANIFEST) $(UPSTREAM_MANIFEST) \
 		buildsys/check_embedded_initdb.py \
 		buildsys/check_embedded_public_api.py \
-		buildsys/check_embedded_lifecycle.py
+		buildsys/check_embedded_lifecycle.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_initdb.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2163,7 +2172,8 @@ $(EMBEDDED_KERNEL_CRASH_EVIDENCE) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(UPSTREAM_MANIFEST) buildsys/check_embedded_crash.py \
 		buildsys/check_embedded_query.py \
-		buildsys/check_embedded_lifecycle.py
+		buildsys/check_embedded_lifecycle.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_crash.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2198,7 +2208,8 @@ $(EMBEDDED_KERNEL_SOAK_EVIDENCE) \
 		$(EMBEDDED_KERNEL_LIFECYCLE_EVIDENCE) $(EMBEDDED_KERNEL_QUERY_EVIDENCE) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_embedded_soak.py
+		$(UPSTREAM_MANIFEST) buildsys/check_embedded_soak.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_soak.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2227,7 +2238,8 @@ lifecycle-soak-check: $(EMBEDDED_KERNEL_SOAK_EVIDENCE) \
 
 $(EMBEDDED_BOOTSTRAP_STATIC_FACTS) $(EMBEDDED_BOOTSTRAP_STATIC_FACTS_REPORT) &: \
 		$(STATIC_EXTENSION_MANIFEST) $(EMBEDDED_BOOTSTRAP_TEST_INPUTS) \
-		buildsys/generate_static_module_facts.py
+		buildsys/generate_static_module_facts.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/generate_static_module_facts.py \
 		--manifest "$(STATIC_EXTENSION_MANIFEST)" \
 		--project-root "$(ROOT)" \
@@ -2238,7 +2250,8 @@ $(EMBEDDED_BOOTSTRAP_INPUT) $(EMBEDDED_BOOTSTRAP_INPUT_REPORT) &: \
 		$(EMBEDDED_PG_BUILD)/src/include/catalog/postgres.bki \
 		$(EMBEDDED_PG_BUILD)/src/include/pg_config.h \
 		$(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
-		buildsys/prepare_embedded_bootstrap.py | embedded-pg-configure
+		buildsys/prepare_embedded_bootstrap.py \
+		buildsys/artifact_io.py | embedded-pg-configure
 	@$(PYTHON) buildsys/prepare_embedded_bootstrap.py \
 		--bki "$(EMBEDDED_PG_BUILD)/src/include/catalog/postgres.bki" \
 		--config-header "$(EMBEDDED_PG_BUILD)/src/include/pg_config.h" \
@@ -2471,7 +2484,9 @@ $(EMBEDDED_RELEASE_EXTENSION_INVENTORY): \
 		$(EMBEDDED_KERNEL_STATIC_MODULE_MANIFEST) \
 		$(EMBEDDED_RELEASE_EXTENSION_POLICY) \
 		$(PGVECTOR_STATE_REPORT) \
-		buildsys/check_bundled_extension_inventory.py
+		buildsys/check_bundled_extension_inventory.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_bundled_extension_inventory.py \
 		--project-root "$(ROOT)" \
 		--manifest "$(EMBEDDED_KERNEL_STATIC_MODULE_MANIFEST)" \
@@ -2560,7 +2575,8 @@ $(EMBEDDED_KERNEL_INITDB_OBJECT_DIR)/tool_state_runtime.o: \
 $(EMBEDDED_KERNEL_INITDB_PRIVATE_OBJECT) \
 		$(EMBEDDED_KERNEL_INITDB_LINK_REPORT) &: \
 		$(EMBEDDED_KERNEL_INITDB_OBJECTS) $(EMBEDDED_BOOTSTRAP_KERNEL_RESPONSE) \
-		buildsys/link_private_frontend_tool.py
+		buildsys/link_private_frontend_tool.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/link_private_frontend_tool.py \
 		--compiler "$(CC)" --objcopy "$(OBJCOPY)" --nm "$(NM)" \
 		--tool-id initdb \
@@ -2644,7 +2660,8 @@ $(EMBEDDED_LOGICAL_TOOL_OBJECT) \
 		$(EMBEDDED_LOGICAL_TOOL_OBJECTS) \
 		$(EMBEDDED_LOGICAL_TOOL_ARCHIVES) \
 		$(EMBEDDED_PG_BUILD)/src/interfaces/libpq/libpq.a \
-		buildsys/link_private_frontend_tool.py
+		buildsys/link_private_frontend_tool.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/link_private_frontend_tool.py \
 		--compiler "$(CC)" --objcopy "$(OBJCOPY)" --nm "$(NM)" \
 		--tool-id logical-tool \
@@ -2767,7 +2784,8 @@ $(EMBEDDED_LOGICAL_TOOL_EVIDENCE) \
 		buildsys/check_embedded_lifecycle.py \
 		buildsys/check_embedded_public_api.py \
 		buildsys/check_arrow_management.py \
-		buildsys/check_logical_management.py
+		buildsys/check_logical_management.py \
+		buildsys/artifact_io.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_logical_management.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -2822,7 +2840,9 @@ $(EMBEDDED_LOGICAL_RELEASE_EVIDENCE): \
 		$(EMBEDDED_BOOTSTRAP_PROCESS_REPORT) \
 		buildsys/check_embedded_lifecycle.py \
 		buildsys/check_c_api_release.py \
-		buildsys/check_logical_release.py
+		buildsys/check_logical_release.py \
+		buildsys/artifact_io.py \
+		buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_logical_release.py \
 		--baseline "$(EMBEDDED_LOGICAL_ABI_BASELINE)" \
 		--prior-baseline "$(EMBEDDED_API_RELEASE_BASELINE)" \
@@ -2868,7 +2888,9 @@ $(EMBEDDED_RELEASE_RESOURCE_RECEIPT): \
 $(EMBEDDED_RELEASE_RESOURCE_EVIDENCE): \
 		$(EMBEDDED_RELEASE_RESOURCE_RECEIPT) \
 		$(EMBEDDED_KERNEL_STATIC_MODULE_MANIFEST) $(UPSTREAM_MANIFEST) \
-		buildsys/build_resource_pack.py buildsys/check_resource_pack.py
+		buildsys/build_resource_pack.py buildsys/check_resource_pack.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_resource_pack.py \
 		--project-root "$(ROOT)" \
 		--install-root "$(EMBEDDED_RELEASE_INSTALL_ROOT)" \
@@ -2911,7 +2933,8 @@ $(EMBEDDED_RELEASE_MULTI_INSTANCE_EVIDENCE) \
 		$(UPSTREAM_MANIFEST) \
 		buildsys/check_embedded_lifecycle.py \
 		buildsys/check_embedded_public_api.py \
-		buildsys/check_multi_instance.py
+		buildsys/check_multi_instance.py \
+		buildsys/artifact_io.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_multi_instance.py \
 		--resource-root "$(EMBEDDED_RELEASE_RESOURCE_ROOT)" \
 		--library "$(EMBEDDED_KERNEL_PUBLIC_API_LIBRARY)" \
@@ -2946,7 +2969,9 @@ $(EMBEDDED_RELEASE_INSTANCE_REACHABILITY): \
 		$(BACKEND_STATE_CATALOG) $(BACKEND_STATE_OWNERSHIP) \
 		$(BACKEND_STATE_RUNTIME_STAMP) \
 		$(EMBEDDED_RELEASE_MULTI_INSTANCE_EVIDENCE) \
-		buildsys/check_instance_reachability.py
+		buildsys/check_instance_reachability.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_instance_reachability.py \
 		--catalog "$(BACKEND_STATE_CATALOG)" \
 		--policy "$(BACKEND_STATE_OWNERSHIP)" \
@@ -2990,7 +3015,9 @@ $(EMBEDDED_RELEASE_EVIDENCE): \
 		$(EMBEDDED_API_RELEASE_SANITIZER_EVIDENCE) \
 		$(EMBEDDED_API_RELEASE_PORTABILITY_EVIDENCE) \
 		$(EMBEDDED_RELEASE_CANARY_WORKFLOW) \
-		buildsys/check_embedded_release.py
+		buildsys/check_embedded_release.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_embedded_release.py \
 		--baseline "$(EMBEDDED_RELEASE_ABI_BASELINE)" \
 		--prior-release "$(EMBEDDED_LOGICAL_RELEASE_EVIDENCE)" \
@@ -3079,7 +3106,8 @@ $(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_SOURCE_FILES) \
 		$(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_EMBEDDED_ADAPTER) buildsys/prepare_private_libpq.py \
 		buildsys/c_source_probe.py buildsys/postgresql_embedded_adapter.py \
-		buildsys/reset_directory.py | embedded-pg-configure
+		buildsys/reset_directory.py \
+		buildsys/artifact_io.py | embedded-pg-configure
 	@mkdir -p "$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_DIR)" \
 		"$(EMBEDDED_BOOTSTRAP_REPORT_DIR)"
 	@$(PYTHON) buildsys/prepare_private_libpq.py \
@@ -3121,7 +3149,8 @@ $(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_OBJECT) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_ADAPTER_OBJECT) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_TRANSPORT_OBJECT) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_SOURCE_REPORT) \
-		$(EMBEDDED_BOOTSTRAP_KERNEL_RESPONSE) buildsys/link_private_libpq.py
+		$(EMBEDDED_BOOTSTRAP_KERNEL_RESPONSE) buildsys/link_private_libpq.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/link_private_libpq.py \
 		--compiler "$(CC)" --objcopy "$(OBJCOPY)" --nm "$(NM)" \
 		--object "$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_ADAPTER_OBJECT)" \
@@ -3173,7 +3202,8 @@ $(EMBEDDED_BOOTSTRAP_LIBRARY) $(EMBEDDED_BOOTSTRAP_LINK_RECEIPT) &: \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_FIXTURE_OBJECT) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_PROBE_OBJECT) \
 		$(EMBEDDED_BOOTSTRAP_KERNEL_RESPONSE) $(EMBEDDED_BOOTSTRAP_VERSION_SCRIPT) \
-		buildsys/link_bootstrap_static_extension.py
+		buildsys/link_bootstrap_static_extension.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/link_bootstrap_static_extension.py \
 		--compiler "$(CC)" \
 		--work-directory "$(EMBEDDED_PG_BUILD)/src/backend" \
@@ -3226,7 +3256,8 @@ $(EMBEDDED_BOOTSTRAP_EVIDENCE) $(EMBEDDED_BOOTSTRAP_RUN_REPORT) \
 		$(EMBEDDED_BOOTSTRAP_KERNEL_LINK_REPORT) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(POSTGRES_ADAPTER) $(UPSTREAM_MANIFEST) $(EMBEDDED_BOOTSTRAP_PROFILE) \
 		buildsys/check_embedded_bootstrap.py buildsys/check_bootstrap_evidence.py \
-		buildsys/c_source_probe.py buildsys/reset_directory.py
+		buildsys/c_source_probe.py buildsys/reset_directory.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_bootstrap.py \
 		--library "$(EMBEDDED_BOOTSTRAP_LIBRARY)" \
 		--driver "$(EMBEDDED_BOOTSTRAP_RUN_DRIVER)" \
@@ -3285,7 +3316,8 @@ embedded-bootstrap-transport-check: $(EMBEDDED_BOOTSTRAP_TRANSPORT_TEST) \
 		$(EMBEDDED_BOOTSTRAP_TRANSPORT_ASAN) $(EMBEDDED_BOOTSTRAP_TRANSPORT_TSAN) \
 		buildsys/check_memory_transport.py buildsys/check_bootstrap_evidence.py \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) $(EMBEDDED_BOOTSTRAP_PROFILE) | embedded-pg-configure
+		$(UPSTREAM_MANIFEST) $(EMBEDDED_BOOTSTRAP_PROFILE) \
+		buildsys/artifact_io.py | embedded-pg-configure
 	@$(PYTHON) buildsys/check_memory_transport.py \
 		--normal "$(EMBEDDED_BOOTSTRAP_TRANSPORT_TEST)" \
 		--asan "$(EMBEDDED_BOOTSTRAP_TRANSPORT_ASAN)" \
@@ -3319,7 +3351,8 @@ $(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_EVIDENCE) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(UPSTREAM_MANIFEST) $(EMBEDDED_BOOTSTRAP_PROFILE) \
 		buildsys/check_private_libpq.py buildsys/check_bootstrap_evidence.py \
-		embedded-bootstrap-transport-check
+		embedded-bootstrap-transport-check \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_private_libpq.py \
 		--library "$(EMBEDDED_BOOTSTRAP_LIBRARY)" \
 		--driver "$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_DRIVER)" \
@@ -3352,7 +3385,8 @@ $(EMBEDDED_BOOTSTRAP_STATIC_EVIDENCE) $(EMBEDDED_BOOTSTRAP_SYMBOL_REPORT) \
 		$(EMBEDDED_BOOTSTRAP_EXTENSION_DRIVER) $(EMBEDDED_BOOTSTRAP_STATIC_FACTS_REPORT) \
 		$(EMBEDDED_BOOTSTRAP_KERNEL_LINK_REPORT) $(STATIC_EXTENSION_MANIFEST) \
 		$(POSTGRES_EMBEDDED_ADAPTER) buildsys/check_static_extension.py \
-		buildsys/check_bootstrap_evidence.py buildsys/generate_static_module_facts.py
+		buildsys/check_bootstrap_evidence.py buildsys/generate_static_module_facts.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_static_extension.py \
 		--library "$(EMBEDDED_BOOTSTRAP_LIBRARY)" \
 		--driver "$(EMBEDDED_BOOTSTRAP_EXTENSION_DRIVER)" \
@@ -3386,7 +3420,8 @@ $(EMBEDDED_BOOTSTRAP_PROCESS_REPORT): $(EMBEDDED_BOOTSTRAP_STATIC_EVIDENCE) \
 		$(POSTGRES_EMBEDDED_ADAPTER) $(POSTGRES_ADAPTER) \
 		$(UPSTREAM_MANIFEST) $(EMBEDDED_BOOTSTRAP_PROFILE) \
 		buildsys/check_embedded_process_assumptions.py \
-		buildsys/check_bootstrap_evidence.py buildsys/c_source_probe.py
+		buildsys/check_bootstrap_evidence.py buildsys/c_source_probe.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_process_assumptions.py \
 		--project-root "$(ROOT)" --postgres-source "$(PG_SOURCE)" \
 		--static-evidence "$(EMBEDDED_BOOTSTRAP_STATIC_EVIDENCE)" \
@@ -3479,7 +3514,8 @@ $(BACKEND_EXECUTION_ALIGNMENT): $(BACKEND_EXECUTION_CATALOG) \
 		--output "$@"
 
 $(BACKEND_EXECUTION_FACTS): $(BACKEND_EXECUTION_ALIGNMENT) \
-		buildsys/generate_backend_execution_facts.py
+		buildsys/generate_backend_execution_facts.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/generate_backend_execution_facts.py \
 		--alignment "$(BACKEND_EXECUTION_ALIGNMENT)" \
 		--output "$@"
@@ -3539,7 +3575,8 @@ $(GUC_ALIGNMENT): $(GUC_CATALOG) $(GUC_OWNERSHIP) \
 guc-policy-check: $(GUC_ALIGNMENT)
 
 $(GUC_RUNTIME_STAMP): $(GUC_CATALOG) $(GUC_ALIGNMENT) $(GUC_OWNERSHIP) \
-		$(GUC_CONTROLS) $(GUC_RUNTIME_API_HEADER) buildsys/generate_guc_runtime.py
+		$(GUC_CONTROLS) $(GUC_RUNTIME_API_HEADER) buildsys/generate_guc_runtime.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/generate_guc_runtime.py \
 		--catalog "$(GUC_CATALOG)" \
 		--policy "$(GUC_OWNERSHIP)" \
@@ -3552,7 +3589,8 @@ guc-runtime: $(GUC_RUNTIME_STAMP)
 
 $(EMBEDDED_GUC_POLICY_STAMP): $(POSTGRES_EMBEDDED_ADAPTER) \
 		buildsys/generate_embedded_guc_policy.py \
-		buildsys/postgresql_embedded_adapter.py
+		buildsys/postgresql_embedded_adapter.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/generate_embedded_guc_policy.py \
 		--adapter "$(POSTGRES_EMBEDDED_ADAPTER)" \
 		--output "$(EMBEDDED_GUC_POLICY)" \
@@ -3754,20 +3792,24 @@ frontend-tool-compile-db: $(FRONTEND_TOOL_COMPILE_DATABASE) \
 		$(FRONTEND_TOOL_COMPILE_SELECTION)
 
 $(POSTGAMMA_CC): compiler/src/postgamma_cc.cpp compiler/Makefile \
+		compiler/include/postgamma/source_identity.h compiler/include/postgamma/ast_use.h \
 		buildsys/find_tool.py buildsys/toolchain.py buildsys/doctor.py | doctor-ast
 	@$(MAKE) -C compiler BUILD_DIR="$(TOOL_BUILD)" "$@"
 
 $(POSTGAMMA_STATE_INVENTORY): compiler/src/postgamma_state_inventory.cpp \
+		compiler/include/postgamma/source_identity.h compiler/include/postgamma/ast_use.h \
 		compiler/Makefile buildsys/find_tool.py buildsys/toolchain.py buildsys/doctor.py \
 		| doctor-ast
 	@$(MAKE) -C compiler BUILD_DIR="$(TOOL_BUILD)" "$@"
 
 $(POSTGAMMA_INHERITANCE_INVENTORY): compiler/src/postgamma_inheritance_inventory.cpp \
+		compiler/include/postgamma/source_identity.h \
 		compiler/Makefile buildsys/find_tool.py buildsys/toolchain.py buildsys/doctor.py \
 		| doctor-ast
 	@$(MAKE) -C compiler BUILD_DIR="$(TOOL_BUILD)" "$@"
 
 $(POSTGAMMA_API_INVENTORY): compiler/src/postgamma_api_inventory.cpp \
+		compiler/include/postgamma/source_identity.h \
 		compiler/Makefile buildsys/find_tool.py buildsys/toolchain.py buildsys/doctor.py \
 		| doctor-ast
 	@$(MAKE) -C compiler BUILD_DIR="$(TOOL_BUILD)" "$@"
@@ -3862,7 +3904,8 @@ $(EMBEDDED_API_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_REFERENCE_STDERR) \
 		$(EMBEDDED_API_REFERENCE_SERVER_LOG) &: \
 		$(EMBEDDED_API_REFERENCE_DRIVER) $(REFERENCE_CONFIG_STATE) \
-		$(UPSTREAM_MANIFEST) buildsys/check_ordered_results.py
+		$(UPSTREAM_MANIFEST) buildsys/check_ordered_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_ordered_results.py reference \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(REFERENCE_BUILD)" \
@@ -3892,7 +3935,8 @@ $(EMBEDDED_API_CANDIDATE_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_ordered_results.py
+		$(UPSTREAM_MANIFEST) buildsys/check_ordered_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_ordered_results.py candidate \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -3921,7 +3965,9 @@ ordered-results-candidate: $(EMBEDDED_API_CANDIDATE_EVIDENCE) \
 $(EMBEDDED_API_ORDERED_EVIDENCE): \
 		$(EMBEDDED_API_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_CANDIDATE_EVIDENCE) \
-		buildsys/check_ordered_results.py
+		buildsys/check_ordered_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py \
+		buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_ordered_results.py aggregate \
 		--reference "$(EMBEDDED_API_REFERENCE_EVIDENCE)" \
 		--candidate "$(EMBEDDED_API_CANDIDATE_EVIDENCE)" \
@@ -3973,7 +4019,8 @@ $(EMBEDDED_CONFORMANCE_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_CONFORMANCE_REFERENCE_SERVER_LOG) &: \
 		$(EMBEDDED_CONFORMANCE_REFERENCE_DRIVER) \
 		$(EMBEDDED_CONFORMANCE_CORPUS) $(REFERENCE_CONFIG_STATE) \
-		$(UPSTREAM_MANIFEST) buildsys/check_embedded_conformance.py
+		$(UPSTREAM_MANIFEST) buildsys/check_embedded_conformance.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_conformance.py reference \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(REFERENCE_BUILD)" \
@@ -4005,7 +4052,8 @@ $(EMBEDDED_CONFORMANCE_CANDIDATE_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_embedded_conformance.py
+		$(UPSTREAM_MANIFEST) buildsys/check_embedded_conformance.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_embedded_conformance.py candidate \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -4038,7 +4086,9 @@ $(EMBEDDED_CONFORMANCE_EVIDENCE): \
 		$(EMBEDDED_CONFORMANCE_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_CONFORMANCE_CANDIDATE_EVIDENCE) \
 		$(EMBEDDED_CONFORMANCE_CORPUS) \
-		buildsys/check_embedded_conformance.py
+		buildsys/check_embedded_conformance.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_embedded_conformance.py aggregate \
 		--corpus "$(EMBEDDED_CONFORMANCE_CORPUS)" \
 		--reference "$(EMBEDDED_CONFORMANCE_REFERENCE_EVIDENCE)" \
@@ -4081,7 +4131,8 @@ $(EMBEDDED_API_STREAMING_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_STREAMING_REFERENCE_STDERR) \
 		$(EMBEDDED_API_STREAMING_REFERENCE_SERVER_LOG) &: \
 		$(EMBEDDED_API_STREAMING_REFERENCE_DRIVER) $(REFERENCE_CONFIG_STATE) \
-		$(UPSTREAM_MANIFEST) buildsys/check_chunked_results.py
+		$(UPSTREAM_MANIFEST) buildsys/check_chunked_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_chunked_results.py reference \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(REFERENCE_BUILD)" \
@@ -4111,7 +4162,8 @@ $(EMBEDDED_API_STREAMING_CANDIDATE_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_chunked_results.py
+		$(UPSTREAM_MANIFEST) buildsys/check_chunked_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_chunked_results.py candidate \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -4140,7 +4192,9 @@ chunked-results-candidate: $(EMBEDDED_API_STREAMING_CANDIDATE_EVIDENCE) \
 $(EMBEDDED_API_STREAMING_EVIDENCE): \
 		$(EMBEDDED_API_STREAMING_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_STREAMING_CANDIDATE_EVIDENCE) \
-		buildsys/check_chunked_results.py
+		buildsys/check_chunked_results.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py \
+		buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_chunked_results.py aggregate \
 		--reference "$(EMBEDDED_API_STREAMING_REFERENCE_EVIDENCE)" \
 		--candidate "$(EMBEDDED_API_STREAMING_CANDIDATE_EVIDENCE)" \
@@ -4182,7 +4236,8 @@ $(EMBEDDED_API_COPY_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_COPY_REFERENCE_STDERR) \
 		$(EMBEDDED_API_COPY_REFERENCE_SERVER_LOG) &: \
 		$(EMBEDDED_API_COPY_REFERENCE_DRIVER) $(REFERENCE_CONFIG_STATE) \
-		$(UPSTREAM_MANIFEST) buildsys/check_copy_streaming.py
+		$(UPSTREAM_MANIFEST) buildsys/check_copy_streaming.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_copy_streaming.py reference \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(REFERENCE_BUILD)" \
@@ -4212,7 +4267,8 @@ $(EMBEDDED_API_COPY_CANDIDATE_EVIDENCE) \
 		$(EMBEDDED_BOOTSTRAP_PRIVATE_LIBPQ_LINK_REPORT) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		$(UPSTREAM_MANIFEST) buildsys/check_copy_streaming.py
+		$(UPSTREAM_MANIFEST) buildsys/check_copy_streaming.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py
 	@$(PYTHON) buildsys/check_copy_streaming.py candidate \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -4242,7 +4298,9 @@ copy-streaming-candidate: $(EMBEDDED_API_COPY_CANDIDATE_EVIDENCE) \
 $(EMBEDDED_API_COPY_EVIDENCE): \
 		$(EMBEDDED_API_COPY_REFERENCE_EVIDENCE) \
 		$(EMBEDDED_API_COPY_CANDIDATE_EVIDENCE) \
-		buildsys/check_copy_streaming.py
+		buildsys/check_copy_streaming.py \
+		buildsys/artifact_io.py buildsys/check_embedded_lifecycle.py \
+		buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_copy_streaming.py aggregate \
 		--reference "$(EMBEDDED_API_COPY_REFERENCE_EVIDENCE)" \
 		--candidate "$(EMBEDDED_API_COPY_CANDIDATE_EVIDENCE)" \
@@ -4274,7 +4332,8 @@ $(EMBEDDED_API_EVENTS_EVIDENCE) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
 		$(BACKEND_QUANTUM_MANIFEST) $(EMBEDDED_API_POLICY) \
-		buildsys/check_runtime_events.py
+		buildsys/check_runtime_events.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_runtime_events.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -4349,7 +4408,8 @@ $(EMBEDDED_API_INTEGRATION_EVIDENCE) \
 		runtime/src/instance_runtime.c $(POSTGRES_ADAPTER) \
 		$(POSTGRES_EMBEDDED_ADAPTER) \
 		$(EMBEDDED_PG_CONFIG_STATE) $(EMBEDDED_BOOTSTRAP_GENERATED_SUPPORT) \
-		buildsys/check_arrow_management.py
+		buildsys/check_arrow_management.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_arrow_management.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--postgres-build "$(EMBEDDED_PG_BUILD)" \
@@ -4398,7 +4458,8 @@ $(EMBEDDED_API_RELEASE_INSTALLED_EVIDENCE) \
 		$(EMBEDDED_RELEASE_EXTENSION_SDK_EXAMPLE) \
 		$(EMBEDDED_API_RELEASE_EXAMPLE) $(EMBEDDED_PG_CONFIG_STATE) \
 		$(POSTGRES_ADAPTER) $(POSTGRES_EMBEDDED_ADAPTER) \
-		buildsys/check_installed_c_sdk.py
+		buildsys/check_installed_c_sdk.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_installed_c_sdk.py \
 		--make "$${MAKE:-make}" --jobs "$(JOBS)" \
 		--cc "$(CC)" --cxx "$(CXX)" \
@@ -4435,7 +4496,8 @@ $(EMBEDDED_KERNEL_STATIC_SDK_EVIDENCE) \
 		$(EMBEDDED_KERNEL_STATIC_CORE_HEADER) $(EMBEDDED_KERNEL_STATIC_ARROW_HEADER) \
 		$(EMBEDDED_KERNEL_STATIC_EXTENSION_HEADER) $(EMBEDDED_API_RELEASE_EXAMPLE) \
 		tests/embedded/release/static_pgvector_driver.c \
-		buildsys/check_static_sdk.py
+		buildsys/check_static_sdk.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_static_sdk.py \
 		--cc "$(CC)" --nm "$(NM)" --readelf "$(READELF)" \
 		--strace "$(STRACE)" --pkg-config "pkg-config" \
@@ -4469,7 +4531,9 @@ static-sdk-check: doctor-sdk version-check static-sdk-consumer-check
 
 release-sanitizer-check: runtime-sanitizer-test \
 		embedded-c-sanitizer-check $(EMBEDDED_BOOTSTRAP_TRANSPORT_EVIDENCE) \
-		buildsys/check_release_sanitizers.py
+		buildsys/check_release_sanitizers.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_release_sanitizers.py \
 		--runtime-dir "$(BUILD_DIR)/tests/sanitizers" \
 		--embedded-dir "$(EMBEDDED_C_BUILD)/sanitizers" \
@@ -4498,7 +4562,9 @@ $(EMBEDDED_API_RELEASE_EVIDENCE): \
 		$(EMBEDDED_API_INTEGRATION_EVIDENCE) $(EMBEDDED_API_RELEASE_INSTALLED_EVIDENCE) \
 		$(EMBEDDED_API_RELEASE_BASELINE) $(EMBEDDED_API_ABI_BASELINE) \
 		$(EMBEDDED_API_CATALOG) README.md \
-		buildsys/check_c_api_release.py
+		buildsys/check_c_api_release.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_c_api_release.py \
 		--root "$(ROOT)" \
 		--release-baseline "$(EMBEDDED_API_RELEASE_BASELINE)" \
@@ -4626,7 +4692,8 @@ frontend-tool-state-policy-check: $(FRONTEND_TOOL_STATE_ALIGNMENT)
 
 $(TOOL_STATE_RUNTIME_STAMP): $(FRONTEND_TOOL_STATE_CATALOG) \
 		$(FRONTEND_TOOL_STATE_OWNERSHIP) $(FRONTEND_TOOL_STATE_ALIGNMENT) \
-		$(TOOL_STATE_RUNTIME_HEADER) buildsys/generate_tool_state_runtime.py
+		$(TOOL_STATE_RUNTIME_HEADER) buildsys/generate_tool_state_runtime.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/generate_tool_state_runtime.py \
 		--catalog "$(FRONTEND_TOOL_STATE_CATALOG)" \
 		--policy "$(FRONTEND_TOOL_STATE_OWNERSHIP)" \
@@ -4642,7 +4709,8 @@ $(TOOL_STATE_PLAN): $(FRONTEND_TOOL_STATE_CATALOG) \
 		$(POSTGRES_EMBEDDED_ADAPTER) \
 		buildsys/generate_tool_state_plan.py \
 		buildsys/generate_backend_state_plan.py \
-		buildsys/postgresql_embedded_adapter.py buildsys/c_source_probe.py
+		buildsys/postgresql_embedded_adapter.py buildsys/c_source_probe.py \
+		buildsys/artifact_io.py
 	@mkdir -p "$(BUILD_DIR)/plans"
 	@$(PYTHON) buildsys/generate_tool_state_plan.py \
 		--catalog "$(FRONTEND_TOOL_STATE_CATALOG)" \
@@ -4863,7 +4931,8 @@ generation-determinism: $(TRANSFORM_PLAN) $(GENERATED_TRANSFORM_PLAN) \
 		buildsys/generate_tool_state_plan.py \
 		buildsys/reconcile_context_state_plans.py \
 		buildsys/generate_backend_execution_facts.py \
-		buildsys/generate_backend_inheritance.py
+		buildsys/generate_backend_inheritance.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) tests/buildsys/verify_generation_determinism.py \
 		--project-root "$(ROOT)" \
 		--upstream-manifest "$(UPSTREAM_MANIFEST)" \
@@ -4973,7 +5042,6 @@ $(eval $(call runtime_adapter_test,external-process,external_process,\
 	runtime/src/external_process.c runtime/src/instance_runtime.c \
 	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c))
 $(eval $(call runtime_adapter_test,virtual-signal,virtual_signal,runtime/src/virtual_signal.c))
-$(eval $(call runtime_adapter_test,deadline-heap,deadline_heap,))
 $(eval $(call runtime_adapter_test,backend-wake-epoch,backend_wake_epoch,\
 	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c))
 .PHONY: runtime-backend-wake-epoch-tsan-test
@@ -4987,18 +5055,6 @@ runtime-backend-wake-epoch-tsan-test:
 		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-wake-epoch-tsan"
 	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
 		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-wake-epoch-tsan"
-$(eval $(call runtime_adapter_test,memory-blocks,memory_blocks,-DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS))
-$(eval $(call runtime_adapter_test,memory-pool,memory_pool,-DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS))
-.PHONY: runtime-memory-pool-tsan-test
-runtime-sanitizer-test: runtime-memory-pool-tsan-test
-runtime-memory-pool-tsan-test:
-	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
-		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
-		-I"$(ROOT)/runtime/include" -DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS \
-		tests/runtime/test_memory_pool.c -o "$(BUILD_DIR)/tests/sanitizers/runtime-memory-pool-tsan"
-	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
-		"$(BUILD_DIR)/tests/sanitizers/runtime-memory-pool-tsan"
 $(eval $(call runtime_adapter_test,guc-catalog,guc_catalog,-I"$(BUILD_DIR)/tests"))
 runtime-guc-catalog-test runtime-guc-catalog-sanitizer-test: $(BUILD_DIR)/tests/guc_catalog.inc
 $(BUILD_DIR)/tests/guc_catalog.inc: tests/runtime/generate_guc_catalog_fixture.py \
@@ -5035,23 +5091,6 @@ runtime-backend-interrupts-tsan-test:
 		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-interrupts-tsan"
 	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
 		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-interrupts-tsan"
-$(eval $(call runtime_adapter_test,backend-alarms,backend_alarms,\
-	runtime/src/backend_execution_runtime.c runtime/src/thread_runtime.c \
-	-DPOSTGAMMA_EVENT_TIMERS -Xlinker --wrap=postgamma_mutex_lock \
-	-Xlinker --wrap=postgamma_thread_create -Xlinker --wrap=postgamma_condition_signal))
-.PHONY: runtime-backend-alarms-tsan-test
-runtime-sanitizer-test: runtime-backend-alarms-tsan-test
-runtime-backend-alarms-tsan-test:
-	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
-		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
-		-DPOSTGAMMA_EVENT_TIMERS -I"$(ROOT)/runtime/include" \
-		tests/runtime/test_backend_alarms.c runtime/src/backend_execution_runtime.c \
-		runtime/src/thread_runtime.c -Xlinker --wrap=postgamma_mutex_lock \
-		-Xlinker --wrap=postgamma_thread_create -Xlinker --wrap=postgamma_condition_signal \
-		-o "$(BUILD_DIR)/tests/sanitizers/runtime-backend-alarms-tsan"
-	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
-		"$(BUILD_DIR)/tests/sanitizers/runtime-backend-alarms-tsan"
 $(eval $(call runtime_adapter_test,backend-startup,backend_startup,\
 	runtime/src/backend_execution_runtime.c tests/runtime/backend_startup_thread_runtime.c \
 	-Xlinker --wrap=postgamma_condition_wait))
@@ -5082,33 +5121,6 @@ $(eval $(call runtime_adapter_test,backend-state-direct,backend_state_preparatio
 	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE \
 	-Xlinker --wrap=malloc -Xlinker --wrap=calloc))
 runtime-backend-state-direct-test runtime-backend-state-direct-sanitizer-test: $(GUC_RUNTIME_STAMP)
-$(eval $(call runtime_adapter_test,backend-state-pool,backend_state_preparation,\
-	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
-	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
-	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE -DPOSTGAMMA_PRIVATE_MEMORY_BLOCKS \
-	-Xlinker --wrap=malloc -Xlinker --wrap=calloc))
-runtime-backend-state-pool-test runtime-backend-state-pool-sanitizer-test: $(GUC_RUNTIME_STAMP)
-$(eval $(call runtime_adapter_test,role-cache,backend_state_preparation,\
-	runtime/src/thread_runtime.c runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
-	-I"$(ROOT)/tests/runtime/preparation_fixture/include" -I"$(GUC_RUNTIME_DIR)/include" \
-	-DPOSTGAMMA_PREPARED_ROLE_STATE -DPOSTGAMMA_DIRECT_ROLE_STATE \
-	-DPOSTGAMMA_ROLE_CACHE_BYTES=4194304 -Xlinker --wrap=malloc -Xlinker --wrap=calloc))
-runtime-role-cache-test runtime-role-cache-sanitizer-test: $(GUC_RUNTIME_STAMP)
-.PHONY: runtime-role-cache-tsan-test
-runtime-sanitizer-test: runtime-role-cache-tsan-test
-runtime-role-cache-tsan-test: $(GUC_RUNTIME_STAMP)
-	@mkdir -p "$(BUILD_DIR)/tests/sanitizers"
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pthread \
-		-g -fsanitize=thread -fno-omit-frame-pointer -fPIE -pie \
-		-I"$(ROOT)/runtime/include" -I"$(ROOT)/tests/runtime/preparation_fixture/include" \
-		-I"$(GUC_RUNTIME_DIR)/include" -DPOSTGAMMA_PREPARED_ROLE_STATE \
-		-DPOSTGAMMA_DIRECT_ROLE_STATE -DPOSTGAMMA_ROLE_CACHE_BYTES=4194304 \
-		tests/runtime/test_backend_state_preparation.c runtime/src/thread_runtime.c \
-		runtime/src/execution_context.c $(BACKEND_STATE_RUNTIME_SOURCE) \
-		-Xlinker --wrap=malloc -Xlinker --wrap=calloc \
-		-o "$(BUILD_DIR)/tests/sanitizers/runtime-role-cache-tsan"
-	@setarch "$$(uname -m)" -R env TSAN_OPTIONS='halt_on_error=1' \
-		"$(BUILD_DIR)/tests/sanitizers/runtime-role-cache-tsan"
 runtime-backend-state-cache-test runtime-backend-state-cache-sanitizer-test: \
 	$(GUC_RUNTIME_STAMP) $(BACKEND_STATE_RUNTIME_STAMP)
 

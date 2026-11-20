@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Sequence
+from artifact_io import sha256
 
 
 RECEIPT_KIND = "postgamma.static-library-build"
@@ -33,14 +34,6 @@ GROUP_OPTIONS = {
 
 class StaticLibraryError(RuntimeError):
     """The captured kernel closure cannot form a supported static library."""
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def run(arguments: Sequence[str], *, cwd: Path | None = None) -> str:

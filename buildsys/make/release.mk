@@ -100,7 +100,9 @@ $(RELEASE_CANDIDATE_RECEIPT): python-release-candidate-check static-sdk-package 
 		$(STATIC_SDK_RELEASE_CHECKSUM) $(PYTHON_WHEEL_RECEIPT) \
 		$(PYTHON_WHEEL_EVIDENCE) $(DOCS_EVIDENCE) \
 		$(PUBLIC_SURFACE_EVIDENCE) $(PUBLIC_ARTIFACT_EVIDENCE) \
-		buildsys/check_release_candidate.py
+		buildsys/check_release_candidate.py \
+		buildsys/artifact_io.py \
+		buildsys/check_embedded_lifecycle.py buildsys/strace_trace.py
 	@$(PYTHON) buildsys/check_release_candidate.py \
 		--root "$(ROOT)" --version "$(POSTGAMMA_PRODUCT_VERSION)" \
 		--python-release "$(PYTHON_RELEASE_CANDIDATE_EVIDENCE)" \
@@ -158,7 +160,8 @@ static-sdk-package: doctor-sdk version-check $(STATIC_SDK_RELEASE_ARCHIVE) \
 		$(STATIC_SDK_RELEASE_RECEIPT)
 
 $(PUBLIC_ARTIFACT_EVIDENCE): $(STATIC_SDK_RELEASE_ARCHIVE) \
-		$(PYTHON_WHEEL_RECEIPT) buildsys/check_public_artifacts.py
+		$(PYTHON_WHEEL_RECEIPT) buildsys/check_public_artifacts.py \
+		buildsys/artifact_io.py
 	@$(PYTHON) buildsys/check_public_artifacts.py --root "$(ROOT)" \
 		--static-archive "$(STATIC_SDK_RELEASE_ARCHIVE)" \
 		--wheel-receipt "$(PYTHON_WHEEL_RECEIPT)" \

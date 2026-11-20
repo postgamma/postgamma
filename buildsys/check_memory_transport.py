@@ -10,11 +10,11 @@ import os
 import platform
 import subprocess
 import sys
-import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from artifact_io import write_json
 from check_bootstrap_evidence import baseline_identity
 
 
@@ -164,24 +164,6 @@ def artifact(path: Path, build_root: Path) -> dict[str, str]:
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-def write_json(path: Path, document: dict[str, Any]) -> None:
-    content = json.dumps(document, indent=2, sort_keys=True) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        delete=False,
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def run_checked(

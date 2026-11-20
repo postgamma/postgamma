@@ -12,7 +12,6 @@
  */
 
 #include "postgamma/instance_runtime.h"
-#include "postgamma/memory_block_runtime.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -49,9 +48,6 @@ struct PostgammaCheckpointTracker
 
 struct PostgammaInstanceRuntime
 {
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	PostgammaMemoryPool memory_pool;
-#endif
 	uint64_t	magic;
 	uint64_t	generation;
 	PostgammaRuntimeProfile profile;
@@ -128,15 +124,6 @@ postgamma_instance_runtime_create(
 		return status;
 	}
 	created->magic = POSTGAMMA_INSTANCE_RUNTIME_MAGIC;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	status = postgamma_memory_pool_init(&created->memory_pool, 64 * 1024 * 1024);
-	if (status != 0)
-	{
-		(void) postgamma_mutex_destroy(created->mutex);
-		free(created);
-		return status;
-	}
-#endif
 	created->profile = options->profile;
 	created->backend_provider = options->backend_provider;
 	created->wake_notification = options->wake_notification;
@@ -175,11 +162,6 @@ postgamma_instance_runtime_destroy(PostgammaInstanceRuntime *runtime)
 	status = unlock_runtime(runtime, 0);
 	if (status != 0)
 		return status;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	status = postgamma_memory_pool_destroy(&runtime->memory_pool);
-	if (status != 0)
-		return status;
-#endif
 	status = postgamma_mutex_destroy(runtime->mutex);
 	if (status != 0)
 		return status;
@@ -188,15 +170,6 @@ postgamma_instance_runtime_destroy(PostgammaInstanceRuntime *runtime)
 	free(runtime);
 	return 0;
 }
-
-
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-struct PostgammaMemoryPool *
-postgamma_instance_runtime_memory_pool(PostgammaInstanceRuntime *runtime)
-{
-	return runtime_is_valid(runtime) ? &runtime->memory_pool : NULL;
-}
-#endif
 
 
 uint64_t

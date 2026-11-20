@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 from pathlib import Path
 from typing import Any
 
 from product_version import ProductVersionError, read_version
+from artifact_io import sha256
 
 MANIFEST_KIND = "postgamma.release-assets"
 PYTHON_EVIDENCE_KIND = "postgamma.python-release-evidence"
@@ -35,14 +35,6 @@ PLATFORM_CONTRACT = {
 
 class ReleaseAssetError(RuntimeError):
     """A release asset is missing, stale, duplicated, or untested."""
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def load_json(path: Path) -> dict[str, Any]:

@@ -29,7 +29,6 @@
 
 #include "postgamma/instance_runtime.h"
 #include "postgamma/postgres_backend_runtime.h"
-#include "postgamma/memory_block_runtime.h"
 
 
 typedef struct PostgammaGucControlState
@@ -482,7 +481,7 @@ postgamma_bind_builtin_guc_variables(void)
 		control, POSTGAMMA_GUC_CONFIGURE_NAMES_SLOT);
 	catalog = postgamma_builtin_guc_catalog();
 	count = lengthof(PostgammaBuiltinGucs);
-	*configure_names = postgamma_memory_block_malloc((count + 1) * sizeof(ConfigureNames[0]));
+	*configure_names = malloc((count + 1) * sizeof(ConfigureNames[0]));
 	if (*configure_names == NULL)
 		elog(FATAL, "out of memory cloning PostgreSQL built-in GUC table");
 	memcpy(*configure_names, ConfigureNames,
@@ -601,7 +600,7 @@ postgamma_destroy_builtin_guc_variables(PostgammaExecutionContext *execution)
 		return;
 	configure_names = postgamma_guc_control_slot_address_internal(
 		control, POSTGAMMA_GUC_CONFIGURE_NAMES_SLOT);
-	postgamma_memory_block_free(*configure_names);
+	free(*configure_names);
 	*configure_names = NULL;
 	free(control);
 	execution->postgres_guc_control = NULL;

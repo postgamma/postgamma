@@ -117,7 +117,7 @@ mailboxes for both control and pthread Workers; bootstrap, transferred data,
 OPFS ports and retirement are validated together. Long-run memory growth still
 requires qualification under the original limits. Linux native Worker memory diagnostics and
 mixed-load tests use a
-SHA256-pinned unmodified upstream WPE 322662@main build containing the repair;
+SHA256-pinned unmodified upstream WPE 326998@main build containing the repair;
 `make wasm-webkit-setup` prepares that browser. Its mixed-load driver preserves
 the workload, OPFS/close checks and resource limits, and measures actual Linux
 Worker threads for the ten-second retirement check. Playwright functional gates
@@ -125,7 +125,7 @@ still use their separate affected bundle. Native diagnostics and short mixed-loa
 checks do not complete long-run acceptance.
 The SDK creates each fresh shared memory at zero pages, grows it to the declared
 initial size, and validates its buffer in the allocating realm before Worker
-startup. In the pinned WPE build,
+startup. In the WPE 322662@main build used for the original memory diagnosis,
 [`JSWebAssemblyMemory::finishCreation`](https://github.com/WebKit/WebKit/blob/9eb4e2ad5983af0d494b62b38e55ff9010fb5993/Source/JavaScriptCore/wasm/js/JSWebAssemblyMemory.cpp)
 accounts the empty backing store before the real allocation is adopted.
 Materializing the buffer alone does not register the Memory wrapper's missing

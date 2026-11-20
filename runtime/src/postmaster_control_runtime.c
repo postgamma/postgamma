@@ -16,6 +16,7 @@
 #endif
 
 #include "postgamma/locale_platform_redirect.h"
+#include "postgamma/locale_runtime.h"
 
 #include "postgamma/postmaster_control_runtime.h"
 
@@ -76,9 +77,6 @@ static bool control_runtime_is_valid(
 static bool host_provider_is_valid(const PostgammaKernelHostProvider *host);
 static PostgammaPostmasterControlRuntime *current_control_runtime(void);
 static int locale_category_index(int category);
-static int locale_category_mask(int category);
-static const char *effective_locale_name(
-	int category, const char *locale_name);
 static int initialize_locale_names(
 	PostgammaPostmasterControlRuntime *control_runtime);
 static int copy_locale_name(char *destination, const char *source);
@@ -436,7 +434,7 @@ postgamma_postmaster_control_current_setlocale(
 		return NULL;
 	}
 	category_index = locale_category_index(category);
-	category_mask = locale_category_mask(category);
+	category_mask = postgamma_locale_category_mask(category);
 	if (category_index < 0 || category_mask == 0)
 	{
 		errno = EINVAL;
@@ -450,7 +448,7 @@ postgamma_postmaster_control_current_setlocale(
 	}
 	if (locale_name == NULL)
 		return control_runtime->locale_names[category_index];
-	resolved = effective_locale_name(category, locale_name);
+	resolved = postgamma_effective_locale_name(category, locale_name);
 	status = copy_locale_name(resolved_name, resolved);
 	if (status != 0)
 	{
@@ -552,78 +550,6 @@ locale_category_index(int category)
 }
 
 
-static int
-locale_category_mask(int category)
-{
-	switch (category)
-	{
-		case LC_COLLATE:
-			return LC_COLLATE_MASK;
-		case LC_CTYPE:
-			return LC_CTYPE_MASK;
-#ifdef LC_MESSAGES
-		case LC_MESSAGES:
-			return LC_MESSAGES_MASK;
-#endif
-		case LC_MONETARY:
-			return LC_MONETARY_MASK;
-		case LC_NUMERIC:
-			return LC_NUMERIC_MASK;
-		case LC_TIME:
-			return LC_TIME_MASK;
-	}
-	return 0;
-}
-
-
-static const char *
-effective_locale_name(int category, const char *locale_name)
-{
-#ifdef __EMSCRIPTEN__
-	(void) category;
-	return locale_name != NULL && locale_name[0] != '\0' ? locale_name : "C";
-#else
-	const char *category_environment = NULL;
-	const char *result;
-
-	if (locale_name != NULL && locale_name[0] != '\0')
-		return locale_name;
-	result = getenv("LC_ALL");
-	if (result != NULL && result[0] != '\0')
-		return result;
-	switch (category)
-	{
-		case LC_COLLATE:
-			category_environment = "LC_COLLATE";
-			break;
-		case LC_CTYPE:
-			category_environment = "LC_CTYPE";
-			break;
-#ifdef LC_MESSAGES
-		case LC_MESSAGES:
-			category_environment = "LC_MESSAGES";
-			break;
-#endif
-		case LC_MONETARY:
-			category_environment = "LC_MONETARY";
-			break;
-		case LC_NUMERIC:
-			category_environment = "LC_NUMERIC";
-			break;
-		case LC_TIME:
-			category_environment = "LC_TIME";
-			break;
-	}
-	if (category_environment != NULL)
-	{
-		result = getenv(category_environment);
-		if (result != NULL && result[0] != '\0')
-			return result;
-	}
-	result = getenv("LANG");
-	return result != NULL && result[0] != '\0' ? result : "C";
-#endif
-}
 
 
 static int
@@ -651,7 +577,7 @@ initialize_locale_names(
 		 index++)
 	{
 		const char *name = categories[index] < 0 ? "C" :
-			effective_locale_name(categories[index], "");
+			postgamma_effective_locale_name(categories[index], "");
 		int status = copy_locale_name(
 			control_runtime->locale_names[index], name);
 

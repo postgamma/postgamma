@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 import shutil
 
+from check_wasm_sdk_contract import check as check_sdk_contract
 from wasm import run_browser, serve
 from postgresql_adapter import apply_non_overlapping_edits, load_adapter
 from wasm_toolchain import (WasmError, configuration, digest, fingerprint, run,
@@ -37,6 +38,7 @@ def target_layouts(config, longjmp):
 
 def check(config, longjmp: str) -> Path:
     tools, env = sdk_tools(config)
+    sdk_contract = check_sdk_contract(config.root, config.sdk, config.profile["emsdk"]["version"])
     layouts, layout_files = target_layouts(config, longjmp)
     sdk_headers = config.sdk / "upstream/emscripten/system/lib/wasmfs"
     sources = ["runtime/platform/emscripten/locale.c", "tests/wasm/runtime/libc.c", "runtime/platform/emscripten/filesystem.cpp", "embedded-c/src/data_directory_lock.c",
@@ -56,6 +58,8 @@ def check(config, longjmp: str) -> Path:
                   "runtime/include/postgamma/thread_runtime.h",
                   "runtime/include/postgamma/thread_platform.h", "runtime/include/postgamma/io_platform.h",
                   "runtime/include/postgamma/io_platform_redirect.h", "buildsys/wasm_runtime.py",
+                  "runtime/platform/emscripten/mailbox.js", "manifests/profiles/wasm-sdk-contract.json",
+                  "buildsys/check_wasm_sdk_contract.py",
                   "runtime/include/postgamma/backend_execution_runtime.h", "runtime/include/postgamma/shmem_platform.h",
                   "runtime/include/postgamma/dsm_platform.h", "runtime/include/postgamma/semaphore_platform.h",
                   "tests/runtime/test_backend_execution_runtime.c", "runtime/src/postgres_backend_runtime.c",
@@ -65,6 +69,7 @@ def check(config, longjmp: str) -> Path:
     site = directory / "site"
     site.mkdir(parents=True, exist_ok=True)
     report = {"kind": "postgamma.wasm-runtime", "status": "failed", "inputs": inputs,
+              "sdk_adapter_contract": sdk_contract,
               "kernel_validated": False, "sql_validated": False}
     try:
         # Compile the PostgreSQL timer wrappers with the shared timer module;
@@ -106,7 +111,10 @@ def check(config, longjmp: str) -> Path:
                  "-c", str(config.root / name), "-o", str(obj)], current / "build.log", env, config.root)
             objects.append(str(obj))
         report["objects"] = {name: digest(Path(obj)) for name, obj in zip(sources, objects)}
+        # Match the kernel's mailbox delivery so queued pthread cleanup precedes
+        # subsequent proxied creates instead of being overtaken by waitAsync.
         run([str(config.sdk / "upstream/emscripten/em++"), *flags, *objects,
+             "--js-library", str(config.root / "runtime/platform/emscripten/mailbox.js"),
              "--no-entry", "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=worker",
              "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\"]", "-sPTHREAD_POOL_SIZE=4",
              "-sPTHREAD_POOL_SIZE_STRICT=2", "-sALLOW_BLOCKING_ON_MAIN_THREAD=0",

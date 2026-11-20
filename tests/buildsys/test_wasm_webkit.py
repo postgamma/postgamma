@@ -15,7 +15,7 @@ from wasm_toolchain import WasmError
 
 
 class NativeWebKitTests(unittest.TestCase):
-    def bundle(self, revision='322662@main'):
+    def bundle(self, revision=webkit.PIN['revision']):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode='w:xz') as archive:
             for name, data in {'README.txt': 'WebKit Revision: ' + revision,

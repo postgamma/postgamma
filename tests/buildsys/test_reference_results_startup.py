@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "buildsys"))
 
 import check_chunked_results  # noqa: E402
 import check_copy_streaming  # noqa: E402
+import check_embedded_lifecycle  # noqa: E402
 import check_ordered_results  # noqa: E402
 from check_embedded_lifecycle import LifecycleCheckError  # noqa: E402
 
@@ -117,7 +118,7 @@ class ReferenceResultsStartupTests(unittest.TestCase):
                 "reference startup failed" if fail_start else "reference driver failed"
             )
             with (
-                patch.object(checker, "run_checked", side_effect=run_command),
+                patch.object(check_embedded_lifecycle, "run_checked", side_effect=run_command),
                 self.assertRaisesRegex(expected_error, expected_message),
             ):
                 checker.run_reference(args)

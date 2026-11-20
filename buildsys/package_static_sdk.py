@@ -15,6 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
+from artifact_io import sha256 as file_sha256
 
 
 ARCHIVE_KIND = "postgamma.static-sdk-archive"
@@ -58,14 +59,6 @@ class PayloadFile:
     mode: int
     size: int
     sha256: str
-
-
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def normalized_mode(path: Path) -> int:

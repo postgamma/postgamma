@@ -1,7 +1,6 @@
 /* Copyright 2026 Shujie Zhang. SPDX-License-Identifier: Apache-2.0 */
 #define _GNU_SOURCE
 #include "postgamma/guc_runtime.h"
-#include "postgamma/memory_block_runtime.h"
 #include "../check.h"
 
 #include <errno.h>
@@ -104,15 +103,6 @@ check_view(PostgammaExecutionContext *execution, int value)
 	CHECK(state->self.next == &state->self && state->self.previous == &state->self);
 	CHECK(&POSTGAMMA_BACKEND_STATE_VALUE(S_VALUE, Value) == &state->value);
 	CHECK(POSTGAMMA_BACKEND_STATE_VALUE(S_VALUE, Value) == value);
-#ifdef POSTGAMMA_DIRECT_ROLE_STATE
-	CHECK(&POSTGAMMA_BACKEND_STATE_VALUE_IN((unsigned char *) state, S_VALUE, Value) == &state->value);
-	CHECK(&POSTGAMMA_BACKEND_STATE_SCOPE_VALUE((unsigned char *) state,
-		S_VALUE, Value) == &state->value);
-	CHECK(&POSTGAMMA_BACKEND_STATE_SCOPE_VALUE(NULL,
-		S_VALUE, Value) == &state->value);
-	CHECK(POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE_IN(
-		(unsigned char *) state, S_A, A, bridge_a) == &state->b);
-#endif
 	CHECK(POSTGAMMA_BACKEND_STATE_VALUE(S_A, A) == &state->b);
 	{
 		unsigned before = BridgeCalls;
@@ -286,8 +276,6 @@ reject_invalid_access(PostgammaExecutionContext *execution, int scenario)
 			address = &POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE(S_A, A, bridge_a);
 		else if (scenario == 7)
 			address = &POSTGAMMA_BACKEND_STATE_RELOCATED_SLOT_VALUE(slot, A, bridge_a);
-		else
-			address = &POSTGAMMA_BACKEND_STATE_VALUE_IN(NULL, S_VALUE, Value);
 		(void) address;
 		_exit(0);
 	}
@@ -296,123 +284,6 @@ reject_invalid_access(PostgammaExecutionContext *execution, int scenario)
 }
 #endif
 
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-static void *
-reuse_roles(void *argument)
-{
-	PostgammaInstanceContext *instance = argument;
-	for (int i = 0; i < 100; i++)
-	{
-		PostgammaRoleContext role;
-		PostgammaExecutionContext execution;
-		CHECK(postgamma_role_context_init(&role, instance) == 0);
-		CHECK(postgamma_execution_context_init(&execution, instance, &role) == 0);
-		CHECK(postgamma_backend_state_context_prepare(role.postgres_backend_state) == 0);
-		CHECK(data(&role)->value == 42 && data(&role)->zero == NULL);
-		CHECK(data(&role)->a == &data(&role)->b && data(&role)->b == &data(&role)->a);
-		CHECK(data(&role)->self.next == &data(&role)->self);
-		CHECK(data(&role)->large_zero[0] == 0);
-		CHECK(data(&role)->large_zero[sizeof(data(&role)->large_zero) - 1] == 0);
-		CHECK(postgamma_execution_context_bind(&execution) == NULL);
-		POSTGAMMA_BACKEND_STATE_VALUE(S_VALUE, Value) = i + 100;
-		CHECK(*(int *) postgamma_backend_state_address_by_id("nonzero", &Value) == i + 100);
-		data(&role)->large_zero[0] = 17;
-		data(&role)->large_zero[sizeof(data(&role)->large_zero) - 1] = 19;
-		postgamma_execution_context_restore(&execution, NULL);
-		postgamma_execution_context_destroy(&execution);
-		postgamma_role_context_destroy(&role);
-	}
-	return NULL;
-}
-
-static void
-check_role_reuse(void)
-{
-	PostgammaInstanceContext instance;
-	const size_t count = POSTGAMMA_ROLE_CACHE_BYTES / sizeof(PreparationFixtureData) + 4;
-	PostgammaRoleContext *roles = calloc(count, sizeof(*roles));
-	pthread_t workers[4];
-	size_t bytes, leases;
-	CHECK(roles != NULL && postgamma_instance_context_init(&instance) == 0);
-	for (long failure = 0; failure < 2; failure++)
-	{
-		FailAllocation = failure;
-		CHECK(postgamma_role_context_init(&roles[0], &instance) == ENOMEM);
-		FailAllocation = -1;
-		CHECK(roles[0].postgres_backend_state == NULL);
-		postgamma_backend_state_role_cache_usage(instance.postgres_backend_state, &bytes, &leases);
-		CHECK(bytes == 0 && leases == 0);
-	}
-	for (size_t i = 0; i < count; i++)
-	{
-		CHECK(postgamma_role_context_init(&roles[i], &instance) == 0);
-		CHECK(postgamma_backend_state_context_prepare(roles[i].postgres_backend_state) == 0);
-		data(&roles[i])->value = 999;
-		data(&roles[i])->zero = &Value;
-		data(&roles[i])->large_zero[0] = 1;
-	}
-	postgamma_backend_state_role_cache_usage(instance.postgres_backend_state, &bytes, &leases);
-	CHECK(bytes == 0 && leases == count);
-	for (size_t i = 0; i < count; i++)
-		postgamma_role_context_destroy(&roles[i]);
-	postgamma_backend_state_role_cache_usage(instance.postgres_backend_state, &bytes, &leases);
-	CHECK(bytes > 0 && bytes <= POSTGAMMA_ROLE_CACHE_BYTES && leases == 0);
-	for (size_t i = 0; i < 4; i++)
-		CHECK(pthread_create(&workers[i], NULL, reuse_roles, &instance) == 0);
-	for (size_t i = 0; i < 4; i++)
-		CHECK(pthread_join(workers[i], NULL) == 0);
-	postgamma_backend_state_role_cache_usage(instance.postgres_backend_state, &bytes, &leases);
-	CHECK(bytes > 0 && bytes <= POSTGAMMA_ROLE_CACHE_BYTES && leases == 0);
-	postgamma_instance_context_destroy(&instance);
-	free(roles);
-}
-#endif
-
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-static void
-check_role_pool_reuse(void)
-{
-	PostgammaInstanceContext instance;
-	PostgammaMemoryPool pool;
-	PostgammaRoleContext role;
-	PreparationFixtureData *first;
-
-	CHECK(postgamma_instance_context_init(&instance) == 0);
-	CHECK(postgamma_memory_pool_init(&pool, 1024 * 1024) == 0);
-	postgamma_memory_pool_acquire(&pool);
-	for (long failure = 0; failure < 2; failure++)
-	{
-		FailAllocation = failure;
-		CHECK(postgamma_role_context_init_in_pool(&role, &instance, &pool) == ENOMEM);
-		FailAllocation = -1;
-		CHECK(role.postgres_backend_state == NULL && pool.outstanding == 0);
-	}
-	CHECK(postgamma_role_context_init_in_pool(&role, &instance, &pool) == 0);
-	CHECK(postgamma_backend_state_context_prepare(role.postgres_backend_state) == 0);
-	first = data(&role);
-	first->value = 991;
-	first->pending = 23;
-	first->large_zero[0] = 67;
-	first->large_zero[sizeof(first->large_zero) - 1] = 68;
-	postgamma_role_context_destroy(&role);
-	CHECK(pool.outstanding == 0);
-	CHECK(postgamma_role_context_init_in_pool(&role, &instance, &pool) == 0);
-	CHECK(data(&role) == NULL);
-	CHECK(postgamma_backend_state_context_prepare(role.postgres_backend_state) == 0);
-#ifdef POSTGAMMA_MAPPED_MEMORY_BLOCKS
-	CHECK(data(&role) == first);
-#endif
-	CHECK(data(&role)->value == 42 && data(&role)->pending == 0);
-	CHECK(data(&role)->large_zero[0] == 0);
-	CHECK(data(&role)->large_zero[sizeof(first->large_zero) - 1] == 0);
-	CHECK(data(&role)->a == &data(&role)->b && data(&role)->b == &data(&role)->a);
-	postgamma_role_context_destroy(&role);
-	postgamma_memory_pool_release(&pool);
-	CHECK(pool.bytes == 0 && pool.outstanding == 0);
-	CHECK(postgamma_memory_pool_destroy(&pool) == 0);
-	postgamma_instance_context_destroy(&instance);
-}
-#endif
 
 int
 main(void)
@@ -426,9 +297,6 @@ main(void)
 	int i;
 
 	A = &B;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	check_role_pool_reuse();
-#endif
 	CHECK(postgamma_instance_context_init(&instance) == 0);
 	CHECK(postgamma_role_context_init(&parent, &instance) == 0);
 	CHECK(postgamma_role_context_init(&child, &instance) == 0);
@@ -469,7 +337,7 @@ main(void)
 	CHECK(data(&parent)->pending == 17);
 	CHECK(data(&child)->a != data(&parent)->a);
 #ifdef POSTGAMMA_DIRECT_ROLE_STATE
-	for (i = 0; i < 9; i++)
+	for (i = 0; i < 8; i++)
 		reject_invalid_access(&first, i);
 #endif
 	previous = postgamma_execution_context_bind(&first);
@@ -519,8 +387,5 @@ main(void)
 	postgamma_role_context_destroy(&child);
 	postgamma_role_context_destroy(&parent);
 	postgamma_instance_context_destroy(&instance);
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-	check_role_reuse();
-#endif
 	return 0;
 }

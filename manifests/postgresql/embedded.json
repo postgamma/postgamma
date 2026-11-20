@@ -326,9 +326,9 @@
       "scope": "__file__",
       "probe_kind": "call",
       "probe": "abort",
-      "expected_matches": 34,
+      "expected_matches": 28,
       "classification": "required_for_embedded_kernel",
-      "rationale": "Every defensive scheduler, role-registry, and completion-delivery abort remains explicitly inventoried. Four startup-publication sentinels validate the asynchronous thread handle handshake before a child can run or complete. Three optional alarm-owner sentinels cover unexpected registry-lock, wake-delivery and condition-wait failures; notifier allocation and startup failures return to the caller. Executable lifecycle and alarm-race gates must prove that valid embedded workloads do not reach these internal-corruption sentinels."
+      "rationale": "Every defensive scheduler, role-registry, and completion-delivery abort remains explicitly inventoried. Four startup-publication sentinels validate the asynchronous thread handle handshake before a child can run or complete. Executable lifecycle gates must prove that valid embedded workloads do not reach these internal-corruption sentinels."
     },
     {
       "id": "embedded.initdb.unbound-exit-abort",

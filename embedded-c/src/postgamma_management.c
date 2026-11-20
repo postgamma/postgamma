@@ -8,6 +8,7 @@
 #include "postgamma/postgamma.h"
 
 #include "postgamma/private/public_runtime.h"
+#include "postgamma/private/error_status.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -16,7 +17,6 @@
 #include <unistd.h>
 
 
-static pgm_status management_status_from_errno(int status);
 static void checkpoint_operation_completed(
 	void *argument, uint64_t generation, int operation_status);
 static int destroy_operation(pgm_operation *operation);
@@ -115,7 +115,7 @@ fail_locked:
 		free(created);
 	}
 	return return_simple_error(
-		error, management_status_from_errno(status),
+		error, status_from_errno(status),
 		"could not create the checkpoint operation");
 }
 
@@ -179,7 +179,7 @@ pgm_operation_progress(
 		}
 		else
 		{
-			pgm_status failure = management_status_from_errno(status);
+			pgm_status failure = status_from_errno(status);
 
 			(void) postgamma_mutex_unlock(operation->mutex);
 			(void) postgamma_instance_checkpoint_tracker_finish(
@@ -341,39 +341,6 @@ operation_is_valid(const pgm_operation *operation)
 }
 
 
-static pgm_status
-management_status_from_errno(int status)
-{
-	switch (status)
-	{
-		case 0:
-			return PGM_STATUS_OK;
-		case EINVAL:
-			return PGM_STATUS_INVALID_ARGUMENT;
-		case EBUSY:
-		case EAGAIN:
-		case EALREADY:
-			return PGM_STATUS_BUSY;
-		case ETIMEDOUT:
-			return PGM_STATUS_TIMEOUT;
-		case ECANCELED:
-		case EINTR:
-			return PGM_STATUS_CANCELED;
-		case ENOMEM:
-			return PGM_STATUS_OUT_OF_MEMORY;
-		case ENOTSUP:
-			return PGM_STATUS_UNSUPPORTED;
-		case ESTALE:
-			return PGM_STATUS_VERSION_MISMATCH;
-		case EIO:
-		case ENOENT:
-		case EACCES:
-		case EPERM:
-			return PGM_STATUS_IO_ERROR;
-	}
-	return PGM_STATUS_INTERNAL_ERROR;
-}
-
 
 static void
 checkpoint_operation_completed(
@@ -404,7 +371,7 @@ checkpoint_operation_completed(
 		operation->state = PGM_OPERATION_FAILED;
 		operation->phase = PGM_OPERATION_PHASE_TERMINAL;
 		operation->operation_status =
-			management_status_from_errno(operation_status);
+			status_from_errno(operation_status);
 	}
 	if (operation->ticket != NULL &&
 		postgamma_supervisor_ticket_destroy(operation->ticket) == 0)

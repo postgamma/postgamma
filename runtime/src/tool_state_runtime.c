@@ -25,12 +25,10 @@
 
 typedef struct PostgammaToolStateDescriptor
 {
-	const char *identifier;
 	size_t		offset;
 	size_t		size;
 	size_t		alignment;
 	bool		copy_template;
-	bool		has_relocations;
 } PostgammaToolStateDescriptor;
 
 typedef struct PostgammaToolStateStore

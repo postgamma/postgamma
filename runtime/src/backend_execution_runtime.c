@@ -19,9 +19,6 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef POSTGAMMA_EVENT_TIMERS
-#include "postgamma/deadline_heap.h"
-#endif
 
 
 #define POSTGAMMA_NO_SLOT UINT32_MAX
@@ -49,10 +46,6 @@ typedef struct PostgammaBackendSlot
 	uint32_t	last_worker;
 	uint64_t	queued_at_ns;
 	uint64_t	deadline_ns;
-#ifdef POSTGAMMA_EVENT_TIMERS
-	PostgammaDeadline alarm;
-	uint64_t	alarm_interval_ns;
-#endif
 	uint64_t	quantum_sequence;
 	uint64_t	schedule_epoch;
 	bool		paused;
@@ -72,13 +65,6 @@ typedef struct PostgammaBackendSlot
 
 struct PostgammaBackendRegistry
 {
-#ifdef POSTGAMMA_EVENT_TIMERS
-	PostgammaThread *alarm_thread;
-	PostgammaCondition *alarm_condition;
-	PostgammaDeadlineHeap alarms;
-	uint64_t	alarm_wait_deadline;
-	bool		alarm_stopping;
-#endif
 	const PostgammaBackendProviderOps *provider;
 	uint32_t	capacity;
 	PostgammaMutex *mutex;
@@ -221,9 +207,6 @@ static int pooled_provider_launch_locked(
 static int pooled_provider_join(PostgammaBackendSlot *slot);
 static int start_pooled_workers(PostgammaBackendRegistry *registry);
 static int stop_pooled_workers(PostgammaBackendRegistry *registry);
-#ifdef POSTGAMMA_EVENT_TIMERS
-static void *alarm_owner_main(void *argument);
-#endif
 static int enqueue_slot_locked(
 	PostgammaBackendRegistry *registry, PostgammaBackendSlot *slot);
 static PostgammaBackendSlot *dequeue_slot_for_worker_locked(
@@ -379,34 +362,6 @@ postgamma_backend_registry_create_with_provider(
 			return status;
 		}
 	}
-#ifdef POSTGAMMA_EVENT_TIMERS
-	/*
-	 * The timer service belongs to the registry, not to its first timed
-	 * request. Establish its resources before publishing a ready registry.
-	 * Arming a timer must not change the instance's native thread footprint.
-	 */
-	created->alarms.entries = calloc(capacity,
-		sizeof(*created->alarms.entries));
-	status = created->alarms.entries == NULL ? ENOMEM :
-		postgamma_condition_create(&created->alarm_condition);
-	if (status == 0)
-	{
-		PostgammaThreadAttributes attributes = {
-			.name = "pg-alarm", .role = POSTGAMMA_THREAD_ROLE_GENERAL,
-		};
-
-		created->alarms.capacity = capacity;
-		created->alarm_wait_deadline = UINT64_MAX;
-		status = postgamma_thread_create(&created->alarm_thread,
-			&attributes, alarm_owner_main, created);
-	}
-	if (status != 0)
-	{
-		if (postgamma_backend_registry_destroy(created) != 0)
-			abort();
-		return status;
-	}
-#endif
 	*registry = created;
 	return 0;
 }
@@ -445,38 +400,7 @@ postgamma_backend_registry_destroy(PostgammaBackendRegistry *registry)
 			return EBUSY;
 		}
 	}
-#ifdef POSTGAMMA_EVENT_TIMERS
-	registry->alarm_stopping = true;
-	if (registry->alarm_condition != NULL)
-		(void) postgamma_condition_signal(registry->alarm_condition);
-#endif
 	unlock_registry_or_abort(registry);
-#ifdef POSTGAMMA_EVENT_TIMERS
-	/* The notifier cannot outlive its registry, slots or wake descriptors. */
-	if (registry->alarm_thread != NULL)
-	{
-		status = postgamma_thread_join(registry->alarm_thread, NULL);
-		if (status != 0)
-			return status;
-		status = postgamma_thread_destroy(registry->alarm_thread);
-		if (status != 0)
-			return status;
-		registry->alarm_thread = NULL;
-	}
-	if (registry->alarm_condition != NULL)
-	{
-		status = postgamma_condition_destroy(registry->alarm_condition);
-		if (status != 0)
-			return status;
-		registry->alarm_condition = NULL;
-	}
-#endif
-#ifdef POSTGAMMA_EVENT_TIMERS
-	if (registry->alarms.count != 0)
-		abort();
-	free(registry->alarms.entries);
-	memset(&registry->alarms, 0, sizeof(registry->alarms));
-#endif
 	status = stop_pooled_workers(registry);
 	if (status != 0)
 		return status;
@@ -582,10 +506,6 @@ postgamma_backend_launch(PostgammaBackendRegistry *registry,
 	slot->start = start;
 	slot->interrupts.pending_signals = 0;
 	slot->interrupts.pending_events = 0;
-#ifdef POSTGAMMA_EVENT_TIMERS
-	slot->alarm.at = 0;
-	slot->alarm_interval_ns = 0;
-#endif
 	slot->native_wake_signal = request->native_wake_signal;
 	slot->next_completion = POSTGAMMA_NO_SLOT;
 	slot->next_runnable = POSTGAMMA_NO_SLOT;
@@ -790,10 +710,6 @@ postgamma_backend_completion_join(PostgammaBackendRegistry *registry,
 	memset(&slot->completion, 0, sizeof(slot->completion));
 	slot->interrupts.pending_signals = 0;
 	slot->interrupts.pending_events = 0;
-#ifdef POSTGAMMA_EVENT_TIMERS
-	slot->alarm.at = 0;
-	slot->alarm_interval_ns = 0;
-#endif
 	slot->native_wake_signal = 0;
 	slot->next_runnable = POSTGAMMA_NO_SLOT;
 	slot->assigned_worker = POSTGAMMA_NO_SLOT;
@@ -1280,103 +1196,6 @@ postgamma_backend_set_deadline(
 	return status;
 }
 
-
-#ifdef POSTGAMMA_EVENT_TIMERS
-static void *
-alarm_owner_main(void *argument)
-{
-	PostgammaBackendRegistry *registry = argument;
-
-	if (lock_registry(registry) != 0)
-		abort();
-	while (!registry->alarm_stopping)
-	{
-		uint64_t now = postgamma_monotonic_now_ns();
-		uint64_t next = UINT64_MAX;
-		int status;
-
-		while (registry->alarms.count != 0)
-		{
-			PostgammaDeadline *entry = registry->alarms.entries[0];
-			PostgammaBackendSlot *slot = (PostgammaBackendSlot *)
-				((char *) entry - offsetof(PostgammaBackendSlot, alarm));
-			uint64_t due = entry->at;
-			uint64_t interval = slot->alarm_interval_ns;
-			uint64_t following = 0;
-
-			if (slot->state != POSTGAMMA_BACKEND_SLOT_RUNNING)
-				abort();
-			if (due > now)
-			{
-				next = due;
-				break;
-			}
-			if (interval != 0)
-			{
-				uint64_t periods = (now - due) / interval;
-
-				if (periods < UINT64_MAX &&
-					periods + 1 <= (UINT64_MAX - due) / interval)
-					following = due + (periods + 1) * interval;
-			}
-			postgamma_deadline_set(&registry->alarms, entry, following);
-			publish_pending_signals(slot, UINT64_C(1) << (SIGALRM - 1));
-			if (wake_backend_slot(registry, slot) != 0)
-				abort();
-		}
-		registry->alarm_wait_deadline = next;
-		status = next == UINT64_MAX ?
-			postgamma_condition_wait(registry->alarm_condition, registry->mutex) :
-			postgamma_condition_timed_wait(registry->alarm_condition, registry->mutex, next);
-		if (status != 0 && status != ETIMEDOUT)
-			abort();
-	}
-	unlock_registry_or_abort(registry);
-	return NULL;
-}
-
-int
-postgamma_backend_set_alarm(PostgammaBackendRegistry *registry,
-	PostgammaBackendId id, uint64_t deadline_ns, uint64_t interval_ns)
-{
-	PostgammaBackendSlot *slot;
-	uint32_t index, generation;
-	int status;
-
-	if (registry == NULL || !decode_backend_id(id, &index, &generation) ||
-		index >= registry->capacity)
-		return EINVAL;
-	status = lock_registry(registry);
-	if (status != 0)
-		return status;
-	slot = &registry->slots[index];
-	if (registry->alarm_stopping || slot->generation != generation ||
-		slot->handle.id != id || slot->state != POSTGAMMA_BACKEND_SLOT_RUNNING)
-		status = ESTALE;
-	else
-	{
-		if (status == 0)
-		{
-			uint64_t previous_deadline = slot->alarm.at;
-			uint64_t previous_interval = slot->alarm_interval_ns;
-
-			postgamma_deadline_set(&registry->alarms, &slot->alarm, deadline_ns);
-			slot->alarm_interval_ns = interval_ns;
-			/* Later/canceled deadlines may wake early, but cannot miss an alarm. */
-			if (deadline_ns != 0 && deadline_ns < registry->alarm_wait_deadline)
-				status = postgamma_condition_signal(registry->alarm_condition);
-			if (status != 0)
-			{
-				/* The owner cannot observe a rejected arm while we hold its lock. */
-				postgamma_deadline_set(&registry->alarms, &slot->alarm, previous_deadline);
-				slot->alarm_interval_ns = previous_interval;
-			}
-		}
-	}
-	unlock_registry_or_abort(registry);
-	return status;
-}
-#endif
 
 bool
 postgamma_backend_interrupt_poll_required(
@@ -2217,10 +2036,6 @@ complete_backend_execution(
 		registry->telemetry.blocked_sessions--;
 		slot->blocked = false;
 	}
-#ifdef POSTGAMMA_EVENT_TIMERS
-	/* Remove the old generation before completion can publish slot reuse. */
-	postgamma_deadline_set(&registry->alarms, &slot->alarm, 0);
-#endif
 	slot->completion.handle = slot->handle;
 	slot->completion.exit_status = exit_status;
 	set_pause_requested(slot, false);

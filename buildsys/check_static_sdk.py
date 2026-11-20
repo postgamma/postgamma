@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -29,6 +28,7 @@ from check_installed_c_sdk import (
     require_success,
     stage_file,
 )
+from artifact_io import sha256
 
 
 EVIDENCE_KIND = "postgamma.static-sdk-evidence"
@@ -55,14 +55,6 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise StaticSdkCheckError(f"{path}: top-level value must be an object")
     return document
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def global_definitions(nm: str, path: Path) -> set[str]:

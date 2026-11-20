@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from check_embedded_lifecycle import write_json
+from artifact_io import sha256
 
 
 EVIDENCE_KIND = "postgamma.local-release-candidate"
@@ -31,14 +32,6 @@ def load_document(path: Path, kind: str) -> dict[str, Any]:
     ):
         raise ReleaseCandidateError(f"{path} is not passing {kind} evidence")
     return document
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def site_identity(site: Path) -> dict[str, Any]:

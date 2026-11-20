@@ -16,6 +16,7 @@
 #include "postgamma/private/memory_transport.h"
 #include "postgamma/private/postgres_static_modules.h"
 #include "postgamma/private/public_runtime.h"
+#include "postgamma/private/error_status.h"
 #include "postgamma/private/server_transport_adapter.h"
 #include "postgamma/private/supervisor.h"
 #include "postgamma/thread_runtime.h"
@@ -93,7 +94,6 @@ static _Atomic uint64_t PostgammaPublicGeneration = UINT64_C(1);
 static char *duplicate_string(const char *source);
 static char *absolute_requested_path(const char *source);
 static void copy_string(char *target, size_t capacity, const char *source);
-static pgm_status status_from_errno(int status);
 static int deadline_after(uint64_t interval_ns, uint64_t *deadline_ns);
 static int run_kernel(PostgammaSupervisor *supervisor, void *argument);
 static int wait_and_destroy_ticket(
@@ -2371,39 +2371,6 @@ return_simple_error(
 	return status;
 }
 
-
-static pgm_status
-status_from_errno(int status)
-{
-	switch (status)
-	{
-		case 0:
-			return PGM_STATUS_OK;
-		case EINVAL:
-			return PGM_STATUS_INVALID_ARGUMENT;
-		case EBUSY:
-		case EAGAIN:
-		case EALREADY:
-			return PGM_STATUS_BUSY;
-		case ETIMEDOUT:
-			return PGM_STATUS_TIMEOUT;
-		case ECANCELED:
-		case EINTR:
-			return PGM_STATUS_CANCELED;
-		case ENOMEM:
-			return PGM_STATUS_OUT_OF_MEMORY;
-		case ENOTSUP:
-			return PGM_STATUS_UNSUPPORTED;
-		case ESTALE:
-			return PGM_STATUS_VERSION_MISMATCH;
-		case EIO:
-		case ENOENT:
-		case EACCES:
-		case EPERM:
-			return PGM_STATUS_IO_ERROR;
-	}
-	return PGM_STATUS_INTERNAL_ERROR;
-}
 
 
 pgm_status

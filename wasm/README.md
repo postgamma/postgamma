@@ -283,7 +283,7 @@ runs do not send the memory-report signal. The observer stops reporting a host
 failure back as further page errors, preserving the original failure cause.
 
 On Linux x86-64, the WebKit soak uses the same pinned, unmodified upstream WPE
-322662@main as the native Worker diagnostic, including the Worker VM ownership
+326998@main as the native Worker diagnostic, including the Worker VM ownership
 repair absent from the Playwright bundle. It exchanges bounded, acknowledged
 events over a local WebSocket and invokes the existing read-only control/OPFS
 diagnostic through a test bootstrap that imports the original verified module.
@@ -338,7 +338,7 @@ Reports compare the last three natural-idle samples in each wave and retain
 process memory, thread counts and JS wrapper finalization counts. Finalization
 counts do not measure native VM destruction. Chromium, Firefox and WebKit are
 selected with `WASM_MEMORY_ENGINE`. On Linux x86-64, the WebKit diagnostic installs
-and uses the unmodified official WPE 322662@main bundle containing the Worker
+and uses the unmodified official WPE 326998@main bundle containing the Worker
 ownership repair. Its revision, archive size and SHA256 are pinned; all extracted
 files are checked against an installation receipt before reuse. Run
 `make wasm-webkit-setup` to prepare it separately. `WASM_BROWSER_EXECUTABLE` can
@@ -368,8 +368,8 @@ Playwright executable: the two builds have different automation protocols.
 Official WPE and Playwright MiniBrowser profile options are detected
 without attaching an inspector.
 
-A second confirmed native leak remains in both that WPE build and current
-[WebKit WorkerMessagingProxy.cpp](https://github.com/WebKit/WebKit/blob/9eb4e2ad5983af0d494b62b38e55ff9010fb5993/Source/WebCore/workers/WorkerMessagingProxy.cpp):
+The original memory diagnosis also confirmed a second native leak in that WPE
+build's [WorkerMessagingProxy.cpp](https://github.com/WebKit/WebKit/blob/9eb4e2ad5983af0d494b62b38e55ff9010fb5993/Source/WebCore/workers/WorkerMessagingProxy.cpp):
 `WorkerUserGestureForwarder::create` returns a newly allocated object through
 `Ref` without `adoptRef`, leaving its initial reference alive after every
 main-thread `Worker.postMessage`, including messages without a user gesture.

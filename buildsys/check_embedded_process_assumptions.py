@@ -6,14 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
-import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from artifact_io import write_json
 from check_bootstrap_evidence import baseline_identity
 from c_source_probe import CSourceProbeError, function_span, sanitize_c
 from postgresql_embedded_adapter import load_adapter as load_embedded_adapter
@@ -283,24 +282,6 @@ def validate_runtime_evidence(
         },
         limitations,
     )
-
-
-def write_json(path: Path, document: dict[str, Any]) -> None:
-    content = json.dumps(document, indent=2, sort_keys=True) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        delete=False,
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def main() -> int:

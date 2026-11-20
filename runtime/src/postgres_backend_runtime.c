@@ -68,7 +68,6 @@
 #endif
 #include "postgamma/external_process.h"
 #include "postgamma/virtual_signal.h"
-#include "postgamma/memory_block_runtime.h"
 
 
 extern HTAB *GetLockMethodLocalHash(void);
@@ -143,10 +142,6 @@ typedef struct PostgammaClientSession
 	PostgammaRoleContext role;
 	PostgammaExecutionContext execution;
 	PostgammaCarrierFrame carrier;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	PostgammaMemoryArena memory_arena;
-	PostgammaMemoryPool *memory_pool;
-#endif
 	PostgammaPostgresBackendMain main_function;
 	PostgammaBackendHandle handle;
 	PostgammaBackendExitStatus exit_status;
@@ -189,16 +184,6 @@ typedef struct PostgammaClientSession
 
 static POSTGAMMA_THREAD_LOCAL PostgammaClientSession *
 	PostgammaCurrentBackendSession;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-_Thread_local PostgammaMemoryArena *PostgammaCurrentMemoryArena;
-#endif
-#ifdef POSTGAMMA_EVENT_TIMERS
-static const PostgammaBackendInterruptState PostgammaUnboundInterruptState = {
-	.pending_events = POSTGAMMA_BACKEND_EVENT_SIGNAL
-};
-POSTGAMMA_THREAD_LOCAL const PostgammaBackendInterruptState *
-	PostgammaCurrentBackendInterruptState = &PostgammaUnboundInterruptState;
-#endif
 static POSTGAMMA_THREAD_LOCAL const char *PostgammaCurrentBootstrapInput;
 static POSTGAMMA_THREAD_LOCAL size_t PostgammaCurrentBootstrapInputLength;
 static POSTGAMMA_THREAD_LOCAL const char *PostgammaCurrentStandaloneInput;
@@ -287,8 +272,6 @@ static PostgammaVirtualTimer *postgamma_current_virtual_timer(void);
 static bool postgamma_session_holds_advisory_lock(void);
 static bool postgamma_quantum_is_pooled_client(
 	const PostgammaClientSession *state);
-static bool postgamma_quantum_update_pin_state(
-	PostgammaClientSession *state);
 static uint64_t postgamma_quantum_drain_interrupts(
 	PostgammaClientSession *state);
 static bool postgamma_quantum_prepare_yield(
@@ -396,18 +379,7 @@ postgamma_postmaster_child_launch(
 	if (state->path_runtime != NULL)
 		postgamma_instance_context_attach_path_runtime(
 			&state->private_instance, state->path_runtime);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (IsExternalConnectionBackend((BackendType) backend_type))
-	{
-		state->memory_pool = postgamma_instance_runtime_memory_pool(runtime);
-		postgamma_memory_pool_acquire(state->memory_pool);
-		state->memory_arena.pool = state->memory_pool;
-	}
-	status = postgamma_role_context_init_in_pool(&state->role,
-		&state->private_instance, state->memory_pool);
-#else
 	status = postgamma_role_context_init(&state->role, &state->private_instance);
-#endif
 	if (status != 0)
 		goto fail;
 	role_initialized = true;
@@ -525,10 +497,6 @@ fail:
 		postgamma_execution_context_destroy(&state->execution);
 	if (role_initialized)
 		postgamma_role_context_destroy(&state->role);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (state->memory_pool != NULL)
-		postgamma_memory_pool_release(state->memory_pool);
-#endif
 	if (instance_initialized && state->path_runtime != NULL)
 		postgamma_instance_context_detach_path_runtime(
 			&state->private_instance, state->path_runtime);
@@ -1498,12 +1466,8 @@ postgamma_dispatch_pending_signals(void)
 	if (state->signals.dispatching_signals)
 		return;
 	/* An armed timer is not a signal until its deadline is actually due. */
-#ifdef POSTGAMMA_EVENT_TIMERS
-	timer_due = false;
-#else
 	timer_due = state->timer.timeout_armed &&
 		postgamma_virtual_timer_due(&state->timer, GetCurrentTimestamp());
-#endif
 	if (!timer_due &&
 		!postgamma_backend_interrupt_poll_required(state->registry, state->handle.id))
 		return;
@@ -1515,10 +1479,6 @@ postgamma_dispatch_pending_signals(void)
 		postgamma_runtime_contract_violation();
 	if (timer_due)
 		pending |= UINT64_C(1) << (SIGALRM - 1);
-#ifdef POSTGAMMA_EVENT_TIMERS
-	if ((pending & (UINT64_C(1) << (SIGALRM - 1))) != 0)
-		(void) postgamma_virtual_timer_due(&state->timer, GetCurrentTimestamp());
-#endif
 	status = postgamma_backend_wait_while_paused(
 		state->registry, state->handle.id);
 	if (status == ESTALE)
@@ -1584,10 +1544,6 @@ postgamma_backend_setitimer(int which, const struct itimerval *new_value,
 							struct itimerval *old_value)
 {
 	PostgammaVirtualTimer *timer = postgamma_current_virtual_timer();
-#ifdef POSTGAMMA_EVENT_TIMERS
-	PostgammaVirtualTimer previous;
-	int status;
-#endif
 
 	if (timer == NULL)
 	{
@@ -1604,35 +1560,8 @@ postgamma_backend_setitimer(int which, const struct itimerval *new_value,
 		return setitimer(which, new_value, old_value);
 #endif
 	}
-#ifdef POSTGAMMA_EVENT_TIMERS
-	previous = *timer;
-	status = postgamma_virtual_timer_set(timer, which, new_value, old_value,
-		GetCurrentTimestamp());
-	if (status == 0 && PostgammaCurrentBackendSession != NULL)
-	{
-		PostgammaClientSession *state = PostgammaCurrentBackendSession;
-		uint64 value = (uint64) new_value->it_value.tv_sec * UINT64CONST(1000000) +
-			(uint64) new_value->it_value.tv_usec;
-		uint64 interval = (uint64) timer->timeout_interval_us;
-		uint64 now = postgamma_monotonic_now_ns();
-
-		if (value > (UINT64_MAX - now) / 1000 || interval > UINT64_MAX / 1000)
-			status = EOVERFLOW;
-		else
-			status = postgamma_backend_set_alarm(state->registry, state->handle.id,
-				value == 0 ? 0 : now + value * 1000, interval * 1000);
-		if (status != 0)
-		{
-			*timer = previous;
-			errno = status;
-			return -1;
-		}
-	}
-	return status;
-#else
 	return postgamma_virtual_timer_set(timer, which, new_value, old_value,
 									  GetCurrentTimestamp());
-#endif
 }
 #endif
 
@@ -1702,25 +1631,38 @@ postgamma_quantum_is_pooled_client(const PostgammaClientSession *state)
 }
 
 
-static bool
-postgamma_quantum_update_pin_state(PostgammaClientSession *state)
+bool
+postgamma_postgres_publish_pin_state(void)
 {
+	PostgammaClientSession *state = PostgammaCurrentBackendSession;
 	uint32_t	pin_reasons = 0;
 	bool		pinned;
 	int			status;
+
+	if (!postgamma_quantum_is_pooled_client(state))
+		return false;
 
 	if (IsTransactionOrTransactionBlock())
 		pin_reasons |= POSTGAMMA_KERNEL_PIN_TRANSACTION;
 	if (postgamma_session_holds_advisory_lock())
 		pin_reasons |= POSTGAMMA_KERNEL_PIN_ADVISORY_LOCK;
 	pinned = pin_reasons != 0;
-	status = postgamma_backend_set_pinned(
-		state->registry, state->handle.id, pinned);
-	if (status != 0)
-		postgamma_runtime_contract_violation();
 	status = state->transport_ops.set_session_status(
 		state->transport, state->transport_generation, pin_reasons,
 		pinned ? UINT32_C(1) : UINT32_C(0));
+	if (status != 0)
+		postgamma_runtime_contract_violation();
+	return pinned;
+}
+
+
+static bool
+postgamma_quantum_update_pin_state(PostgammaClientSession *state, bool pinned)
+{
+	int			status;
+
+	status = postgamma_backend_set_pinned(
+		state->registry, state->handle.id, pinned);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
 	if (pinned && postgamma_backend_set_deadline(
@@ -1789,6 +1731,7 @@ postgamma_quantum_prepare_yield(
 bool
 postgamma_postgres_quantum_yield_ready(
 	bool send_ready_for_query,
+	bool pinned,
 	bool idle_in_transaction_timeout_enabled,
 	bool idle_session_timeout_enabled)
 {
@@ -1806,7 +1749,7 @@ postgamma_postgres_quantum_yield_ready(
 		state->registry, state->handle.id, false);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	if (postgamma_quantum_update_pin_state(state))
+	if (postgamma_quantum_update_pin_state(state, pinned))
 		return false;
 	state->saved_send_ready_for_query = send_ready_for_query;
 	state->saved_idle_in_transaction_timeout_enabled =
@@ -1896,7 +1839,8 @@ postgamma_postgres_quantum_yield_command_read(
 		state->registry, state->handle.id, false);
 	if (status != 0)
 		postgamma_runtime_contract_violation();
-	if (postgamma_quantum_update_pin_state(state))
+	if (postgamma_quantum_update_pin_state(
+			state, postgamma_postgres_publish_pin_state()))
 		return false;
 	state->saved_send_ready_for_query = send_ready_for_query;
 	state->saved_idle_in_transaction_timeout_enabled =
@@ -2609,18 +2553,11 @@ postgamma_postgres_backend_cleanup(
 		postgamma_destroy_builtin_guc_variables(&state->execution);
 	if (state->carrier.execution_bound)
 		postgamma_unbind_backend_session(state);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	postgamma_memory_arena_destroy(&state->memory_arena);
-#endif
 #if !defined(WIN32) && defined(HAVE_USELOCALE)
 	postgamma_session_locale_destroy(&state->locale);
 #endif
 	postgamma_execution_context_destroy(&state->execution);
 	postgamma_role_context_destroy(&state->role);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (state->memory_pool != NULL)
-		postgamma_memory_pool_release(state->memory_pool);
-#endif
 	if (state->path_runtime != NULL)
 	{
 		postgamma_instance_context_detach_path_runtime(
@@ -2732,19 +2669,6 @@ postgamma_bind_backend_session(PostgammaClientSession *state)
 		postgamma_install_syslogger_pipe_state(state->syslogger_pipe_descriptor);
 		state->syslogger_pipe_pending = false;
 	}
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (PostgammaCurrentMemoryArena != NULL)
-		postgamma_runtime_contract_violation();
-	PostgammaCurrentMemoryArena = &state->memory_arena;
-#endif
-#ifdef POSTGAMMA_EVENT_TIMERS
-	if (PostgammaCurrentBackendInterruptState != &PostgammaUnboundInterruptState)
-		postgamma_runtime_contract_violation();
-	PostgammaCurrentBackendInterruptState =
-		postgamma_backend_borrow_interrupts(state->registry, state->handle.id);
-	if (PostgammaCurrentBackendInterruptState == NULL)
-		postgamma_runtime_contract_violation();
-#endif
 	if (state->memory_contexts_initialized &&
 		postgamma_instance_runtime_profile(state->runtime) ==
 			POSTGAMMA_RUNTIME_PROFILE_EMBEDDED)
@@ -2782,14 +2706,6 @@ postgamma_unbind_backend_session(PostgammaClientSession *state)
 		postgamma_runtime_contract_violation();
 #endif
 	PostgammaCurrentBackendSession = NULL;
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (PostgammaCurrentMemoryArena != &state->memory_arena)
-		postgamma_runtime_contract_violation();
-	PostgammaCurrentMemoryArena = NULL;
-#endif
-#ifdef POSTGAMMA_EVENT_TIMERS
-	PostgammaCurrentBackendInterruptState = &PostgammaUnboundInterruptState;
-#endif
 	postgamma_execution_context_restore(
 		&state->execution, carrier->previous_execution);
 	carrier->previous_execution = NULL;

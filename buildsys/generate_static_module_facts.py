@@ -6,13 +6,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
-import tempfile
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from artifact_io import write_generated_text as write_text
 
 MANIFEST_KIND = "postgamma.static-extension-manifest"
 REPORT_KIND = "postgamma.static-module-facts"
@@ -338,22 +337,6 @@ def facts_report(
         "symbol_count": sum(len(module["symbols"]) for module in manifest["modules"]),
         "resources": dict(sorted(resources.items())),
     }
-
-
-def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and path.read_text(encoding="utf-8") == content:
-        os.utime(path, None)
-        return
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def main() -> int:

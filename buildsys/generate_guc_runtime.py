@@ -17,6 +17,7 @@ from check_guc_policy import (
     policy_owners,
     validate_alignment,
 )
+from artifact_io import write_if_changed as _write_if_changed
 
 
 CATALOG_KIND = "postgamma.postgres-guc-catalog"
@@ -310,16 +311,6 @@ def compile_runtime(
             control_entries
         ),
     }
-
-
-def _write_if_changed(path: Path, content: str) -> None:
-    data = content.encode("utf-8")
-    if path.is_file() and path.read_bytes() == data:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(data)
-    temporary.replace(path)
 
 
 def main() -> int:

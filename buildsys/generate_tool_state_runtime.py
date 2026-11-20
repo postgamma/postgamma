@@ -17,6 +17,7 @@ from check_frontend_tool_state_policy import (
     validate_alignment,
 )
 from state_policy import catalog_candidates, load_json
+from artifact_io import write_if_changed
 
 
 RUNTIME_KIND = "postgamma.tool-state-runtime"
@@ -205,25 +206,12 @@ def emit_layout(slots: list[Slot], byte_count: int, alignment: int) -> str:
 def emit_descriptors(slots: list[Slot]) -> str:
     lines = ["/* Generated PostgreSQL frontend-tool state descriptor data. */"]
     for slot in slots:
-        identifier = json.dumps(slot.identifier, ensure_ascii=True)
         copy_template = "true" if slot.copy_template else "false"
-        has_relocations = "true" if slot.relocations else "false"
         lines.append(
-            f"\t{{{identifier}, {slot.offset}, {slot.size}, {slot.alignment}, "
-            f"{copy_template}, {has_relocations}}},"
+            f"\t{{{slot.offset}, {slot.size}, {slot.alignment}, {copy_template}}},"
         )
     lines.append("")
     return "\n".join(lines)
-
-
-def write_if_changed(path: Path, content: str) -> None:
-    data = content.encode("utf-8")
-    if path.is_file() and path.read_bytes() == data:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(data)
-    temporary.replace(path)
 
 
 def main() -> int:

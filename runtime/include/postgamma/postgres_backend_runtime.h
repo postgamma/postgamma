@@ -90,27 +90,9 @@ int postgamma_backend_printf(const char *format, ...)
 	pg_attribute_printf(1, 2);
 void postgamma_dispatch_pending_signals(void);
 
-/* Published at session bind and withdrawn before yield/cleanup releases it. */
-#ifdef POSTGAMMA_EVENT_TIMERS
-extern POSTGAMMA_THREAD_LOCAL const PostgammaBackendInterruptState *
-	PostgammaCurrentBackendInterruptState
-#ifdef POSTGAMMA_SERVER_LOCAL_EXEC_TLS
-	__attribute__((tls_model("local-exec")))
-#endif
-	;
-#endif
-
 static inline void
 postgamma_check_for_signals(void)
 {
-#ifdef POSTGAMMA_EVENT_TIMERS
-	const PostgammaBackendInterruptState *state =
-		PostgammaCurrentBackendInterruptState;
-
-	/* The unbound sentinel always takes the bootstrap/standalone path. */
-	if (!postgamma_backend_interrupts_pending(state))
-		return;
-#endif
 	postgamma_dispatch_pending_signals();
 }
 
@@ -127,8 +109,10 @@ bool postgamma_postgres_quantum_begin(
 	volatile bool *idle_in_transaction_timeout_enabled,
 	volatile bool *idle_session_timeout_enabled);
 void postgamma_postgres_quantum_initialized(void);
+bool postgamma_postgres_publish_pin_state(void);
 bool postgamma_postgres_quantum_yield_ready(
 	bool send_ready_for_query,
+	bool pinned,
 	bool idle_in_transaction_timeout_enabled,
 	bool idle_session_timeout_enabled);
 bool postgamma_postgres_quantum_yield_command_read(

@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "postgamma/source_identity.h"
+#include "postgamma/ast_use.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Expr.h"
@@ -22,12 +24,10 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Index/USRGeneration.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CommandLine.h"
@@ -39,7 +39,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
@@ -48,12 +47,13 @@
 #include <utility>
 #include <vector>
 
-namespace fs = std::filesystem;
 using namespace clang;
 using namespace clang::ast_matchers;
 using namespace clang::tooling;
 
 namespace {
+
+using namespace postgamma::compiler;
 
 #ifndef POSTGAMMA_CLANG_RESOURCE_DIR
 #define POSTGAMMA_CLANG_RESOURCE_DIR ""
@@ -89,22 +89,6 @@ llvm::cl::opt<bool> SuppressCompilerWarnings(
 llvm::cl::opt<bool> AuditPreparation(
     "audit-preparation", llvm::cl::desc("Audit template uses in transformed C"),
     llvm::cl::init(false), llvm::cl::cat(InventoryCategory));
-
-std::string normalizeAbsolutePath(llvm::StringRef value) {
-  if (value.empty())
-    return {};
-  std::error_code error;
-  fs::path path(value.str());
-  if (!path.is_absolute())
-    path = fs::absolute(path, error);
-  if (error)
-    return {};
-  path = path.lexically_normal();
-  fs::path canonical = fs::weakly_canonical(path, error);
-  if (!error)
-    path = std::move(canonical);
-  return path.generic_string();
-}
 
 struct SourceDomain {
   std::vector<std::string> prefixes;
@@ -165,63 +149,6 @@ std::optional<SourceDomain> loadDefinitionDomain(
   return domain;
 }
 
-struct RootedPath {
-  std::string kind;
-  std::string path;
-};
-
-std::optional<std::string> relativeToRoot(llvm::StringRef absolute,
-                                          llvm::StringRef root) {
-  fs::path path(absolute.str());
-  fs::path base(root.str());
-  auto path_it = path.begin();
-  auto base_it = base.begin();
-  while (path_it != path.end() && base_it != base.end() && *path_it == *base_it) {
-    ++path_it;
-    ++base_it;
-  }
-  if (base_it != base.end())
-    return std::nullopt;
-  fs::path relative;
-  for (; path_it != path.end(); ++path_it)
-    relative /= *path_it;
-  if (relative.empty())
-    return std::nullopt;
-  return relative.generic_string();
-}
-
-std::optional<RootedPath> locateInRoots(llvm::StringRef absolute,
-                                        llvm::StringRef source_root,
-                                        llvm::StringRef generated_root) {
-  if (auto relative = relativeToRoot(absolute, source_root))
-    return RootedPath{"source", std::move(*relative)};
-  if (!generated_root.empty()) {
-    if (auto relative = relativeToRoot(absolute, generated_root))
-      return RootedPath{"generated_build", std::move(*relative)};
-  }
-  return std::nullopt;
-}
-
-std::string identityPath(const RootedPath &location) {
-  if (location.kind == "source")
-    return location.path;
-  return "@generated/" + location.path;
-}
-
-std::string locationPath(const SourceManager &source_manager,
-                         SourceLocation location) {
-  if (location.isInvalid())
-    return {};
-  return normalizeAbsolutePath(source_manager.getFilename(location));
-}
-
-std::string declarationUSR(const VarDecl *declaration) {
-  llvm::SmallString<128> usr;
-  if (clang::index::generateUSRForDecl(declaration->getCanonicalDecl(), usr))
-    return {};
-  return usr.str().str();
-}
-
 std::string storageClassName(StorageClass storage_class) {
   switch (storage_class) {
     case SC_None:
@@ -276,96 +203,6 @@ bool isMutableStaticStorage(const VarDecl *declaration) {
   QualType type = declaration->getType();
   return declaration->hasGlobalStorage() && !type.isNull() &&
          !type.isConstQualified() && !type->isFunctionType();
-}
-
-std::optional<RootedPath> mainTranslationUnit(
-    const SourceManager &source_manager, llvm::StringRef source_root,
-    llvm::StringRef generated_root) {
-  SourceLocation start =
-      source_manager.getLocForStartOfFile(source_manager.getMainFileID());
-  return locateInRoots(locationPath(source_manager, start), source_root,
-                       generated_root);
-}
-
-std::string declarationContext(const VarDecl *declaration) {
-  const DeclContext *context = declaration->getDeclContext();
-  if (const auto *function = dyn_cast<FunctionDecl>(context))
-    return function->getQualifiedNameAsString();
-  if (const auto *method = dyn_cast<CXXMethodDecl>(context))
-    return method->getQualifiedNameAsString();
-  return {};
-}
-
-std::string stableIdentity(const VarDecl *declaration,
-                           const SourceManager &source_manager,
-                           llvm::StringRef source_root,
-                           llvm::StringRef generated_root) {
-  std::string qualified = declaration->getQualifiedNameAsString();
-  if (qualified.empty())
-    qualified = declaration->getNameAsString();
-  if (declaration->isExternallyVisible() && !declaration->isLocalVarDecl())
-    return "external:" + qualified;
-
-  const VarDecl *definition = declaration->getDefinition();
-  if (definition == nullptr)
-    definition = declaration;
-  SourceLocation location =
-      source_manager.getSpellingLoc(definition->getLocation());
-  auto definition_location = locateInRoots(
-      locationPath(source_manager, location), source_root, generated_root);
-  if (!definition_location)
-    return {};
-  auto translation_unit =
-      mainTranslationUnit(source_manager, source_root, generated_root);
-  if (!translation_unit)
-    return {};
-  std::string context = declarationContext(definition);
-  std::string kind = definition->isLocalVarDecl() ? "function_static" : "internal";
-  return kind + ":" + identityPath(*translation_unit) + ":" +
-         identityPath(*definition_location) + ":" + context + ":" + qualified;
-}
-
-const Expr *stripTransparentParents(const Expr *expression, ASTContext &context,
-                                    DynTypedNode &node) {
-  const Expr *current = expression;
-  node = DynTypedNode::create(*expression);
-  for (;;) {
-    auto parents = context.getParents(node);
-    if (parents.size() != 1)
-      return current;
-    const Expr *parent = parents[0].get<Expr>();
-    if (!parent)
-      return current;
-    if (!isa<ParenExpr>(parent) && !isa<ImplicitCastExpr>(parent) &&
-        !isa<ExprWithCleanups>(parent) && !isa<MaterializeTemporaryExpr>(parent))
-      return current;
-    current = parent;
-    node = parents[0];
-  }
-}
-
-std::string classifyUse(const DeclRefExpr *reference, ASTContext &context) {
-  DynTypedNode node;
-  const Expr *current = stripTransparentParents(reference, context, node);
-  auto parents = context.getParents(node);
-  if (parents.size() != 1)
-    return "read";
-  if (const auto *unary = parents[0].get<UnaryOperator>()) {
-    if (unary->getOpcode() == UO_AddrOf)
-      return "address";
-    if (unary->isIncrementDecrementOp())
-      return "read_write";
-  }
-  if (const auto *binary = parents[0].get<BinaryOperator>()) {
-    if (binary->getLHS()->IgnoreParenImpCasts() == reference ||
-        binary->getLHS()->IgnoreParenImpCasts() == current->IgnoreParenImpCasts()) {
-      if (binary->isCompoundAssignmentOp())
-        return "read_write";
-      if (binary->isAssignmentOp())
-        return "write";
-    }
-  }
-  return "read";
 }
 
 void collectStaticInitializerOwners(const DynTypedNode &node,

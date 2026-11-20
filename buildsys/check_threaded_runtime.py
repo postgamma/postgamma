@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
+from check_embedded_lifecycle import runtime_environment as server_environment
 
 
 TELEMETRY_MARKER = "POSTGAMMA_RUNTIME"
@@ -169,17 +170,6 @@ def available_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
-
-
-def server_environment(prefix: Path) -> dict[str, str]:
-    environment = os.environ.copy()
-    library_paths = [prefix / "lib", prefix / "lib64"]
-    paths = [str(path) for path in library_paths if path.is_dir()]
-    if environment.get("LD_LIBRARY_PATH"):
-        paths.append(environment["LD_LIBRARY_PATH"])
-    if paths:
-        environment["LD_LIBRARY_PATH"] = os.pathsep.join(paths)
-    return environment
 
 
 def psql_arguments(prefix: Path, socket_directory: Path, port: int) -> list[str]:

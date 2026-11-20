@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
 import re
 import tempfile
 from pathlib import Path
 
+from artifact_io import write_json
 
 REPORT_KIND = "postgamma.bootstrap-input"
 SCHEMA_VERSION = 1
@@ -171,24 +171,6 @@ def prepare(
     }
     write_json(report_path, document)
     return document
-
-
-def write_json(path: Path, document: dict[str, object]) -> None:
-    content = json.dumps(document, indent=2, sort_keys=True) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        delete=False,
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def write_bytes(path: Path, content: bytes) -> None:

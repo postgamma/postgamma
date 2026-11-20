@@ -394,12 +394,6 @@
         "target": "src/include/postgamma/backend_execution_runtime.h"
       },
       {
-        "id": "runtime.deadline-heap-header",
-        "source_root": "project",
-        "source": "runtime/include/postgamma/deadline_heap.h",
-        "target": "src/include/postgamma/deadline_heap.h"
-      },
-      {
         "id": "runtime.instance-header",
         "source_root": "project",
         "source": "runtime/include/postgamma/instance_runtime.h",
@@ -646,6 +640,12 @@
         "target": "src/include/postgamma/session_locale.h"
       },
       {
+        "id": "locale-runtime-header",
+        "source_root": "project",
+        "source": "runtime/include/postgamma/locale_runtime.h",
+        "target": "src/include/postgamma/locale_runtime.h"
+      },
+      {
         "id": "session-locale-source",
         "source_root": "project",
         "source": "runtime/src/session_locale.c",
@@ -686,24 +686,6 @@
         "source_root": "project",
         "source": "runtime/src/postgres_backend_runtime.c",
         "target": "src/backend/postmaster/postgamma_backend_runtime.c"
-      },
-      {
-        "id": "runtime.memory-block-runtime-header",
-        "source_root": "project",
-        "source": "runtime/include/postgamma/memory_block_runtime.h",
-        "target": "src/include/postgamma/memory_block_runtime.h"
-      },
-      {
-        "id": "runtime.memory-pool-runtime-header",
-        "source_root": "project",
-        "source": "runtime/include/postgamma/memory_pool_runtime.h",
-        "target": "src/include/postgamma/memory_pool_runtime.h"
-      },
-      {
-        "id": "runtime.postgres-memory-block-impl-header",
-        "source_root": "project",
-        "source": "runtime/include/postgamma/postgres_memory_block_impl.h",
-        "target": "src/include/postgamma/postgres_memory_block_impl.h"
       },
       {
         "id": "runtime.file-platform",
@@ -1126,42 +1108,6 @@
         "content": "\nLIBS += -pthread",
         "expected_matches": 1,
         "reject_if_present": "LIBS += -pthread"
-      },
-      {
-        "id": "memory.aset-private-backing",
-        "path": "src/backend/utils/mmgr/aset.c",
-        "mode": "insert_after",
-        "match": "#include \"utils/memutils_memorychunk.h\"",
-        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
-        "expected_matches": 1,
-        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
-      },
-      {
-        "id": "memory.generation-private-backing",
-        "path": "src/backend/utils/mmgr/generation.c",
-        "mode": "insert_after",
-        "match": "#include \"utils/memutils_memorychunk.h\"",
-        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
-        "expected_matches": 1,
-        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
-      },
-      {
-        "id": "memory.slab-private-backing",
-        "path": "src/backend/utils/mmgr/slab.c",
-        "mode": "insert_after",
-        "match": "#include \"utils/memutils_memorychunk.h\"",
-        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
-        "expected_matches": 1,
-        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
-      },
-      {
-        "id": "memory.bump-private-backing",
-        "path": "src/backend/utils/mmgr/bump.c",
-        "mode": "insert_after",
-        "match": "#include \"utils/memutils_memorychunk.h\"",
-        "content": "\n#include \"postgamma/postgres_memory_block_impl.h\"",
-        "expected_matches": 1,
-        "reject_if_present": "#include \"postgamma/postgres_memory_block_impl.h\""
       },
       {
         "id": "wasm.directory-identity-header",

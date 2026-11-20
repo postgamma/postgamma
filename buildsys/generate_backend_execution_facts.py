@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from artifact_io import write_if_changed
 
 
 ALIGNMENT_KIND = "postgamma.backend-execution-policy-alignment"
@@ -66,16 +67,6 @@ def emit_facts(alignment: dict[str, Any]) -> str:
         )
     lines.append("")
     return "\n".join(lines)
-
-
-def write_if_changed(path: Path, content: str) -> None:
-    data = content.encode("utf-8")
-    if path.is_file() and path.read_bytes() == data:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(data)
-    temporary.replace(path)
 
 
 def main() -> int:

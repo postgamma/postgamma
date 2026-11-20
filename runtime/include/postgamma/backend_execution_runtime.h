@@ -274,11 +274,6 @@ int postgamma_backend_set_blocked(PostgammaBackendRegistry *registry,
 							  PostgammaBackendId id, bool blocked);
 int postgamma_backend_set_deadline(PostgammaBackendRegistry *registry,
 							   PostgammaBackendId id, uint64_t deadline_ns);
-#ifdef POSTGAMMA_EVENT_TIMERS
-/* Experimental instance-owned alarm delivery; zero cancels future delivery. */
-int postgamma_backend_set_alarm(PostgammaBackendRegistry *registry,
-	PostgammaBackendId id, uint64_t deadline_ns, uint64_t interval_ns);
-#endif
 int postgamma_backend_take_pending_signals(PostgammaBackendRegistry *registry,
 										 PostgammaBackendId id,
 										 uint64_t *pending);

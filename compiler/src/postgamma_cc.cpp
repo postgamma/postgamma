@@ -10,18 +10,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "postgamma/source_identity.h"
+#include "postgamma/ast_use.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ParentMapContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/FrontendActions.h"
-#include "clang/Index/USRGeneration.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/Tooling.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
@@ -47,6 +47,8 @@ using namespace clang::ast_matchers;
 using namespace clang::tooling;
 
 namespace {
+
+using namespace postgamma::compiler;
 
 #ifndef POSTGAMMA_CLANG_RESOURCE_DIR
 #define POSTGAMMA_CLANG_RESOURCE_DIR ""
@@ -202,27 +204,6 @@ struct AssumptionRecord {
   }
 };
 
-std::string normalizeAbsolutePath(llvm::StringRef value) {
-  if (value.empty())
-    return {};
-  std::error_code error;
-  fs::path path(value.str());
-  if (!path.is_absolute())
-    path = fs::absolute(path, error);
-  if (error)
-    return {};
-  path = path.lexically_normal();
-  fs::path canonical = fs::weakly_canonical(path, error);
-  if (!error)
-    path = std::move(canonical);
-  return path.generic_string();
-}
-
-struct RootedPath {
-  std::string kind;
-  std::string path;
-};
-
 bool hasPathSuffix(llvm::StringRef path, llvm::StringRef suffix) {
   std::string normalized_suffix = fs::path(suffix.str()).lexically_normal().generic_string();
   if (!path.ends_with(normalized_suffix))
@@ -257,38 +238,6 @@ std::string renderInjectedCode(llvm::StringRef code,
     line_start = line_end + (has_newline ? 1 : 0);
   }
   return result;
-}
-
-std::optional<std::string> relativeToRoot(llvm::StringRef absolute,
-                                          llvm::StringRef root) {
-  fs::path path(absolute.str());
-  fs::path base(root.str());
-  auto path_it = path.begin();
-  auto base_it = base.begin();
-  while (path_it != path.end() && base_it != base.end() && *path_it == *base_it) {
-    ++path_it;
-    ++base_it;
-  }
-  if (base_it != base.end())
-    return std::nullopt;
-  fs::path relative;
-  for (; path_it != path.end(); ++path_it)
-    relative /= *path_it;
-  if (relative.empty())
-    return std::nullopt;
-  return relative.generic_string();
-}
-
-std::optional<RootedPath> locateInRoots(llvm::StringRef absolute,
-                                        llvm::StringRef source_root,
-                                        llvm::StringRef generated_root) {
-  if (auto relative = relativeToRoot(absolute, source_root))
-    return RootedPath{"source", std::move(*relative)};
-  if (!generated_root.empty()) {
-    if (auto relative = relativeToRoot(absolute, generated_root))
-      return RootedPath{"generated_build", std::move(*relative)};
-  }
-  return std::nullopt;
 }
 
 std::optional<Manifest> loadManifest(llvm::StringRef path) {
@@ -466,20 +415,6 @@ std::optional<Manifest> loadManifest(llvm::StringRef path) {
   return result;
 }
 
-std::string declarationUSR(const VarDecl *declaration) {
-  llvm::SmallString<128> usr;
-  if (clang::index::generateUSRForDecl(declaration->getCanonicalDecl(), usr))
-    return {};
-  return usr.str().str();
-}
-
-std::string locationPath(const SourceManager &source_manager, SourceLocation location) {
-  if (location.isInvalid())
-    return {};
-  llvm::StringRef filename = source_manager.getFilename(location);
-  return normalizeAbsolutePath(filename);
-}
-
 bool declarationMatches(const VarDecl *declaration, const SymbolSpec &spec,
                         const SourceManager &source_manager) {
   if (!declaration->isFileVarDecl() || !declaration->hasGlobalStorage())
@@ -516,50 +451,6 @@ bool declarationTypeMatches(const VarDecl *declaration, llvm::StringRef expected
   if (expected == "any")
     return true;
   return false;
-}
-
-const Expr *stripTransparentParents(const Expr *expression, ASTContext &context,
-                                    DynTypedNode &node) {
-  const Expr *current = expression;
-  node = DynTypedNode::create(*expression);
-  for (;;) {
-    auto parents = context.getParents(node);
-    if (parents.size() != 1)
-      return current;
-    const Expr *parent = parents[0].get<Expr>();
-    if (!parent)
-      return current;
-    if (!isa<ParenExpr>(parent) && !isa<ImplicitCastExpr>(parent) &&
-        !isa<ExprWithCleanups>(parent) && !isa<MaterializeTemporaryExpr>(parent))
-      return current;
-    current = parent;
-    node = parents[0];
-  }
-}
-
-std::string classifyUse(const DeclRefExpr *reference, ASTContext &context) {
-  DynTypedNode node;
-  const Expr *current = stripTransparentParents(reference, context, node);
-  auto parents = context.getParents(node);
-  if (parents.size() != 1)
-    return "read";
-
-  if (const auto *unary = parents[0].get<UnaryOperator>()) {
-    if (unary->getOpcode() == UO_AddrOf)
-      return "address";
-    if (unary->isIncrementDecrementOp())
-      return "read_write";
-  }
-  if (const auto *binary = parents[0].get<BinaryOperator>()) {
-    if (binary->getLHS()->IgnoreParenImpCasts() == reference ||
-        binary->getLHS()->IgnoreParenImpCasts() == current->IgnoreParenImpCasts()) {
-      if (binary->isCompoundAssignmentOp())
-        return "read_write";
-      if (binary->isAssignmentOp())
-        return "write";
-    }
-  }
-  return "read";
 }
 
 llvm::json::Object declarationJSON(const DeclarationRecord &record) {

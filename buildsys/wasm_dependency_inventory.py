@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -18,6 +17,7 @@ from check_embedded_process_assumptions import ProcessAssumptionError, assumptio
 from c_source_probe import function_span, sanitize_c
 from derive_kernel_link import derive, response_content
 from postgresql_embedded_adapter import load_adapter
+from artifact_io import sha256
 
 
 KIND = "postgamma.wasm-native-dependency-inventory"
@@ -194,14 +194,6 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise InventoryError(f"expected JSON object: {path}")
     return document
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def display(path: Path, root: Path) -> str:

@@ -16,6 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from artifact_io import write_json
 from strace_trace import reassemble_syscall_lines
 
 
@@ -165,22 +166,42 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def write_json(path: Path, document: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    content = json.dumps(document, indent=2, sort_keys=True) + "\n"
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        delete=False,
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+def reference_candidate_parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser()
+    subparsers = result.add_subparsers(dest="phase", required=True)
+
+    reference = subparsers.add_parser("reference")
+    reference.add_argument("--make", default="make")
+    reference.add_argument("--jobs", type=int, default=1)
+    reference.add_argument("--postgres-build", required=True, type=Path)
+    reference.add_argument("--driver", required=True, type=Path)
+    reference.add_argument("--work-root", required=True, type=Path)
+    reference.add_argument("--stdout", required=True, type=Path)
+    reference.add_argument("--stderr", required=True, type=Path)
+    reference.add_argument("--server-log", required=True, type=Path)
+    reference.add_argument("--input", action="append", default=[], type=Path)
+    reference.add_argument("--output", required=True, type=Path)
+
+    candidate = subparsers.add_parser("candidate")
+    candidate.add_argument("--make", default="make")
+    candidate.add_argument("--jobs", type=int, default=1)
+    candidate.add_argument("--postgres-build", required=True, type=Path)
+    candidate.add_argument("--library", required=True, type=Path)
+    candidate.add_argument("--driver", required=True, type=Path)
+    candidate.add_argument("--reference", required=True, type=Path)
+    candidate.add_argument("--work-root", required=True, type=Path)
+    candidate.add_argument("--stdout", required=True, type=Path)
+    candidate.add_argument("--stderr", required=True, type=Path)
+    candidate.add_argument("--trace", required=True, type=Path)
+    candidate.add_argument("--strace", default="strace")
+    candidate.add_argument("--input", action="append", default=[], type=Path)
+    candidate.add_argument("--output", required=True, type=Path)
+
+    aggregate = subparsers.add_parser("aggregate")
+    aggregate.add_argument("--reference", required=True, type=Path)
+    aggregate.add_argument("--candidate", required=True, type=Path)
+    aggregate.add_argument("--output", required=True, type=Path)
+    return result
 
 
 def run_checked(
@@ -258,6 +279,127 @@ def runtime_environment(prefix: Path) -> dict[str, str]:
     if paths:
         environment["LD_LIBRARY_PATH"] = os.pathsep.join(paths)
     return environment
+
+
+def install_runtime(
+    args: argparse.Namespace, postgres_build: Path, temporary: Path
+) -> tuple[Path, dict[str, str]]:
+    """Stage a PostgreSQL installation inside the caller-owned temporary directory."""
+    install_root = temporary / "install"
+    run_checked(
+        [
+            args.make,
+            "-C",
+            str(postgres_build),
+            f"-j{args.jobs}",
+            "install",
+            f"DESTDIR={install_root}",
+        ],
+        timeout=300.0,
+    )
+    prefix = installed_prefix(install_root)
+    environment = runtime_environment(prefix)
+    return prefix, environment
+
+
+def prepend_library_path(environment: dict[str, str], path: Path) -> None:
+    values = [str(path)]
+    if environment.get("LD_LIBRARY_PATH"):
+        values.append(environment["LD_LIBRARY_PATH"])
+    environment["LD_LIBRARY_PATH"] = os.pathsep.join(values)
+
+
+def run_reference_driver(
+    args: argparse.Namespace, driver: Path, *, port: int, timeout: float,
+    work_prefix: str, socket_prefix: str,
+) -> tuple[int, subprocess.CompletedProcess[str]]:
+    """Run a socket-libpq oracle and retire its server before releasing its files."""
+    reference_build = args.postgres_build.resolve(strict=True)
+    work_root = args.work_root.resolve()
+    work_root.mkdir(parents=True, exist_ok=True)
+    reference_pid = 0
+    # Unix socket paths must fit sockaddr_un even in deeply nested workspaces.
+    with (
+        tempfile.TemporaryDirectory(
+            prefix=work_prefix, dir=work_root
+        ) as temp,
+        tempfile.TemporaryDirectory(prefix=socket_prefix) as socket_temp,
+    ):
+        temporary = Path(temp)
+        prefix, environment = install_runtime(args, reference_build, temporary)
+        environment["LC_ALL"] = "C"
+        data_directory = temporary / "data"
+        socket_directory = Path(socket_temp)
+        # Keep startup diagnostics after the temporary cluster is removed.
+        log_path = args.server_log.resolve()
+        run_checked(
+            [
+                str(prefix / "bin" / "initdb"),
+                "--pgdata",
+                str(data_directory),
+                "--username=postgamma",
+                "--auth=trust",
+                "--encoding=UTF8",
+                "--locale=C",
+                "--no-sync",
+                "--no-instructions",
+            ],
+            environment=environment,
+            timeout=60.0,
+        )
+        config = data_directory / "postgresql.conf"
+        config.write_text(
+            config.read_text(encoding="utf-8")
+            + "\nlisten_addresses = ''\n"
+            + f"unix_socket_directories = '{socket_directory}'\n"
+            + f"port = {port}\n"
+            + "fsync = off\n",
+            encoding="utf-8",
+        )
+        started = False
+        try:
+            run_checked(
+                [
+                    str(prefix / "bin" / "pg_ctl"),
+                    "-D",
+                    str(data_directory),
+                    "-l",
+                    str(log_path),
+                    "-w",
+                    "start",
+                ],
+                environment=environment,
+                timeout=60.0,
+            )
+            started = True
+            reference_pid = int(
+                (data_directory / "postmaster.pid")
+                .read_text(encoding="utf-8")
+                .splitlines()[0]
+            )
+            completed = run_checked(
+                [str(driver), str(socket_directory), str(port)],
+                environment=environment,
+                timeout=timeout,
+                check=False,
+            )
+        finally:
+            if started:
+                run_checked(
+                    [
+                        str(prefix / "bin" / "pg_ctl"),
+                        "-D",
+                        str(data_directory),
+                        "-m",
+                        "fast",
+                        "-w",
+                        "stop",
+                    ],
+                    environment=environment,
+                    timeout=60.0,
+                    check=False,
+                )
+    return reference_pid, completed
 
 
 def parse_marker(output: str) -> dict[str, str]:

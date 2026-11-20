@@ -21,7 +21,7 @@ from check_embedded_lifecycle import (
 )
 from check_embedded_public_api import PublicApiCheckError, audit_trace
 from check_arrow_management import parse_runtime
-from strace_trace import strace_command_prefix
+from strace_trace import strace_command_prefix, traced_command
 
 
 FILE_MARKER = "POSTGAMMA_LOGICAL_TOOL"
@@ -148,22 +148,6 @@ def require_diagnostics_isolated(stderr: str) -> None:
         raise LogicalManagementCheckError(
             "logical-management run emitted a fatal backend diagnostic"
         )
-
-
-def traced_command(
-    strace_prefix: list[str], trace: Path, driver: Path, arguments: list[Path]
-) -> list[str]:
-    return [
-        *strace_prefix,
-        "-f",
-        "-qq",
-        "-o",
-        str(trace),
-        "-e",
-        "trace=process,signal,network,chdir,fchdir,umask,setitimer",
-        str(driver),
-        *(str(argument) for argument in arguments),
-    ]
 
 
 def filesystem_trace_command(

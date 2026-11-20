@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import re
 import shutil
 import tempfile
@@ -21,6 +20,7 @@ from check_embedded_lifecycle import (
 )
 from check_embedded_public_api import PublicApiCheckError, audit_trace
 from check_arrow_management import parse_runtime, prepend_library_path
+from artifact_io import sha256
 
 
 MARKER = "POSTGAMMA_QUICKSTART"
@@ -38,14 +38,6 @@ MARKER_VALUES = {
 
 class InstalledSdkCheckError(RuntimeError):
     """The staged public SDK did not build or behave as documented."""
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def marker_fields(stdout: str) -> dict[str, str]:

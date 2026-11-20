@@ -119,11 +119,6 @@ struct PostgammaPathRuntime *postgamma_instance_context_path_runtime(
 	const PostgammaInstanceContext *context);
 int postgamma_role_context_init(PostgammaRoleContext *context,
 								PostgammaInstanceContext *instance);
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-struct PostgammaMemoryPool;
-int postgamma_role_context_init_in_pool(PostgammaRoleContext *context,
-	PostgammaInstanceContext *instance, struct PostgammaMemoryPool *pool);
-#endif
 void postgamma_role_context_destroy(PostgammaRoleContext *context);
 int postgamma_execution_context_init(PostgammaExecutionContext *context,
 								 PostgammaInstanceContext *instance,

@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import tarfile
 import zipfile
 from pathlib import Path
 from typing import BinaryIO, Iterable
+from artifact_io import sha256
 
 
 EVIDENCE_KIND = "postgamma.public-artifact-evidence"
@@ -24,14 +24,6 @@ ABSOLUTE_PROJECT_PATH = re.compile(
 
 class PublicArtifactError(RuntimeError):
     """A release payload contains a build-host source path."""
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def preview(value: bytes) -> str:

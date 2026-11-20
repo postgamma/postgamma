@@ -170,15 +170,6 @@ postgamma_instance_context_path_runtime(const PostgammaInstanceContext *context)
 int
 postgamma_role_context_init(PostgammaRoleContext *context,
 							PostgammaInstanceContext *instance)
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-{
-	return postgamma_role_context_init_in_pool(context, instance, NULL);
-}
-
-int
-postgamma_role_context_init_in_pool(PostgammaRoleContext *context,
-	PostgammaInstanceContext *instance, struct PostgammaMemoryPool *pool)
-#endif
 {
 	void	   *backend_state = NULL;
 	int			status;
@@ -187,21 +178,8 @@ postgamma_role_context_init_in_pool(PostgammaRoleContext *context,
 		instance->magic != POSTGAMMA_INSTANCE_CONTEXT_MAGIC)
 		postgamma_runtime_contract_violation();
 	memset(context, 0, sizeof(*context));
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-	if (pool != NULL)
-		status = postgamma_backend_state_context_init_in_pool(
-			POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state, pool);
-	else
-#endif
-	status = postgamma_backend_state_role_acquire(instance->postgres_backend_state, &backend_state);
-#elif defined(POSTGAMMA_PRIVATE_MEMORY_BLOCKS)
-	status = postgamma_backend_state_context_init_in_pool(
-		POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state, pool);
-#else
 	status = postgamma_backend_state_context_init(
 		POSTGAMMA_BACKEND_STATE_OWNER_ROLE, &backend_state);
-#endif
 	if (status != 0)
 		return status;
 	context->magic = POSTGAMMA_ROLE_CONTEXT_MAGIC;

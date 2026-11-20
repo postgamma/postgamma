@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -14,11 +13,14 @@ from typing import Any
 from check_embedded_lifecycle import (
     LifecycleCheckError,
     input_identity,
-    installed_prefix,
+    install_runtime,
+    prepend_library_path,
+    run_reference_driver,
+    reference_candidate_parser as parser,
     run_checked,
-    runtime_environment,
     write_json,
 )
+from strace_trace import traced_command
 from check_embedded_public_api import audit_trace
 
 
@@ -217,121 +219,17 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def prepend_library_path(environment: dict[str, str], path: Path) -> None:
-    values = [str(path)]
-    if environment.get("LD_LIBRARY_PATH"):
-        values.append(environment["LD_LIBRARY_PATH"])
-    environment["LD_LIBRARY_PATH"] = os.pathsep.join(values)
-
-
 def run_reference(args: argparse.Namespace) -> None:
     generated = (args.stdout, args.stderr, args.server_log, args.output)
     for path in generated:
         path.resolve().parent.mkdir(parents=True, exist_ok=True)
         path.resolve().unlink(missing_ok=True)
-    reference_build = args.postgres_build.resolve(strict=True)
     driver = args.driver.resolve(strict=True)
     inputs = [path.resolve(strict=True) for path in args.input]
-    work_root = args.work_root.resolve()
-    work_root.mkdir(parents=True, exist_ok=True)
-    reference_pid = 0
-    completed = None
-    # Unix socket paths must fit sockaddr_un even in deeply nested workspaces.
-    with (
-        tempfile.TemporaryDirectory(
-            prefix="chunked_results-reference-", dir=work_root
-        ) as temp,
-        tempfile.TemporaryDirectory(prefix="pgm-chunk-socket-") as socket_temp,
-    ):
-        temporary = Path(temp)
-        install_root = temporary / "install"
-        run_checked(
-            [
-                args.make,
-                "-C",
-                str(reference_build),
-                f"-j{args.jobs}",
-                "install",
-                f"DESTDIR={install_root}",
-            ],
-            timeout=300.0,
-        )
-        prefix = installed_prefix(install_root)
-        environment = runtime_environment(prefix)
-        environment["LC_ALL"] = "C"
-        data_directory = temporary / "data"
-        socket_directory = Path(socket_temp)
-        # Keep startup diagnostics after the temporary cluster is removed.
-        log_path = args.server_log.resolve()
-        run_checked(
-            [
-                str(prefix / "bin" / "initdb"),
-                "--pgdata",
-                str(data_directory),
-                "--username=postgamma",
-                "--auth=trust",
-                "--encoding=UTF8",
-                "--locale=C",
-                "--no-sync",
-                "--no-instructions",
-            ],
-            environment=environment,
-            timeout=60.0,
-        )
-        config = data_directory / "postgresql.conf"
-        config.write_text(
-            config.read_text(encoding="utf-8")
-            + "\nlisten_addresses = ''\n"
-            + f"unix_socket_directories = '{socket_directory}'\n"
-            + "port = 65433\n"
-            + "fsync = off\n",
-            encoding="utf-8",
-        )
-        started = False
-        try:
-            run_checked(
-                [
-                    str(prefix / "bin" / "pg_ctl"),
-                    "-D",
-                    str(data_directory),
-                    "-l",
-                    str(log_path),
-                    "-w",
-                    "start",
-                ],
-                environment=environment,
-                timeout=60.0,
-            )
-            started = True
-            reference_pid = int(
-                (data_directory / "postmaster.pid")
-                .read_text(encoding="utf-8")
-                .splitlines()[0]
-            )
-            completed = run_checked(
-                [str(driver), str(socket_directory), "65433"],
-                environment=environment,
-                timeout=60.0,
-                check=False,
-            )
-        finally:
-            if started:
-                run_checked(
-                    [
-                        str(prefix / "bin" / "pg_ctl"),
-                        "-D",
-                        str(data_directory),
-                        "-m",
-                        "fast",
-                        "-w",
-                        "stop",
-                    ],
-                    environment=environment,
-                    timeout=60.0,
-                    check=False,
-                )
-    if completed is None:
-        raise ChunkedResultsCheckError("reference driver did not run")
+    reference_pid, completed = run_reference_driver(
+        args, driver, port=65433, timeout=60.0,
+        work_prefix="chunked_results-reference-", socket_prefix="pgm-chunk-socket-",
+    )
     write_text(args.stdout.resolve(), completed.stdout)
     write_text(args.stderr.resolve(), completed.stderr)
     if completed.returncode != 0:
@@ -365,6 +263,7 @@ def run_reference(args: argparse.Namespace) -> None:
     )
 
 
+
 def run_candidate(args: argparse.Namespace) -> None:
     generated = (args.stdout, args.stderr, args.trace, args.output)
     for path in generated:
@@ -380,20 +279,7 @@ def run_candidate(args: argparse.Namespace) -> None:
     work_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="chunked_results-candidate-", dir=work_root) as temp:
         temporary = Path(temp)
-        install_root = temporary / "install"
-        run_checked(
-            [
-                args.make,
-                "-C",
-                str(postgres_build),
-                f"-j{args.jobs}",
-                "install",
-                f"DESTDIR={install_root}",
-            ],
-            timeout=300.0,
-        )
-        prefix = installed_prefix(install_root)
-        environment = runtime_environment(prefix)
+        prefix, environment = install_runtime(args, postgres_build, temporary)
         prepend_library_path(environment, library.parent)
         environment["LC_ALL"] = "C"
         completed = run_checked(
@@ -409,21 +295,10 @@ def run_candidate(args: argparse.Namespace) -> None:
             check=False,
         )
         trace_completed = run_checked(
-            [
-                args.strace,
-                "-f",
-                "-qq",
-                "-o",
-                str(args.trace.resolve()),
-                "-e",
-                "trace=process,signal,network,chdir,fchdir,umask,setitimer",
-                str(driver),
-                str(temporary / "trace-data"),
-                str(prefix / "bin" / "postgres"),
-                str(prefix),
-                "create",
-                "trace",
-            ],
+            traced_command(
+                [args.strace], args.trace.resolve(), driver,
+                [temporary / "trace-data", prefix / "bin" / "postgres", prefix, "create", "trace"],
+            ),
             environment=environment,
             timeout=120.0,
             check=False,
@@ -545,44 +420,6 @@ def run_aggregate(args: argparse.Namespace) -> None:
             "inputs": input_identity([reference_path, candidate_path]),
         },
     )
-
-
-def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser()
-    subparsers = result.add_subparsers(dest="phase", required=True)
-
-    reference = subparsers.add_parser("reference")
-    reference.add_argument("--make", default="make")
-    reference.add_argument("--jobs", type=int, default=1)
-    reference.add_argument("--postgres-build", required=True, type=Path)
-    reference.add_argument("--driver", required=True, type=Path)
-    reference.add_argument("--work-root", required=True, type=Path)
-    reference.add_argument("--stdout", required=True, type=Path)
-    reference.add_argument("--stderr", required=True, type=Path)
-    reference.add_argument("--server-log", required=True, type=Path)
-    reference.add_argument("--input", action="append", default=[], type=Path)
-    reference.add_argument("--output", required=True, type=Path)
-
-    candidate = subparsers.add_parser("candidate")
-    candidate.add_argument("--make", default="make")
-    candidate.add_argument("--jobs", type=int, default=1)
-    candidate.add_argument("--postgres-build", required=True, type=Path)
-    candidate.add_argument("--library", required=True, type=Path)
-    candidate.add_argument("--driver", required=True, type=Path)
-    candidate.add_argument("--reference", required=True, type=Path)
-    candidate.add_argument("--work-root", required=True, type=Path)
-    candidate.add_argument("--stdout", required=True, type=Path)
-    candidate.add_argument("--stderr", required=True, type=Path)
-    candidate.add_argument("--trace", required=True, type=Path)
-    candidate.add_argument("--strace", default="strace")
-    candidate.add_argument("--input", action="append", default=[], type=Path)
-    candidate.add_argument("--output", required=True, type=Path)
-
-    aggregate = subparsers.add_parser("aggregate")
-    aggregate.add_argument("--reference", required=True, type=Path)
-    aggregate.add_argument("--candidate", required=True, type=Path)
-    aggregate.add_argument("--output", required=True, type=Path)
-    return result
 
 
 def main() -> int:

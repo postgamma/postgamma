@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "postgamma/source_identity.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
@@ -20,17 +21,14 @@
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/FrontendActions.h"
-#include "clang/Index/USRGeneration.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
@@ -38,12 +36,13 @@
 #include <utility>
 #include <vector>
 
-namespace fs = std::filesystem;
 using namespace clang;
 using namespace clang::ast_matchers;
 using namespace clang::tooling;
 
 namespace {
+
+using namespace postgamma::compiler;
 
 #ifndef POSTGAMMA_CLANG_RESOURCE_DIR
 #define POSTGAMMA_CLANG_RESOURCE_DIR ""
@@ -77,125 +76,6 @@ llvm::cl::opt<bool> SuppressCompilerWarnings(
     "suppress-compiler-warnings",
     llvm::cl::desc("Suppress warnings inherited from a non-Clang compile database"),
     llvm::cl::init(true), llvm::cl::cat(InventoryCategory));
-
-std::string normalizeAbsolutePath(llvm::StringRef value) {
-  if (value.empty())
-    return {};
-  std::error_code error;
-  fs::path path(value.str());
-  if (!path.is_absolute())
-    path = fs::absolute(path, error);
-  if (error)
-    return {};
-  path = path.lexically_normal();
-  fs::path canonical = fs::weakly_canonical(path, error);
-  if (!error)
-    path = std::move(canonical);
-  return path.generic_string();
-}
-
-std::optional<std::string> relativeToRoot(llvm::StringRef absolute,
-                                          llvm::StringRef root) {
-  fs::path path(absolute.str());
-  fs::path base(root.str());
-  auto path_it = path.begin();
-  auto base_it = base.begin();
-  while (path_it != path.end() && base_it != base.end() &&
-         *path_it == *base_it) {
-    ++path_it;
-    ++base_it;
-  }
-  if (base_it != base.end())
-    return std::nullopt;
-  fs::path relative;
-  for (; path_it != path.end(); ++path_it)
-    relative /= *path_it;
-  if (relative.empty())
-    return std::nullopt;
-  return relative.generic_string();
-}
-
-struct RootedPath {
-  std::string kind;
-  std::string path;
-};
-
-std::optional<RootedPath> locateInRoots(llvm::StringRef absolute,
-                                        llvm::StringRef source_root,
-                                        llvm::StringRef generated_root) {
-  if (auto relative = relativeToRoot(absolute, source_root))
-    return RootedPath{"source", std::move(*relative)};
-  if (!generated_root.empty()) {
-    if (auto relative = relativeToRoot(absolute, generated_root))
-      return RootedPath{"generated_build", std::move(*relative)};
-  }
-  return std::nullopt;
-}
-
-std::string identityPath(const RootedPath &location) {
-  if (location.kind == "source")
-    return location.path;
-  return "@generated/" + location.path;
-}
-
-std::string locationPath(const SourceManager &source_manager,
-                         SourceLocation location) {
-  if (location.isInvalid())
-    return {};
-  return normalizeAbsolutePath(source_manager.getFilename(location));
-}
-
-std::optional<RootedPath> mainTranslationUnit(
-    const SourceManager &source_manager, llvm::StringRef source_root,
-    llvm::StringRef generated_root) {
-  SourceLocation start =
-      source_manager.getLocForStartOfFile(source_manager.getMainFileID());
-  return locateInRoots(locationPath(source_manager, start), source_root,
-                       generated_root);
-}
-
-std::string declarationContext(const VarDecl *declaration) {
-  const DeclContext *context = declaration->getDeclContext();
-  if (const auto *function = dyn_cast<FunctionDecl>(context))
-    return function->getQualifiedNameAsString();
-  if (const auto *method = dyn_cast<CXXMethodDecl>(context))
-    return method->getQualifiedNameAsString();
-  return {};
-}
-
-std::string stableIdentity(const VarDecl *declaration,
-                           const SourceManager &source_manager,
-                           llvm::StringRef source_root,
-                           llvm::StringRef generated_root) {
-  std::string qualified = declaration->getQualifiedNameAsString();
-  if (qualified.empty())
-    qualified = declaration->getNameAsString();
-  if (declaration->isExternallyVisible() && !declaration->isLocalVarDecl())
-    return "external:" + qualified;
-
-  const VarDecl *definition = declaration->getDefinition();
-  if (definition == nullptr)
-    definition = declaration;
-  SourceLocation location =
-      source_manager.getSpellingLoc(definition->getLocation());
-  auto definition_location = locateInRoots(
-      locationPath(source_manager, location), source_root, generated_root);
-  auto translation_unit =
-      mainTranslationUnit(source_manager, source_root, generated_root);
-  if (!definition_location || !translation_unit)
-    return {};
-  std::string context = declarationContext(definition);
-  std::string kind = definition->isLocalVarDecl() ? "function_static" : "internal";
-  return kind + ":" + identityPath(*translation_unit) + ":" +
-         identityPath(*definition_location) + ":" + context + ":" + qualified;
-}
-
-std::string declarationUSR(const VarDecl *declaration) {
-  llvm::SmallString<128> usr;
-  if (clang::index::generateUSRForDecl(declaration->getCanonicalDecl(), usr))
-    return {};
-  return usr.str().str();
-}
 
 struct ReferenceLocation {
   std::string path;

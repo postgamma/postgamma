@@ -19,7 +19,6 @@
 #endif
 #include "postgamma/guc_runtime.h"
 #include "postgamma/thread_runtime.h"
-#include "postgamma/memory_block_runtime.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -27,10 +26,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(POSTGAMMA_ROLE_CACHE_BYTES) && defined(__linux__) && !defined(__EMSCRIPTEN__)
-#include <sys/mman.h>
-#include <unistd.h>
-#endif
 
 
 #define POSTGAMMA_BACKEND_STATE_MAGIC UINT64_C(0x504742454E445354)
@@ -60,15 +55,6 @@ typedef struct PostgammaBackendStateStore
 	unsigned char *data;
 	_Atomic(const PostgammaBackendStatePreparation *) prepared;
 	bool		was_bound;
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-	struct PostgammaBackendStateStore *pool_owner;
-	struct PostgammaBackendStateStore *pool_next;
-	struct PostgammaBackendStateStore *pool_head;
-	size_t		allocation_size;
-	size_t		mapping_size;
-	size_t		pool_bytes;
-	size_t		pool_leases;
-#endif
 } PostgammaBackendStateStore;
 
 typedef struct PostgammaExtensionRoleStateEntry
@@ -218,15 +204,6 @@ postgamma_backend_state_alignment(PostgammaBackendStateOwner owner)
 int
 postgamma_backend_state_context_init(PostgammaBackendStateOwner owner,
 									void **storage)
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-{
-	return postgamma_backend_state_context_init_in_pool(owner, storage, NULL);
-}
-
-int
-postgamma_backend_state_context_init_in_pool(PostgammaBackendStateOwner owner,
-	void **storage, struct PostgammaMemoryPool *pool)
-#endif
 {
 	PostgammaBackendStateStore *store;
 	size_t		alignment;
@@ -253,47 +230,11 @@ postgamma_backend_state_context_init_in_pool(PostgammaBackendStateOwner owner,
 		return ENOMEM;
 	store->initialized = calloc(
 		initialization_count, sizeof(*store->initialized));
-#if defined(POSTGAMMA_ROLE_CACHE_BYTES) && defined(__linux__) && !defined(__EMSCRIPTEN__)
-	if (owner == POSTGAMMA_BACKEND_STATE_OWNER_ROLE && allocation_size >= 4096
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-		&& pool == NULL
-#endif
-		)
-	{
-		long page_size = sysconf(_SC_PAGESIZE);
-		size_t mapped_size;
-		void *mapping;
-		if (page_size <= 0 || allocation_size > SIZE_MAX - (size_t) page_size + 1)
-			postgamma_runtime_contract_violation();
-		mapped_size = (allocation_size + (size_t) page_size - 1) / (size_t) page_size * (size_t) page_size;
-		mapping = mmap(NULL, mapped_size, PROT_READ | PROT_WRITE,
-			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		if (mapping != MAP_FAILED)
-		{
-			store->data_allocation = mapping;
-			store->mapping_size = mapped_size;
-		}
-	}
-	else
-#endif
-	store->data_allocation =
-#ifdef POSTGAMMA_PRIVATE_MEMORY_BLOCKS
-		postgamma_memory_block_allocate_in(pool, allocation_size, 1);
-#else
-		postgamma_memory_block_calloc(allocation_size, 1);
-#endif
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-	store->allocation_size = allocation_size;
-#endif
+	store->data_allocation = calloc(allocation_size, 1);
 	if (store->initialized == NULL || store->data_allocation == NULL)
 	{
 		free(store->initialized);
-#if defined(POSTGAMMA_ROLE_CACHE_BYTES) && defined(__linux__) && !defined(__EMSCRIPTEN__)
-		if (store->mapping_size != 0)
-			(void) munmap(store->data_allocation, store->mapping_size);
-		else
-#endif
-			postgamma_memory_block_free(store->data_allocation);
+		free(store->data_allocation);
 		free(store);
 		return ENOMEM;
 	}
@@ -306,7 +247,7 @@ postgamma_backend_state_context_init_in_pool(PostgammaBackendStateOwner owner,
 	if (status != 0)
 	{
 		free(store->initialized);
-		postgamma_memory_block_free(store->data_allocation);
+		free(store->data_allocation);
 		free(store);
 		return status;
 	}
@@ -322,84 +263,6 @@ postgamma_backend_state_context_init_in_pool(PostgammaBackendStateOwner owner,
 }
 
 
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-static size_t
-role_cache_charge(const PostgammaBackendStateStore *store)
-{
-	/* Bound requested cache storage, including metadata and mapping padding. */
-	return (store->mapping_size != 0 ? store->mapping_size : store->allocation_size) +
-		sizeof(*store) + (store->slot_count == 0 ? 1 : store->slot_count);
-}
-
-int
-postgamma_backend_state_role_acquire(void *instance_storage, void **storage)
-{
-	PostgammaBackendStateStore *owner = instance_storage;
-	PostgammaBackendStateStore *store;
-	int status;
-
-	if (owner == NULL || owner->magic != POSTGAMMA_BACKEND_STATE_MAGIC ||
-		owner->owner != POSTGAMMA_BACKEND_STATE_OWNER_INSTANCE ||
-		storage == NULL || *storage != NULL)
-		postgamma_runtime_contract_violation();
-	if (postgamma_mutex_lock(owner->initialization_mutex) != 0)
-		postgamma_runtime_contract_violation();
-	store = owner->pool_head;
-	if (store != NULL)
-	{
-		owner->pool_head = store->pool_next;
-		owner->pool_bytes -= role_cache_charge(store);
-	}
-	/* Reserve owner lifetime even while allocation/clearing runs outside lock. */
-	owner->pool_leases++;
-	if (postgamma_mutex_unlock(owner->initialization_mutex) != 0)
-		postgamma_runtime_contract_violation();
-	if (store == NULL)
-	{
-		status = postgamma_backend_state_context_init(POSTGAMMA_BACKEND_STATE_OWNER_ROLE, storage);
-		if (status != 0)
-		{
-			if (postgamma_mutex_lock(owner->initialization_mutex) != 0)
-				postgamma_runtime_contract_violation();
-			owner->pool_leases--;
-			if (postgamma_mutex_unlock(owner->initialization_mutex) != 0)
-				postgamma_runtime_contract_violation();
-			return status;
-		}
-		store = *storage;
-	}
-	else
-	{
-		/* Recycle physical storage only; no logical initialization survives. */
-		memset(store->data_allocation, 0, store->allocation_size);
-		for (size_t i = 0; i < store->slot_count; i++)
-			atomic_store_explicit(&store->initialized[i], 0, memory_order_relaxed);
-		atomic_store_explicit(&store->prepared, NULL, memory_order_relaxed);
-		store->was_bound = false;
-		store->pool_next = NULL;
-		store->magic = POSTGAMMA_BACKEND_STATE_MAGIC;
-		*storage = store;
-	}
-	store->pool_owner = owner;
-	return 0;
-}
-
-void
-postgamma_backend_state_role_cache_usage(void *instance_storage, size_t *bytes, size_t *leases)
-{
-	PostgammaBackendStateStore *owner = instance_storage;
-	if (owner == NULL || owner->magic != POSTGAMMA_BACKEND_STATE_MAGIC ||
-		owner->owner != POSTGAMMA_BACKEND_STATE_OWNER_INSTANCE || bytes == NULL || leases == NULL)
-		postgamma_runtime_contract_violation();
-	if (postgamma_mutex_lock(owner->initialization_mutex) != 0)
-		postgamma_runtime_contract_violation();
-	*bytes = owner->pool_bytes;
-	*leases = owner->pool_leases;
-	if (postgamma_mutex_unlock(owner->initialization_mutex) != 0)
-		postgamma_runtime_contract_violation();
-}
-#endif
-
 void
 postgamma_backend_state_context_destroy(void **storage)
 {
@@ -410,71 +273,12 @@ postgamma_backend_state_context_destroy(void **storage)
 	store = *storage;
 	if (store->magic != POSTGAMMA_BACKEND_STATE_MAGIC)
 		postgamma_runtime_contract_violation();
-#ifdef POSTGAMMA_ROLE_CACHE_BYTES
-	if (store->owner == POSTGAMMA_BACKEND_STATE_OWNER_INSTANCE)
-	{
-		PostgammaBackendStateStore *cached;
-		if (postgamma_mutex_lock(store->initialization_mutex) != 0)
-			postgamma_runtime_contract_violation();
-		if (store->pool_leases != 0)
-			postgamma_runtime_contract_violation();
-		cached = store->pool_head;
-		store->pool_head = NULL;
-		store->pool_bytes = 0;
-		if (postgamma_mutex_unlock(store->initialization_mutex) != 0)
-			postgamma_runtime_contract_violation();
-		while (cached != NULL)
-		{
-			PostgammaBackendStateStore *next = cached->pool_next;
-			void *entry = cached;
-			cached->pool_owner = NULL;
-			cached->magic = POSTGAMMA_BACKEND_STATE_MAGIC;
-			postgamma_backend_state_context_destroy(&entry);
-			cached = next;
-		}
-	}
-	if (store->pool_owner != NULL)
-	{
-		PostgammaBackendStateStore *owner = store->pool_owner;
-		size_t charge = role_cache_charge(store);
-		bool retain = false;
-		if (postgamma_mutex_lock(owner->initialization_mutex) != 0)
-			postgamma_runtime_contract_violation();
-		if (owner->pool_leases == 0)
-			postgamma_runtime_contract_violation();
-		owner->pool_leases--;
-		if (charge <= POSTGAMMA_ROLE_CACHE_BYTES &&
-			owner->pool_bytes <= POSTGAMMA_ROLE_CACHE_BYTES - charge)
-		{
-			store->magic = 0;
-			store->pool_next = owner->pool_head;
-			owner->pool_head = store;
-			owner->pool_bytes += charge;
-			retain = true;
-		}
-		if (postgamma_mutex_unlock(owner->initialization_mutex) != 0)
-			postgamma_runtime_contract_violation();
-		if (retain)
-		{
-			*storage = NULL;
-			return;
-		}
-	}
-#endif
 	if (store->initialization_mutex != NULL &&
 		postgamma_mutex_destroy(store->initialization_mutex) != 0)
 		postgamma_runtime_contract_violation();
 	store->magic = 0;
 	free(store->initialized);
-#if defined(POSTGAMMA_ROLE_CACHE_BYTES) && defined(__linux__) && !defined(__EMSCRIPTEN__)
-	if (store->mapping_size != 0)
-	{
-		if (munmap(store->data_allocation, store->mapping_size) != 0)
-			postgamma_runtime_contract_violation();
-	}
-	else
-#endif
-	postgamma_memory_block_free(store->data_allocation);
+	free(store->data_allocation);
 	free(store);
 	*storage = NULL;
 }

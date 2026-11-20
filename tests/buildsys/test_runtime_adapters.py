@@ -54,12 +54,9 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_backend_startup_releases_the_registry_and_rolls_back_failures(self) -> None:
         self.run_make("backend-startup")
 
-    def test_memory_pool_bounds_reuse_and_releases_idle_instance_storage(self) -> None:
-        self.run_make("memory-pool")
-
     def test_adapter_checks_execute_with_ndebug(self) -> None:
         for name in ("session-locale", "external-process", "virtual-signal", "timeout",
-                     "backend-interrupts", "backend-startup", "guc-catalog", "memory-pool"):
+                     "backend-interrupts", "backend-startup", "guc-catalog"):
             with self.subTest(adapter=name):
                 self.run_make(name, "CFLAGS=-DNDEBUG")
 
@@ -125,8 +122,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertIn("runtime-adapter-test", targets["runtime-test"])
         self.assertIn("runtime-adapter-sanitizer-test", targets["runtime-sanitizer-test"])
         for name in ("session-locale", "external-process", "virtual-signal", "timeout",
-                     "backend-interrupts", "backend-startup", "backend-state-cache", "guc-catalog",
-                     "memory-pool"):
+                     "backend-interrupts", "backend-startup", "backend-state-cache", "guc-catalog"):
             self.assertIn(f"runtime-{name}-test", targets["runtime-adapter-test"])
             self.assertIn(f"runtime-{name}-sanitizer-test",
                           targets["runtime-adapter-sanitizer-test"])

@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from postgresql_embedded_adapter import load_adapter
+from artifact_io import write_if_changed
 
 
 def emit_setting_rows(settings: list[dict[str, str]]) -> list[str]:
@@ -47,16 +48,6 @@ def emit_policy(adapter: dict[str, object]) -> str:
         "",
     ]
     return "\n".join(lines)
-
-
-def write_if_changed(path: Path, content: str) -> None:
-    encoded = content.encode("utf-8")
-    if path.is_file() and path.read_bytes() == encoded:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(encoded)
-    temporary.replace(path)
 
 
 def main() -> int:

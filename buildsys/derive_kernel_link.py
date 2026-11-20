@@ -6,12 +6,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shlex
-import tempfile
 from pathlib import Path
 from typing import Any
 
+from artifact_io import write_generated_text as write_text
 from merge_link_db import DATABASE_KIND, sha256
 from postgresql_embedded_adapter import (
     EmbeddedAdapterError,
@@ -291,22 +290,6 @@ def derive(
         ],
     }
     return closure, report
-
-
-def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and path.read_text(encoding="utf-8") == content:
-        os.utime(path, None)
-        return
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
-    ) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    try:
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def main() -> int:

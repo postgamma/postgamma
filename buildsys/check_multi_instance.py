@@ -19,7 +19,7 @@ from check_embedded_lifecycle import (
     write_json,
 )
 from check_embedded_public_api import PublicApiCheckError, audit_trace
-from strace_trace import strace_command_prefix
+from strace_trace import strace_command_prefix, traced_command
 
 
 MARKER = "POSTGAMMA_RELEASE_MULTI_INSTANCE"
@@ -377,22 +377,6 @@ def parse_extension_lifecycle(stderr: str) -> dict[str, Any]:
             for identifier in extension_ids
         },
     }
-
-
-def traced_command(
-    strace_prefix: list[str], trace: Path, driver: Path, arguments: list[Path]
-) -> list[str]:
-    return [
-        *strace_prefix,
-        "-f",
-        "-qq",
-        "-o",
-        str(trace),
-        "-e",
-        "trace=process,signal,network,chdir,fchdir,umask,setitimer",
-        str(driver),
-        *(str(argument) for argument in arguments),
-    ]
 
 
 def write_text(path: Path, content: str) -> None:

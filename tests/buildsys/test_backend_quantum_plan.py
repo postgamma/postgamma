@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -13,6 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "buildsys"))
 
 import generate_backend_quantum_plan  # noqa: E402
+import apply_replacements  # noqa: E402
+import merge_replacement_plans  # noqa: E402
 
 
 class BackendQuantumPlanTests(unittest.TestCase):
@@ -28,7 +31,7 @@ class BackendQuantumPlanTests(unittest.TestCase):
         plan = generate_backend_quantum_plan.compile_plan(
             self.manifest, PROJECT_ROOT / "postgres"
         )
-        self.assertEqual(plan["summary"]["replacement_count"], 16)
+        self.assertEqual(plan["summary"]["replacement_count"], 17)
         self.assertEqual(plan["summary"]["ready_for_query_yield_points"], 1)
         self.assertEqual(plan["summary"]["command_read_yield_points"], 1)
         self.assertEqual(
@@ -61,11 +64,47 @@ class BackendQuantumPlanTests(unittest.TestCase):
             postgres.write_text(content, encoding="utf-8")
             with self.assertRaisesRegex(
                 generate_backend_quantum_plan.BackendQuantumPlanError,
-                "quantum-ready-yield",
+                "quantum-ready-publish-pin",
             ):
                 generate_backend_quantum_plan.compile_plan(
                     self.manifest, source_root
                 )
+
+    def test_ready_boundary_composes_with_output_state_rewrite(self) -> None:
+        plan = generate_backend_quantum_plan.compile_plan(
+            self.manifest, PROJECT_ROOT / "postgres"
+        )
+        relative = "src/backend/tcop/postgres.c"
+        source = (PROJECT_ROOT / "postgres" / relative).read_bytes()
+        entry = next(item for item in plan["files"] if item["path"] == relative)
+        call = b"ReadyForQuery(whereToSendOutput);"
+        offset = source.index(call) + len(b"ReadyForQuery(")
+        state_plan = {
+            "schema_version": 1,
+            "mode": "plan",
+            "files": [{
+                "path": relative,
+                "sha256": entry["sha256"],
+                "replacements": [{
+                    "offset": offset,
+                    "length": len("whereToSendOutput"),
+                    "original": "whereToSendOutput",
+                    "replacement": "ROLE_LOCAL_OUTPUT",
+                }],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = [Path(temporary) / name for name in ("quantum.json", "state.json")]
+            for path, document in zip(paths, (plan, state_plan)):
+                path.write_text(json.dumps(document), encoding="utf-8")
+            combined = merge_replacement_plans.merge(paths)
+        entry = next(item for item in combined["files"] if item["path"] == relative)
+        generated, _ = apply_replacements.apply_bytes(source, entry)
+        self.assertIn(b"ReadyForQuery(ROLE_LOCAL_OUTPUT);", generated)
+        self.assertLess(
+            generated.index(b"postgamma_postgres_publish_pin_state()"),
+            generated.index(b"ReadyForQuery(ROLE_LOCAL_OUTPUT);"),
+        )
 
     def test_resume_flag_survives_postgres_error_longjmp(self) -> None:
         edit = next(

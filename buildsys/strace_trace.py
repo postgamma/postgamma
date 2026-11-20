@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 from collections.abc import Sequence
+from pathlib import Path
 
 
 def strace_command_prefix(strace: str) -> list[str]:
@@ -24,6 +25,22 @@ def strace_command_prefix(strace: str) -> list[str]:
     if completed.returncode == 0:
         return [strace, "--seccomp-bpf"]
     return [strace]
+
+
+def traced_command(
+    strace_prefix: list[str], trace: Path, driver: Path, arguments: Sequence[Path | str]
+) -> list[str]:
+    return [
+        *strace_prefix,
+        "-f",
+        "-qq",
+        "-o",
+        str(trace),
+        "-e",
+        "trace=process,signal,network,chdir,fchdir,umask,setitimer",
+        str(driver),
+        *(str(argument) for argument in arguments),
+    ]
 
 
 def reassemble_syscall_lines(trace: str, names: Sequence[str]) -> list[str]:

@@ -70,13 +70,22 @@
       "replacement": "!postgamma_quantum_resumed && "
     },
     {
+      "id": "quantum-ready-publish-pin",
+      "source_file": "src/backend/tcop/postgres.c",
+      "enclosing_function": "PostgresMain",
+      "anchor": "\t\t\tReadyForQuery(whereToSendOutput);\n\t\t\tsend_ready_for_query = false;",
+      "expected_matches": 1,
+      "kind": "insert_before",
+      "replacement": "\t\t\t{\n\t\t\t\t/* Publish pin state before the completion message is visible. */\n\t\t\t\tbool postgamma_pinned = postgamma_postgres_publish_pin_state();\n\n"
+    },
+    {
       "id": "quantum-ready-yield",
       "source_file": "src/backend/tcop/postgres.c",
       "enclosing_function": "PostgresMain",
       "anchor": "\t\t\tReadyForQuery(whereToSendOutput);\n\t\t\tsend_ready_for_query = false;",
       "expected_matches": 1,
       "kind": "insert_after",
-      "replacement": "\n\t\t\t/* This clean boundary is also the beginning of command read. */\n\t\t\tPOSTGAMMA_BACKEND_STATE_NAMED_VALUE(\n\t\t\t\t\"internal:src/backend/tcop/postgres.c:\"\n\t\t\t\t\"src/backend/tcop/postgres.c::DoingCommandRead\",\n\t\t\t\tDoingCommandRead) = true;\n\t\t\tif (postgamma_postgres_quantum_yield_ready(\n\t\t\t\t\tsend_ready_for_query,\n\t\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\t\tidle_session_timeout_enabled))\n\t\t\t\treturn;"
+      "replacement": "\n\t\t\t\t/* This clean boundary is also the beginning of command read. */\n\t\t\t\tPOSTGAMMA_BACKEND_STATE_NAMED_VALUE(\n\t\t\t\t\t\"internal:src/backend/tcop/postgres.c:\"\n\t\t\t\t\t\"src/backend/tcop/postgres.c::DoingCommandRead\",\n\t\t\t\t\tDoingCommandRead) = true;\n\t\t\t\tif (postgamma_postgres_quantum_yield_ready(\n\t\t\t\t\t\tsend_ready_for_query, postgamma_pinned,\n\t\t\t\t\t\tidle_in_transaction_timeout_enabled,\n\t\t\t\t\t\tidle_session_timeout_enabled))\n\t\t\t\t\treturn;\n\t\t\t}"
     },
     {
       "id": "quantum-command-read-yield",
